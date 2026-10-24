@@ -1,23 +1,26 @@
 # -*- coding: utf-8 -*-
 """
-Shared widgets, so every GeoTable Studio tool looks and behaves the same.
+Shared widgets, so every Attribute Table Studio tool looks and behaves the same.
 
-- :func:`button` / :func:`primary_button` / :func:`square_button`: all
-  buttons are QToolButtons of one height (``Metrics.control_h``) with 16 px
-  icons; square utility buttons are control_h x control_h.
+- :func:`button` / :func:`square_button`: QToolButtons of one height
+  (``Metrics.control_h``, the same as inputs) with 16 px icons; square
+  utility buttons are control_h x control_h.
+- :func:`primary_button` / :func:`primary_square`: the main actions
+  (Compare, Validate Data, Build pivot) and Swap use ``Metrics.primary_h``.
 - :class:`ButtonRow`: a row of buttons that switches to icon-only (all at
   once, so they stay uniform) when there is not enough room, e.g. docked.
-- :class:`StatusStrip`: the bottom status line with inline progress and a
-  Cancel button.
+- :class:`StatusStrip`: the bottom status line (framed, coloured accent)
+  with a Cancel button while a job runs.
 - :class:`FieldChecklistDialog`: searchable field checklist used by
   "Columns" (Explorer) and "Field(s) to Compare" (Compare).
 """
 
-from qgis.PyQt.QtCore import QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from qgis.PyQt.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, pyqtSignal
+from qgis.PyQt.QtGui import QColor, QPainter, QPolygonF
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFrame,
-    QHBoxLayout, QLabel, QLayout, QLineEdit, QListWidget, QListWidgetItem,
-    QProgressBar, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListWidget,
+    QListWidgetItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
 from ..core import fields as F
@@ -117,6 +120,7 @@ def button(metrics, text, icon=None, tooltip="", checkable=False, menu=None):
 def primary_button(metrics, text, theme, tooltip=""):
     """Blue primary action with a white run arrow (Compare, Build pivot)."""
     btn = _base_button(metrics, icons.glyph("run", "#FFFFFF"), tooltip)
+    btn.setFixedHeight(metrics.primary_h)
     btn.setObjectName("gtsPrimary")
     btn.setText(f" {text}")
     btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -134,6 +138,13 @@ def square_button(metrics, icon, tooltip="", checkable=False):
     btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
     btn.setFixedSize(metrics.control_h, metrics.control_h)
     btn.setCheckable(checkable)
+    return btn
+
+
+def primary_square(metrics, icon, tooltip=""):
+    """Icon-only button at the primary height (Swap)."""
+    btn = square_button(metrics, icon, tooltip)
+    btn.setFixedSize(metrics.primary_h, metrics.primary_h)
     return btn
 
 
@@ -217,6 +228,57 @@ class FieldCombo(QComboBox):
         return self._kinds.get(name if name is not None else self.current_name())
 
 
+def section_header(text):
+    """Bold heading followed by a divider line: 'Rows ───────────'."""
+    box = QWidget()
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(8)
+    lay.addWidget(label(text, "title"))
+    line = QFrame()
+    line.setObjectName("gtsDivider")
+    line.setFixedHeight(1)
+    line.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+    lay.addWidget(line, 1, Qt.AlignmentFlag.AlignVCenter)
+    return box
+
+
+class Chip(QFrame):
+    """Rounded pill showing a filter; click to edit, × to remove."""
+
+    clicked = pyqtSignal()
+    removed = pyqtSignal()
+
+    def __init__(self, text, metrics, theme, max_width=320, parent=None):
+        super().__init__(parent)
+        self.setObjectName("gtsChip")
+        self.setFixedHeight(metrics.control_h - 2)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(10, 0, 3, 0)
+        lay.setSpacing(4)
+        self.text_label = ElideLabel(text)
+        self.text_label.setMinimumWidth(30)
+        self.text_label.setMaximumWidth(max(60, max_width - 40))
+        self.text_label.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                      QSizePolicy.Policy.Preferred)
+        self.text_label.setToolTip(f"{text}\nClick to edit")
+        lay.addWidget(self.text_label)
+        close = QToolButton()
+        close.setIcon(icons.glyph("cross", theme.text_dim))
+        close.setIconSize(QSize(12, 12))
+        close.setFixedSize(metrics.control_h - 8, metrics.control_h - 8)
+        close.setToolTip("Remove this filter")
+        close.setCursor(Qt.CursorShape.PointingHandCursor)
+        close.clicked.connect(self.removed.emit)
+        lay.addWidget(close)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+        super().mouseReleaseEvent(event)
+
+
 def dock_button(metrics):
     btn = square_button(metrics, icons.native(icons.DOCK),
                         "Dock this window", checkable=True)
@@ -278,8 +340,15 @@ class ButtonRow(QWidget):
         total += self._metrics.gap * max(len(visible) - 1, 0)
         return total
 
+    def _height(self):
+        """Tallest button (a primary action is taller than the rest; the
+        others are centred on it)."""
+        return max([self._metrics.control_h]
+                   + [b.maximumHeight() for b in self._buttons
+                      if not b.isHidden() and b.maximumHeight() < 1000])
+
     def sizeHint(self):
-        return QSize(self._full_width(), self._metrics.control_h)
+        return QSize(self._full_width(), self._height())
 
     def minimumSizeHint(self):
         width = 0
@@ -288,7 +357,7 @@ class ButtonRow(QWidget):
                 continue
             width += (b.sizeHint().width() if b.property("gtsKeepLabel")
                       else self._metrics.control_h + 12) + self._metrics.gap
-        return QSize(width, self._metrics.control_h)
+        return QSize(width, self._height())
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -317,6 +386,51 @@ class ButtonRow(QWidget):
                 b.setMaximumWidth(16777215)
                 b.setToolButtonStyle(
                     Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+
+
+# ============================================================================
+# TABLE HEADER
+# ============================================================================
+
+def paint_sort_arrow(header, painter, rect, logical, colour):
+    """Draw ▲ (ascending) or ▼ (descending) in the 22 px the style sheet
+    reserves at the right of every header section."""
+    if logical != header.sortIndicatorSection() or logical < 0:
+        return
+    ascending = header.sortIndicatorOrder() == Qt.SortOrder.AscendingOrder
+    cx = rect.right() - 12
+    cy = rect.center().y() + 0.5
+    w, h = 4.5, 3.0
+    if ascending:
+        pts = [QPointF(cx - w, cy + h), QPointF(cx + w, cy + h), QPointF(cx, cy - h)]
+    else:
+        pts = [QPointF(cx - w, cy - h), QPointF(cx + w, cy - h), QPointF(cx, cy + h)]
+    painter.save()
+    # the style may leave a clip on the label area (Qt5); use the section
+    painter.setClipRect(rect)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(colour))
+    painter.drawPolygon(QPolygonF(pts))
+    painter.restore()
+
+
+class SortHeader(QHeaderView):
+    """Horizontal table header that draws its own sort arrow, so the arrow
+    looks and points the same on Qt5 and Qt6 and never covers the label."""
+
+    def __init__(self, theme, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self._arrow = theme.text_dim
+        self.setSectionsClickable(True)
+        self.setHighlightSections(False)
+        self.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft
+                                 | Qt.AlignmentFlag.AlignVCenter)
+
+    def paintSection(self, painter, rect, logical):
+        super().paintSection(painter, rect, logical)
+        if self.isSortIndicatorShown():
+            paint_sort_arrow(self, painter, rect, logical, self._arrow)
 
 
 # ============================================================================
@@ -408,31 +522,26 @@ def labelled(text, widget, spacing=6):
 # ============================================================================
 
 class StatusStrip(QFrame):
-    """Bottom status line: coloured accent + message, extra info on the
-    right, and inline progress with Cancel while a job runs."""
+    """Bottom status line, framed with a coloured left accent (as in
+    Geometry and Table Compare v1.1): message on the left, extra info on the
+    right and a Cancel button while a job runs.  The panel keeps a margin
+    below it, so the whole bar is always inside the window."""
 
     cancelRequested = pyqtSignal()
 
     def __init__(self, metrics, parent=None):
         super().__init__(parent)
         self.setObjectName("gtsStatus")
-        self.setFixedHeight(metrics.control_h + 2)
+        self.setMinimumHeight(metrics.control_h + 6)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 0, 4, 0)
+        lay.setContentsMargins(10, 3, 6, 3)
         lay.setSpacing(metrics.gap)
         self.message = ElideLabel()
         lay.addWidget(self.message, 1)
         self.extra = QLabel("")
         self.extra.setObjectName("gtsDim")
         lay.addWidget(self.extra)
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setObjectName("gtsProgress")
-        self.progress_bar.setFixedWidth(160)
-        self.progress_bar.setRange(0, 100)
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("%p%")
-        self.progress_bar.setVisible(False)
-        lay.addWidget(self.progress_bar)
         self.cancel_btn = QToolButton()
         self.cancel_btn.setIcon(icons.native(icons.CANCEL))
         self.cancel_btn.setIconSize(QSize(metrics.icon, metrics.icon))
@@ -454,13 +563,7 @@ class StatusStrip(QFrame):
         self.extra.setText(text)
 
     def set_busy(self, busy, cancellable=True):
-        self.progress_bar.setVisible(busy)
         self.cancel_btn.setVisible(busy and cancellable)
-        if busy:
-            self.progress_bar.setValue(0)
-
-    def set_progress(self, percent):
-        self.progress_bar.setValue(int(percent))
 
 
 # ============================================================================
@@ -492,7 +595,7 @@ class FieldChecklistDialog(QDialog):
             lay.addWidget(text)
 
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Filter fields…")
+        self.search.setPlaceholderText("Filter fields")
         self.search.setClearButtonEnabled(True)
         self.search.setFixedHeight(metrics.control_h)
         self.search.textChanged.connect(self._filter)

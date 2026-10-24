@@ -31,12 +31,12 @@ TEXT_OPS = (
     ("notnull", "is not NULL"),
 )
 NUMBER_OPS = (
-    ("eq", "="),
-    ("ne", "≠"),
-    ("lt", "<"),
-    ("le", "≤"),
-    ("gt", ">"),
-    ("ge", "≥"),
+    ("eq", "equal to"),
+    ("ne", "not equal to"),
+    ("lt", "less than"),
+    ("le", "less than or equal to"),
+    ("gt", "greater than"),
+    ("ge", "greater than or equal to"),
     ("between", "between"),
     ("in", "is one of"),
     ("null", "is NULL"),
@@ -53,11 +53,11 @@ DATE_OPS = (
     ("notnull", "is not NULL"),
 )
 TIME_OPS = (
-    ("eq", "="),
-    ("lt", "<"),
-    ("le", "≤"),
-    ("gt", ">"),
-    ("ge", "≥"),
+    ("eq", "at"),
+    ("lt", "before"),
+    ("le", "at or before"),
+    ("gt", "after"),
+    ("ge", "at or after"),
     ("between", "between"),
     ("null", "is NULL"),
     ("notnull", "is not NULL"),
@@ -74,14 +74,16 @@ OTHER_OPS = (
     ("notnull", "is not NULL"),
 )
 
-# short symbol shown on the operator button of a filter cell
+# short symbol shown on the operator button of a filter cell (and next to
+# the words in the operator menu)
 OP_SYMBOLS = {
-    "contains": "≈", "starts": "a…", "eq": "=", "ne": "≠", "lt": "<",
+    "contains": "≈", "starts": "a*", "eq": "=", "ne": "≠", "lt": "<",
     "le": "≤", "gt": ">", "ge": "≥", "between": "↔", "in": "∈",
     "null": "∅", "notnull": "≠∅", "true": "✓", "false": "✗",
 }
 
 NO_VALUE_OPS = ("null", "notnull", "true", "false")
+COMPARISON_OPS = ("eq", "ne", "lt", "le", "gt", "ge")
 _SQL_CMP = {"eq": "=", "ne": "<>", "lt": "<", "le": "<=", "gt": ">", "ge": ">="}
 
 
@@ -236,6 +238,8 @@ class ColumnFilter:
     def describe(self):
         """Short human text, e.g. 'FL_1_PCT_MAX > 60'."""
         label = operator_label(self.kind, self.op)
+        if self.kind in F.NUMERIC and self.op in COMPARISON_OPS:
+            label = OP_SYMBOLS[self.op]          # 'FL_1_PCT_MAX > 60'
         if self.op in NO_VALUE_OPS:
             return f"{self.field} {label}"
         if self.op == "in":

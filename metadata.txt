@@ -1,11 +1,11 @@
 [general]
-name=GeoTable Studio
+name=Attribute Table Studio
 qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
 supportsQt6=True
 
 description=Explore, summarise and compare vector attribute tables: Attribute Explorer, Pivot Table, and Geometry and Table Compare in one toolbar.
-about=GeoTable Studio adds three tools to one QGIS toolbar.
+about=Attribute Table Studio adds three tools to one QGIS toolbar.
     Attribute Explorer - a fast, read-only attribute table with exact column statistics attached above every column (missing and distinct counts, top categories, histograms, date ranges), an always-visible typed filter under every heading, map selection sync, column layouts saved per layer, and CSV / Excel export with the scope recorded.
     Pivot Table - grouped summaries and cross tabs with multiple measures (count, count distinct, sum, mean, median, min, max, standard deviation), correct totals calculated from records, an explicit input scope (all, Explorer filtered or selected records) with stale detection, drill-through to the contributing records, saved layouts, and CSV / Excel / GeoPackage export.
     Geometry and Table Compare - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
@@ -30,7 +30,7 @@ hasProcessingProvider=no
 server=False
 
 changelog=
-    1.0.0 - GeoTable Studio
+    1.0.0 - Attribute Table Studio
         * One plugin, one toolbar with three tools: Attribute Explorer, Pivot Table, Geometry and Table Compare
         * New: Attribute Explorer - column profiles attached above the table, permanent typed filters (AND across columns, OR within a value list), map selection sync, Selected only, layouts saved per layer, exact background statistics, CSV / Excel export with scope
         * New: Pivot Table - rows, optional columns, multiple measures, totals from records, input scope with stale detection, drill-through to Attribute Explorer, layouts, CSV / Excel / GeoPackage export

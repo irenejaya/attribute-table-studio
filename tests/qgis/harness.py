@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Helpers for running GeoTable Studio inside a headless QGIS.
+"""Helpers for running Attribute Table Studio inside a headless QGIS.
 
 Creates a QGIS application, a minimal iface (main window + map canvas) and a
 demo parcel GeoPackage that resembles the design mockups.
@@ -16,13 +16,13 @@ ROOT = os.path.dirname(os.path.dirname(HERE))
 
 
 def plugin_package():
-    """Import the repository as the 'geotable_studio' package."""
+    """Import the repository as the 'attribute_table_studio' package."""
     parent = tempfile.mkdtemp(prefix="gts_plugins_")
-    link = os.path.join(parent, "geotable_studio")
+    link = os.path.join(parent, "attribute_table_studio")
     os.symlink(ROOT, link)
     sys.path.insert(0, parent)
-    import geotable_studio  # noqa: F401
-    return geotable_studio
+    import attribute_table_studio  # noqa: F401
+    return attribute_table_studio
 
 
 def start_qgis(theme=None):

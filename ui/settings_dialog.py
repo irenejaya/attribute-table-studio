@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GeoTable Studio settings (Plugins > GeoTable Studio > Settings)."""
+"""Attribute Table Studio settings (Plugins > Attribute Table Studio > Settings)."""
 
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import (
@@ -16,7 +16,7 @@ from .theme import Metrics, Theme, stylesheet
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("GeoTable Studio — Settings")
+        self.setWindowTitle("Attribute Table Studio — Settings")
         self.setWindowIcon(icons.native(icons.SETTINGS))
         self.setMinimumWidth(480)
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)

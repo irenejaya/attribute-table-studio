@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Shared look of the GeoTable Studio tools.
+Shared look of the Attribute Table Studio tools.
 
 Colours come from the Geometry and Table Compare palette (light panel
 #F5F5F5 / cards #FAFAFA, dark panel #353535 / cards #3C3C3C, neutral grey
@@ -99,14 +99,6 @@ class Theme:
         status = self.DARK_STATUS if dark else self.LIGHT_STATUS
         self.status = {k: (QColor(v[0]), QColor(v[1]))
                        for k, v in status.items()}
-        # status words on the panel background (darker in light mode so
-        # amber / blue / red stay readable on #F5F5F5)
-        self.status_text = {
-            "Added": "#64B5F6" if dark else "#1565C0",
-            "Deleted": "#EF5350" if dark else "#C62828",
-            "Modified": "#FFCA28" if dark else "#9A6700",
-            "Unchanged": self.text_strong,
-        }
         self.accepted_bg = QColor("#2E5E32" if dark else "#C8E6C9")
         self.rejected_bg = QColor("#6D2F35" if dark else "#FFCDD2")
 
@@ -124,8 +116,12 @@ class Metrics:
         font = font or QApplication.font()
         fm = QFontMetrics(font)
         self.font_h = fm.height()
-        self.control_h = max(28, self.font_h + 12)     # buttons, inputs
-        self.compact_h = max(24, self.font_h + 8)      # filter cells
+        # one height for inputs, buttons and square icon buttons ...
+        self.control_h = max(24, self.font_h + 8)
+        # ... and a taller one for the main actions (Compare, Validate Data,
+        # Build pivot) and Swap
+        self.primary_h = max(28, self.font_h + 12)
+        self.compact_h = self.control_h                 # filter cells
         self.icon = 16
         self.gap = 6                                    # inside a group
         self.group_gap = 14                             # between groups
@@ -191,8 +187,8 @@ def stylesheet(t, m):
         QToolButton#gtsFlat:hover {{ text-decoration: underline; }}
 
         QFrame#gtsStatus {{ background: {t.status_bg};
-            border-top: 1px solid {t.border};
-            border-left: 4px solid {t.text_dim}; }}
+            border: 1px solid {t.border};
+            border-left: 5px solid {t.text_dim}; }}
         QFrame#gtsStatus[level="success"] {{ border-left-color: {t.success}; }}
         QFrame#gtsStatus[level="warning"] {{ border-left-color: {t.warning}; }}
         QFrame#gtsStatus[level="error"] {{ border-left-color: {t.danger}; }}
@@ -202,6 +198,20 @@ def stylesheet(t, m):
             max-height: 14px; font-size: 8pt; }}
         QProgressBar#gtsProgress::chunk {{ background: {t.accent};
             border-radius: 2px; }}
+        QProgressBar#gtsProgressWide {{ border: 1px solid {t.border};
+            border-radius: 3px; background: {t.base}; text-align: center;
+            color: {t.text}; }}
+        QProgressBar#gtsProgressWide::chunk {{ background: {t.accent};
+            border-radius: 2px; }}
+        QFrame#gtsDivider {{ background: {t.border}; border: none;
+            max-height: 1px; min-height: 1px; }}
+        QFrame#gtsChip {{ background: {t.accent_soft};
+            border: 1px solid {t.accent}; border-radius: 11px; }}
+        QFrame#gtsChip QLabel {{ background: transparent; border: none;
+            color: {t.text_strong}; }}
+        QFrame#gtsChip QToolButton {{ background: transparent; border: none;
+            border-radius: 8px; }}
+        QFrame#gtsChip QToolButton:hover {{ background: {t.card_hover}; }}
 
         QFrame#gtsFilterCell {{ background: {t.base};
             border: 1px solid {t.border}; border-radius: 3px; }}
@@ -225,8 +235,13 @@ def stylesheet(t, m):
             color: {t.text_strong}; padding: 0px 8px; border: none;
             border-right: 1px solid {t.border}; border-bottom: 1px solid {t.border};
             font-weight: 700; }}
+        QTableView#gtsTable QHeaderView::section:horizontal {{
+            padding: 0px 22px 0px 8px; }}
         QTableView#gtsTable QHeaderView::section:vertical {{
             font-weight: 400; color: {t.text_dim}; padding: 0px 4px; }}
+        QTableView#gtsTable QHeaderView::down-arrow,
+        QTableView#gtsTable QHeaderView::up-arrow {{
+            image: none; width: 0px; height: 0px; }}
         QTableView#gtsTable QTableCornerButton::section {{
             background: {t.header}; border: none;
             border-right: 1px solid {t.border}; border-bottom: 1px solid {t.border}; }}

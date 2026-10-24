@@ -19,7 +19,7 @@ from qgis.gui import QgsDockWidget
 
 from ..core import settings
 
-APP_TITLE = "GeoTable Studio"
+APP_TITLE = "Attribute Table Studio"
 
 
 class _ToolWindow(QWidget):
@@ -71,7 +71,7 @@ class ToolHost(QObject):
         self.dock_area = dock_area
         self._window = None
         self._dock = None
-        self._dock_name = f"GeoTableStudio_{key}_{ToolHost._serial}"
+        self._dock_name = f"AttributeTableStudio_{key}_{ToolHost._serial}"
         self._closing = False
         panel.dock_btn.toggled.connect(self._on_dock_toggled)
 
@@ -186,7 +186,7 @@ class ToolHost(QObject):
         dock.closing.connect(self._on_user_close)
         siblings = [d.objectName() for d in main.findChildren(QgsDockWidget)
                     if d is not dock and d.objectName().startswith(
-                        f"GeoTableStudio_{self.key}_") and d.isVisible()]
+                        f"AttributeTableStudio_{self.key}_") and d.isVisible()]
         if siblings and hasattr(self.iface, "addTabifiedDockWidget"):
             self.iface.addTabifiedDockWidget(self.dock_area, dock, siblings, True)
         else:

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Geometry and Table Compare - comparison panel (GeoTable Studio tool 3)
+Geometry and Table Compare - comparison panel (Attribute Table Studio tool 3)
 
 Compares an OLD (baseline) layer against a NEW (updated) layer:
 - Qt5 / Qt6 compatible (QGIS 3.40+ and QGIS 4.x) with light / dark theme support
@@ -10,7 +10,7 @@ Compares an OLD (baseline) layer against a NEW (updated) layer:
 - Review workflow (accept / reject changes) and Excel / CSV export
 
 The comparison logic is unchanged from the standalone plugin (v1.1); the
-interface uses the shared GeoTable Studio theme, buttons and status strip
+interface uses the shared Attribute Table Studio theme, buttons and status strip
 and is shown in a window or dock by ui/tool_host.py.
 """
 
@@ -28,7 +28,7 @@ from qgis.PyQt.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QFileDialog,
     QMessageBox, QAbstractItemView, QWidget, QFrame, QApplication, QLineEdit,
     QStackedWidget, QSizePolicy, QScrollArea, QCompleter, QMenu,
-    QDoubleSpinBox,
+    QDoubleSpinBox, QProgressBar,
 )
 from qgis.core import (
     Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature,
@@ -474,7 +474,7 @@ class _SortItem(QTableWidgetItem):
 
 
 # ============================================================================
-# THEME / ICONS (shared GeoTable Studio look - the Compare palette)
+# THEME / ICONS (shared Attribute Table Studio look - the Compare palette)
 # ============================================================================
 
 def _qgis_icon(theme_name, *_fallback):
@@ -488,6 +488,21 @@ def _field_icon(field, theme):
 
 def _field_tooltip(field):
     return W.field_tooltip(field)
+
+
+class _CheckLabel(QLabel):
+    """Text box that toggles its checkbox when clicked (acts as the legend)."""
+
+    def __init__(self, text, checkbox, parent=None):
+        super().__init__(text, parent)
+        self._checkbox = checkbox
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._checkbox.toggle()
+        super().mouseReleaseEvent(event)
 
 
 # ============================================================================
@@ -504,7 +519,7 @@ class GeoTableCompareDialog(QWidget):
     - Modified  = feature changed between OLD → NEW
     - Unchanged = feature is identical in both
 
-    Shown by the GeoTable Studio window / dock host (see ui/tool_host.py).
+    Shown by the Attribute Table Studio window / dock host (see ui/tool_host.py).
     """
 
     ACTION_WIDTH = 190          # Validate Data and Compare share one width
@@ -564,7 +579,7 @@ class GeoTableCompareDialog(QWidget):
     def _build_ui(self):
         m = self.metrics
         root = QVBoxLayout(self)
-        root.setContentsMargins(m.margin, m.margin, m.margin, 0)
+        root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)
 
         root.addWidget(self._create_input_card())
@@ -607,11 +622,11 @@ class GeoTableCompareDialog(QWidget):
         grid.addWidget(self.new_table_combo, 1, 1)
         grid.addWidget(self.new_info, 1, 2)
 
-        self.swap_btn = W.button(m, "Swap", icons.native(icons.SWAP),
-                                 "Swap OLD and NEW layers")
+        self.swap_btn = W.primary_square(m, icons.native(icons.SWAP),
+                                         "Swap OLD and NEW layers")
         grid.addWidget(self.swap_btn, 0, 3, 2, 1,
                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
-        # same place as in every GeoTable Studio tool: top right
+        # same place as in every Attribute Table Studio tool: top right
         self.dock_btn = W.dock_button(m)
         grid.addWidget(self.dock_btn, 0, 4,
                        Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
@@ -721,7 +736,7 @@ class GeoTableCompareDialog(QWidget):
         width = max(self.ACTION_WIDTH, self.validate_btn.sizeHint().width(),
                     self.compare_button.minimumWidth())
         for b in (self.validate_btn, self.compare_button):
-            b.setFixedWidth(width)
+            b.setFixedSize(width, m.primary_h)
 
         # Join row: field pickers on the left, action buttons on the right
         join_row = QHBoxLayout()
@@ -792,25 +807,50 @@ class GeoTableCompareDialog(QWidget):
         lay.setSpacing(m.gap)
         lay.addWidget(self._row_title("Results"))
 
+        # v1.1 legend: tick box + rounded box in the row colour + live count
         self.filter_buttons = {}
+        self.filter_boxes = {}
+        self.filter_counts = {}
+        labels = {
+            "Added": "Added (In NEW Only)",
+            "Deleted": "Deleted (In OLD Only)",
+            "Modified": "Modified",
+            "Unchanged": "Unchanged",
+        }
         tips = {
-            "Added": "Added (in NEW only): features that exist only in the "
-                     "NEW version",
-            "Deleted": "Deleted (in OLD only): features that exist in OLD but "
-                       "are missing from NEW",
-            "Modified": "Modified: features whose compared values changed "
+            "Added": "Features that exist only in the NEW version",
+            "Deleted": "Features that exist in OLD but are missing from NEW",
+            "Modified": "Features whose compared values changed "
                         "between OLD and NEW",
-            "Unchanged": "Unchanged: features identical in both OLD and NEW",
+            "Unchanged": "Features identical in both OLD and NEW",
         }
         for status in STATUSES:
-            cb = QCheckBox(status)
+            cb = QCheckBox()
             cb.setObjectName(f"filter{status}")
             cb.setChecked(True)
             cb.setToolTip(f"{tips[status]}\n(tick to show / untick to hide)")
             cb.setFixedHeight(m.control_h)
+            box = _CheckLabel(labels[status], cb)
+            box.setObjectName(f"filterBox{status}")
+            box.setToolTip(cb.toolTip())
+            box.setFixedHeight(m.control_h)
+            box.setMinimumWidth(
+                m.bold_fm.horizontalAdvance(labels[status]) + 34)
+            cb.toggled.connect(
+                lambda _checked, s=status: self._style_filter_box(s))
+            count = QLabel("")
+            count.setObjectName("gtsDim")
             self.filter_buttons[status] = cb
-            lay.addWidget(cb)
-            lay.addSpacing(m.group_gap + 10)
+            self.filter_boxes[status] = box
+            self.filter_counts[status] = count
+            item = QHBoxLayout()
+            item.setSpacing(m.gap)
+            item.addWidget(cb)
+            item.addWidget(box)
+            item.addWidget(count)
+            lay.addLayout(item)
+            lay.addSpacing(m.gap)
+            self._style_filter_box(status)
         lay.addStretch()
 
         # ---- Filter by field value (field picker + suggestions) ----
@@ -827,7 +867,7 @@ class GeoTableCompareDialog(QWidget):
         lay.addWidget(self.filter_field_combo)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Filter by value…")
+        self.search_edit.setPlaceholderText("Filter by value")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setFixedHeight(m.control_h)
         self.search_edit.setMinimumWidth(150)
@@ -864,7 +904,22 @@ class GeoTableCompareDialog(QWidget):
         return bar
 
     def _set_filter_count(self, status, count):
-        self.filter_buttons[status].setText(f"{status}   {count:,}")
+        self.filter_counts[status].setText(f"· {count:,}")
+
+    def _style_filter_box(self, status):
+        """Coloured legend box next to a filter tick (dimmed when unticked)."""
+        t = self.theme
+        box = self.filter_boxes[status]
+        if self.filter_buttons[status].isChecked():
+            box.setStyleSheet(
+                f"background: {t.bg(status).name()}; color: {t.row_text}; "
+                f"border: 1px solid {t.accent_of(status).name()}; "
+                f"border-radius: 4px; padding: 0 10px; font-weight: bold;")
+        else:
+            box.setStyleSheet(
+                f"background: transparent; color: {t.text_dim}; "
+                f"border: 1px solid {t.border}; border-radius: 4px; "
+                f"padding: 0 10px;")
 
     def _all_fields_icon(self):
         return _qgis_icon(icons.TABLE)
@@ -983,6 +1038,7 @@ class GeoTableCompareDialog(QWidget):
         self.results_table = QTableWidget()
         tbl = self.results_table
         tbl.setObjectName("gtsTable")
+        tbl.setHorizontalHeader(W.SortHeader(self.theme, tbl))
         tbl.setSortingEnabled(True)
         tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -997,21 +1053,30 @@ class GeoTableCompareDialog(QWidget):
         return tbl
 
     def _create_bottom_bar(self):
-        """Shared GeoTable Studio status strip with inline progress."""
+        """Full-width progress bar (shown while comparing) above the shared
+        status strip - the v1.1 bottom bar."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(4)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("gtsProgressWide")
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setFixedHeight(self.metrics.font_h + 4)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
         self.status = W.StatusStrip(self.metrics)
-        self.progress_bar = self.status.progress_bar
         self.rows_label = self.status.extra
-        return self.status
+        layout.addWidget(self.status)
+        return widget
 
     # ------------------------------------------------------------------
     # Styling
     # ------------------------------------------------------------------
     def _apply_style(self):
         t, m = self.theme, self.metrics
-        status_rules = "".join(
-            f"QCheckBox#filter{s} {{ color: {t.status_text[s]}; "
-            f"font-weight: 600; }}"
-            for s in ("Added", "Deleted", "Modified"))
         self.setStyleSheet(stylesheet(t, m) + f"""
             QFrame#emptyPage {{ background: {t.base};
                 border: 1px solid {t.border}; border-radius: 4px; }}
@@ -1024,12 +1089,6 @@ class GeoTableCompareDialog(QWidget):
             QLabel#gtsBadge {{ background: {t.base}; color: {t.text_strong};
                 border: 1px solid {t.border}; border-radius: 4px;
                 padding: 0px 10px; }}
-            {status_rules}
-            QCheckBox#filterUnchanged {{ color: {t.text_strong};
-                font-weight: 600; }}
-            QCheckBox#filterAdded:!checked, QCheckBox#filterDeleted:!checked,
-            QCheckBox#filterModified:!checked,
-            QCheckBox#filterUnchanged:!checked {{ color: {t.text_faint}; }}
             QLabel#legendChanged {{ background: {t.bg('ChangedField').name()};
                 color: {t.row_text};
                 border: 1px solid {t.accent_of('ChangedField').name()};

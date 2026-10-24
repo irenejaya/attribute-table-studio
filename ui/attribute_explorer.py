@@ -50,8 +50,8 @@ from .explorer_header import ExplorerHeader, ProfileDetails
 from .explorer_table import ExplorerTableView, FeatureTableModel
 from .theme import Metrics, Theme, stylesheet
 
-LOG_TAG = "GeoTable Studio"
-LAYOUT_PROPERTY = "geotable_studio/explorer_layout"
+LOG_TAG = "Attribute Table Studio"
+LAYOUT_PROPERTY = "attribute_table_studio/explorer_layout"
 VALUE_BUDGET = 4000000          # raw values held in memory per scan
 VALUE_LIST_LIMIT = 5000         # entries offered by the "is one of" picker
 QUICK_ROWS_LIMIT = 50000        # above this, records show before profiles
@@ -75,7 +75,6 @@ class ExplorerPanel(QWidget):
         self.setStyleSheet(stylesheet(self.theme, self.metrics))
         self.shortcut_text = shortcut_text
         self.runner = JobRunner(self)
-        self.runner.progress.connect(self._on_progress)
 
         self.layer = None
         self._layer_signals = []
@@ -123,7 +122,7 @@ class ExplorerPanel(QWidget):
     def _build_ui(self):
         m, t = self.metrics, self.theme
         root = QVBoxLayout(self)
-        root.setContentsMargins(m.margin, m.margin, m.margin, 0)
+        root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)
 
         # ---- top row: layer, count, actions ----
@@ -599,9 +598,6 @@ class ExplorerPanel(QWidget):
             self.status.set_status(text, level)
         else:
             self._update_status()
-
-    def _on_progress(self, value):
-        self.status.set_progress(value)
 
     # ====================================================================
     # LABELS

@@ -54,7 +54,7 @@ def demo():
 
 class CompareRegression(unittest.TestCase):
     def test_exports_match_v11(self):
-        from geotable_studio.ui.geotable_compare import GeoTableCompareDialog
+        from attribute_table_studio.ui.geotable_compare import GeoTableCompareDialog
         base, new = demo()
         out = tempfile.mkdtemp()
         for geom in (False, True):

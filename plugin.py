@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-GeoTable Studio - plugin shell.
+Attribute Table Studio - plugin shell.
 
-Owns the single "GeoTable Studio" toolbar with exactly three actions
+Owns the single "Attribute Table Studio" toolbar with exactly three actions
 (Attribute Explorer, Pivot Table, Geometry and Table Compare), the plugin
 menu (the three tools, Settings, Help), the keyboard-shortcut registration,
 the layer context-menu entry and the open tool windows.  The tools
@@ -18,14 +18,14 @@ from qgis.core import QgsMessageLog, QgsProject, QgsVectorLayer
 from .core.compat import LAYER_TYPE_VECTOR, MSG_INFO, MSG_WARNING, QAction
 from .ui import icons
 
-PLUGIN_NAME = "GeoTable Studio"
-MENU = "&GeoTable Studio"
+PLUGIN_NAME = "Attribute Table Studio"
+MENU = "&Attribute Table Studio"
 EXPLORER_SHORTCUT = "Ctrl+Alt+T"
 PACKAGE = __name__.split(".")[0]
 
 
-class GeoTableStudioPlugin:
-    """Main plugin class for GeoTable Studio."""
+class AttributeTableStudioPlugin:
+    """Main plugin class for Attribute Table Studio."""
 
     def __init__(self, iface):
         self.iface = iface
@@ -45,7 +45,7 @@ class GeoTableStudioPlugin:
     def initGui(self):
         main = self.iface.mainWindow()
         self.toolbar = self.iface.addToolBar(PLUGIN_NAME)
-        self.toolbar.setObjectName("GeoTableStudioToolbar")
+        self.toolbar.setObjectName("AttributeTableStudioToolbar")
         self.toolbar.setToolTip(PLUGIN_NAME)
 
         specs = (
@@ -61,7 +61,7 @@ class GeoTableStudioPlugin:
         )
         for key, icon, text, tip, slot in specs:
             action = QAction(icons.tool(icon), text, main)
-            action.setObjectName(f"mActionGeoTableStudio_{key}")
+            action.setObjectName(f"mActionAttributeTableStudio_{key}")
             action.setToolTip(tip)
             action.setWhatsThis(tip)
             action.triggered.connect(lambda _checked=False, s=slot: s())
@@ -72,10 +72,10 @@ class GeoTableStudioPlugin:
         separator = QAction(main)
         separator.setSeparator(True)
         settings_action = QAction(icons.native(icons.SETTINGS), "Settings…", main)
-        settings_action.setObjectName("mActionGeoTableStudio_settings")
+        settings_action.setObjectName("mActionAttributeTableStudio_settings")
         settings_action.triggered.connect(self.show_settings)
         help_action = QAction(icons.native(icons.HELP), "Help", main)
-        help_action.setObjectName("mActionGeoTableStudio_help")
+        help_action.setObjectName("mActionAttributeTableStudio_help")
         help_action.triggered.connect(self.show_help)
         for action in (separator, settings_action, help_action):
             self.iface.addPluginToMenu(MENU, action)
@@ -85,7 +85,7 @@ class GeoTableStudioPlugin:
 
         self.context_action = QAction(icons.tool(icons.EXPLORER),
                                       "Open in Attribute Explorer", main)
-        self.context_action.setObjectName("mActionGeoTableStudio_layerExplorer")
+        self.context_action.setObjectName("mActionAttributeTableStudio_layerExplorer")
         self.context_action.triggered.connect(
             lambda: self.open_explorer(self.iface.activeLayer()))
         self.iface.addCustomActionForLayerType(
@@ -136,7 +136,7 @@ class GeoTableStudioPlugin:
             self.iface.messageBar().pushMessage(
                 PLUGIN_NAME,
                 "The standalone 'Geometry and Table Compare' plugin is also "
-                "enabled. GeoTable Studio already includes it - disable the "
+                "enabled. Attribute Table Studio already includes it - disable the "
                 "standalone plugin in Plugins > Manage and Install Plugins.",
                 level=MSG_WARNING, duration=12)
 

@@ -1,4 +1,4 @@
-# GeoTable Studio
+# Attribute Table Studio
 
 One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
@@ -14,17 +14,17 @@ Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
 ## Install
 
-1. Build the zip: `python scripts/package.py` → `dist/geotable_studio-1.0.0.zip`
+1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.0.0.zip`
 2. QGIS → *Plugins › Manage and Install Plugins › Install from ZIP*.
 3. If the standalone *Geometry and Table Compare* plugin is installed, disable
-   it — GeoTable Studio includes it (the plugin warns when both are enabled).
+   it — Attribute Table Studio includes it (the plugin warns when both are enabled).
 
 ## Windows and docking
 
 Every tool opens in **its own window** (own taskbar entry) that remembers its
 size and position. The **Dock** button at the top right of each tool docks it
 into the QGIS main window — and undocks it again — keeping filters, results
-and selections. *Plugins › GeoTable Studio › Settings* can open each tool
+and selections. *Plugins › Attribute Table Studio › Settings* can open each tool
 docked by default, like *Open attribute table as docked window* in QGIS.
 
 ## Attribute Explorer
@@ -68,7 +68,9 @@ the profiles afterwards; stale results are never shown.
   (*Refresh input*, then *Build pivot*).
 - Rows (one or more), optional columns (cross tab), several values — count
   records, count non-NULL, count distinct, sum, mean, median, min, max,
-  population standard deviation — with optional labels; filters.
+  population standard deviation — with optional labels.
+- *Add filter* opens a small dialog; each filter then shows as a chip
+  (click to edit, × to remove). All filters must match (AND).
 - Totals are calculated from contributing records (never by averaging group
   results); NULL groups are separate from the text "NULL"; missing cross-tab
   cells show NULL (Count records: 0).
@@ -81,8 +83,17 @@ the profiles afterwards; stale results are never shown.
 ![Geometry and Table Compare](docs/screenshots/dark_compare.png)
 
 The comparison engine is unchanged from the standalone plugin v1.1 (the
-regression test checks that exports match it byte for byte); the interface
-uses the shared GeoTable Studio look.
+regression test checks that exports match it byte for byte). The v1.1
+Results legend (rounded boxes in the row colours with live counts) and the
+v1.1 bottom bar with its progress bar are kept; the rest uses the shared
+Attribute Table Studio look.
+
+## Look and sizes
+
+All three tools share one palette, native QGIS icons (16 px) and one size
+ladder: inputs, buttons and square icon buttons are 24 px; the main actions
+(*Compare OLD → NEW*, *Validate Data*, *Build pivot*) and *Swap* are 28 px.
+The status bar sits fully inside every window.
 
 ## Project layout
 

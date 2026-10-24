@@ -18,12 +18,13 @@ cells NULL / Count 0).
 import json
 
 from qgis.PyQt.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
-from qgis.PyQt.QtGui import QColor, QFont, QGuiApplication, QKeySequence
+from qgis.PyQt.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QPen
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFileDialog, QFormLayout, QFrame, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QMenu, QMessageBox, QScrollArea, QSizePolicy,
-    QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget,
+    QSplitter, QStackedWidget, QStyle, QStyledItemDelegate,
+    QStyleOptionViewItem, QTableView, QVBoxLayout, QWidget,
 )
 from qgis.core import (
     QgsFeature, QgsFields, QgsMessageLog, QgsProject,
@@ -43,8 +44,8 @@ from . import icons
 from . import widgets as W
 from .theme import Metrics, Theme, stylesheet
 
-LOG_TAG = "GeoTable Studio"
-PROJECT_SCOPE = "GeoTableStudio"
+LOG_TAG = "Attribute Table Studio"
+PROJECT_SCOPE = "AttributeTableStudio"
 PROJECT_LAYOUTS = "pivotLayouts"
 _RIGHT = enum_int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 _LEFT = enum_int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -73,7 +74,6 @@ class PivotModel(QAbstractTableModel):
         self.decimals = 2
         self._value = QColor(theme.accent_text)
         self._null = QColor(theme.data_null)
-        self._total_bg = QColor(theme.header)
         self._bold = QFont()
         self._bold.setBold(True)
         self._italic = QFont()
@@ -145,8 +145,6 @@ class PivotModel(QAbstractTableModel):
             if cell["value"] is None and not cell.get("total"):
                 return self._italic
             return None
-        if role == Qt.ItemDataRole.BackgroundRole and self.is_total(row):
-            return self._total_bg
         if role == Qt.ItemDataRole.ToolTipRole:
             return "Double-click to inspect the contributing records"
         return None
@@ -192,6 +190,52 @@ class PivotModel(QAbstractTableModel):
             body.append([c["value"] if raw else self.text(r, i)
                          for i, c in enumerate(row)])
         return (groups if any(groups) else None), labels, body
+
+
+class _PivotDelegate(QStyledItemDelegate):
+    """Banded rows, padded text, and a divider above the Grand total row."""
+
+    PAD = 10
+
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self._base = QColor(theme.base)
+        self._alt = QColor(theme.base_alt)
+        self._total = QColor(theme.header)
+        self._line = QColor(theme.text_dim)
+        self._grid = QColor(theme.border_soft)
+        self._sel_bg = QColor(theme.selected)
+        self._sel_fg = QColor(theme.selected_text)
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        model = index.model()
+        row = index.row()
+        total = model.is_total(row)
+        selected = bool(opt.state & QStyle.StateFlag.State_Selected)
+        painter.save()
+        if selected:
+            bg = self._sel_bg
+        elif total:
+            bg = self._total
+        else:
+            bg = self._alt if row % 2 else self._base
+        painter.fillRect(opt.rect, bg)
+        painter.setPen(QPen(self._grid, 1))
+        painter.drawLine(opt.rect.topRight(), opt.rect.bottomRight())
+        if total:
+            painter.setPen(QPen(self._line, 2))
+            painter.drawLine(opt.rect.left(), opt.rect.top() + 1,
+                             opt.rect.right(), opt.rect.top() + 1)
+        painter.setPen(self._sel_fg if selected
+                       else opt.palette.color(opt.palette.ColorRole.Text))
+        painter.setFont(opt.font)
+        rect = opt.rect.adjusted(self.PAD, 0, -self.PAD, 0)
+        text = opt.fontMetrics.elidedText(opt.text, Qt.TextElideMode.ElideRight,
+                                          rect.width())
+        painter.drawText(rect, opt.displayAlignment, text)
+        painter.restore()
 
 
 # ============================================================================
@@ -291,13 +335,17 @@ class _MeasureRow(QFrame):
 
 
 class _FilterDialog(QDialog):
-    """Add one pivot filter: field, operator, value."""
+    """Add (or edit) one pivot filter: field, operator, value."""
 
-    def __init__(self, fields, metrics, theme, parent=None):
+    def __init__(self, fields, metrics, theme, parent=None, existing=None):
         super().__init__(parent)
-        self.setWindowTitle("Add filter")
-        self.setMinimumWidth(380)
+        self.setWindowTitle("Edit filter" if existing is not None else "Add filter")
+        self.setWindowIcon(icons.native(icons.FILTER))
+        self.setMinimumWidth(400)
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         lay = QFormLayout(self)
+        lay.setContentsMargins(metrics.margin + 4, metrics.margin + 4,
+                               metrics.margin + 4, metrics.margin)
         lay.setSpacing(8)
         self.field = W.FieldCombo(metrics, theme)
         self.field.set_fields(fields)
@@ -307,7 +355,7 @@ class _FilterDialog(QDialog):
         self.value.setFixedHeight(metrics.control_h)
         self.value2 = QLineEdit()
         self.value2.setFixedHeight(metrics.control_h)
-        self.value2.setPlaceholderText("to…")
+        self.value2.setPlaceholderText("to")
         self.error = QLabel("")
         self.error.setStyleSheet(f"color: {theme.danger};")
         lay.addRow("Field", self.field)
@@ -323,15 +371,25 @@ class _FilterDialog(QDialog):
         self.field.currentIndexChanged.connect(self._on_field)
         self.op.currentIndexChanged.connect(self._on_op)
         self._on_field()
+        if existing is not None:
+            self.field.set_current_name(existing.field)
+            self._on_field()
+            idx = self.op.findData(existing.op)
+            if idx >= 0:
+                self.op.setCurrentIndex(idx)
+            self.value.setText(str(existing.value))
+            self.value2.setText(str(existing.value2))
 
     def _on_field(self, *_a):
         kind = self.field.kind() or F.TEXT
         self.op.blockSignals(True)
         self.op.clear()
+        colour = self.palette().color(self.foregroundRole()).name()
         for op_id, label in FL.operators(kind):
             if op_id == "in":
                 continue
-            self.op.addItem(label, op_id)
+            self.op.addItem(icons.text_glyph(FL.OP_SYMBOLS.get(op_id, ""), colour),
+                            label, op_id)
         self.op.blockSignals(False)
         self._on_op()
 
@@ -376,7 +434,6 @@ class PivotPanel(QWidget):
         self.setStyleSheet(stylesheet(self.theme, self.metrics))
         self.explorer_lookup = explorer_lookup or (lambda layer: None)
         self.runner = JobRunner(self)
-        self.runner.progress.connect(lambda v: self.status.set_progress(v))
         self.layer = None
         self._layer_signals = []
         self._revision = 0
@@ -396,7 +453,7 @@ class PivotPanel(QWidget):
     def _build_ui(self):
         m, t = self.metrics, self.theme
         root = QVBoxLayout(self)
-        root.setContentsMargins(m.margin, m.margin, m.margin, 0)
+        root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)
 
         top = QHBoxLayout()
@@ -484,11 +541,14 @@ class PivotPanel(QWidget):
         self.export_gpkg.triggered.connect(lambda: self.export("gpkg"))
         self.copy_action.triggered.connect(self.copy_table)
         self._set_result_actions(False)
+        self._refresh_filters()
 
-    def _section(self, lay, text):
-        lbl = W.label(text, "title")
-        lay.addSpacing(4)
-        lay.addWidget(lbl)
+    def _section(self, lay, text, first=False):
+        """Section heading with a divider line: 'Rows ───────────'."""
+        if not first:
+            lay.addSpacing(10)
+        lay.addWidget(W.section_header(text))
+        lay.addSpacing(2)
 
     def _build_builder(self):
         m = self.metrics
@@ -510,8 +570,9 @@ class PivotPanel(QWidget):
         lay.setContentsMargins(14, 12, 14, 12)
         lay.setSpacing(6)
         lay.addWidget(W.label("Build your table", "heading"))
+        lay.addSpacing(4)
 
-        self._section(lay, "Rows")
+        self._section(lay, "Rows", first=True)
         self.rows_box = QVBoxLayout()
         self.rows_box.setSpacing(6)
         lay.addLayout(self.rows_box)
@@ -540,27 +601,26 @@ class PivotPanel(QWidget):
         self.add_value_btn.clicked.connect(lambda: self._add_measure())
         lay.addWidget(self.add_value_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
-        lay.addSpacing(6)
+        self._section(lay, "Filters")
+        self.filters_empty = W.label("None — every input record is used", "dim")
+        lay.addWidget(self.filters_empty)
+        self.chips = QWidget()
+        self.chips_flow = W.FlowLayout(self.chips, h_spacing=6, v_spacing=6)
+        lay.addWidget(self.chips)
+        self.filters_note = W.label("All filters must match (AND)", "dim")
+        lay.addWidget(self.filters_note)
+        self.add_filter_btn = W.button(m, "Add filter", icons.native(icons.ADD),
+                                       "Filter the input before grouping")
+        self.add_filter_btn.clicked.connect(self._add_filter)
+        lay.addWidget(self.add_filter_btn, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self._section(lay, "Options")
         self.show_count_cb = QCheckBox("Show record count")
         self.show_count_cb.setChecked(True)
         self.show_total_cb = QCheckBox("Show grand total")
         self.show_total_cb.setChecked(True)
         lay.addWidget(self.show_count_cb)
         lay.addWidget(self.show_total_cb)
-
-        frow = QHBoxLayout()
-        frow.setSpacing(4)
-        self.filters_label = W.label("Filters: None", "link")
-        self.filters_label.setWordWrap(True)
-        frow.addWidget(self.filters_label, 1)
-        self.add_filter_btn = W.flat_link(m, "[Add filter]",
-                                          "Filter the input before grouping")
-        self.add_filter_btn.clicked.connect(self._add_filter)
-        frow.addWidget(self.add_filter_btn, 0, Qt.AlignmentFlag.AlignTop)
-        lay.addLayout(frow)
-        self.filters_box = QVBoxLayout()
-        self.filters_box.setSpacing(4)
-        lay.addLayout(self.filters_box)
         lay.addStretch(1)
         scroll.setWidget(body)
         outer.addWidget(scroll)
@@ -572,12 +632,33 @@ class PivotPanel(QWidget):
         m = self.metrics
         box = QWidget()
         lay = QVBoxLayout(box)
-        lay.setContentsMargins(6, 2, 0, 0)
-        lay.setSpacing(6)
+        lay.setContentsMargins(6, 0, 0, 0)
+        lay.setSpacing(8)
+        head = QFrame()
+        head.setObjectName("gtsCard")
+        hl = QHBoxLayout(head)
+        hl.setContentsMargins(14, 10, 14, 10)
+        hl.setSpacing(16)
+        titles = QVBoxLayout()
+        titles.setSpacing(2)
         self.title_label = W.label("Pivot Table", "display")
-        lay.addWidget(self.title_label)
-        self.subtitle = W.label("", "dim")
-        lay.addWidget(self.subtitle)
+        titles.addWidget(self.title_label)
+        self.subtitle = W.ElideLabel("Choose rows and values, then press Build pivot")
+        self.subtitle.setObjectName("gtsDim")
+        titles.addWidget(self.subtitle)
+        hl.addLayout(titles, 1)
+        counts = QVBoxLayout()
+        counts.setSpacing(2)
+        self.records_label = W.label("—", "display")
+        self.records_label.setAlignment(Qt.AlignmentFlag.AlignRight
+                                        | Qt.AlignmentFlag.AlignVCenter)
+        counts.addWidget(self.records_label)
+        self.groups_label = W.label("records used", "dim")
+        self.groups_label.setAlignment(Qt.AlignmentFlag.AlignRight
+                                       | Qt.AlignmentFlag.AlignVCenter)
+        counts.addWidget(self.groups_label)
+        hl.addLayout(counts)
+        lay.addWidget(head)
         self.stack = QStackedWidget()
         empty = QLabel("Choose row fields and values on the left,\n"
                        "then press  Build pivot.")
@@ -586,6 +667,7 @@ class PivotPanel(QWidget):
         self.stack.addWidget(empty)
         self.table = QTableView()
         self.table.setObjectName("gtsTable")
+        self.table.setHorizontalHeader(W.SortHeader(self.theme, self.table))
         self.model = PivotModel(self.theme, self)
         self.table.setModel(self.model)
         self.table.horizontalHeader().setSortIndicator(
@@ -595,11 +677,13 @@ class PivotPanel(QWidget):
         self.table.horizontalHeader().setSectionsMovable(False)
         self.table.horizontalHeader().setDefaultAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        self.table.horizontalHeader().setMinimumHeight(m.font_h + 16)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeader().setMinimumHeight(m.font_h + 14)
+        self.table.horizontalHeader().setStretchLastSection(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(m.font_h + 18)
+        self.table.verticalHeader().setDefaultSectionSize(m.font_h + 14)
         self.table.setAlternatingRowColors(False)
+        self.table.setItemDelegate(_PivotDelegate(self.theme, self.table))
+        self.table.setShowGrid(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -744,28 +828,30 @@ class PivotPanel(QWidget):
             self.filters.append(dlg.column_filter())
             self._refresh_filters()
 
+    def _edit_filter(self, flt):
+        if self.layer is None or flt not in self.filters:
+            return
+        dlg = _FilterDialog(self._fields(), self.metrics, self.theme, self, flt)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self.filters[self.filters.index(flt)] = dlg.column_filter()
+            self._refresh_filters()
+
     def _refresh_filters(self):
-        while self.filters_box.count():
-            item = self.filters_box.takeAt(0)
+        while self.chips_flow.count():
+            item = self.chips_flow.takeAt(0)
             if item.widget():
                 self._discard(item.widget())
-        if not self.filters:
-            self.filters_label.setText("Filters: None")
-        else:
-            self.filters_label.setText(f"Filters: {len(self.filters)} (AND)")
+        width = max(120, self.chips.width() or 240)
         for flt in self.filters:
-            row = QHBoxLayout()
-            w = QWidget()
-            w.setLayout(row)
-            row.setContentsMargins(0, 0, 0, 0)
-            row.setSpacing(4)
-            lbl = W.ElideLabel(flt.describe())
-            row.addWidget(lbl, 1)
-            rm = W.square_button(self.metrics, icons.native(icons.REMOVE),
-                                 "Remove filter")
-            rm.clicked.connect(lambda _c=False, f=flt: self._remove_filter(f))
-            row.addWidget(rm)
-            self.filters_box.addWidget(w)
+            chip = W.Chip(flt.describe(), self.metrics, self.theme,
+                          max_width=width)
+            chip.clicked.connect(lambda f=flt: self._edit_filter(f))
+            chip.removed.connect(lambda f=flt: self._remove_filter(f))
+            self.chips_flow.addWidget(chip)
+        self.filters_empty.setVisible(not self.filters)
+        self.chips.setVisible(bool(self.filters))
+        self.filters_note.setVisible(len(self.filters) > 1)
+        self.chips.updateGeometry()
         self._update_title()
 
     def _remove_filter(self, flt):
@@ -795,6 +881,7 @@ class PivotPanel(QWidget):
             self._result_input = None
             self.stack.setCurrentIndex(0)
             self._set_result_actions(False)
+            self._reset_header_card()
             if layer is not None:
                 self._connect_layer()
                 self.set_spec(self._default_spec(scope))
@@ -1044,22 +1131,34 @@ class PivotPanel(QWidget):
         self._resize_columns()
         self._set_result_actions(True)
         n = result.n_input
-        extras = ["NULL numeric values excluded", "Exact"]
+        extras = [captured.get("label", ""), "NULL numeric values excluded",
+                  "Exact"]
         if captured.get("filters"):
-            extras.insert(0, "Filters: " + " AND ".join(captured["filters"]))
-        self.subtitle.setText(f"Input: {n:,} records  •  " + "  •  ".join(extras))
+            extras.insert(1, "Filters: " + " AND ".join(captured["filters"]))
+        self.subtitle.setText("Input: " + "  •  ".join(e for e in extras if e))
+        self.records_label.setText(f"{n:,}")
+        groups = result.group_count
+        self.groups_label.setText(
+            f"records  •  {groups:,} group{'s' if groups != 1 else ''}")
         self._update_status()
 
     def _resize_columns(self):
+        """Columns fit their content and header (with room for the sort
+        arrow); nothing is stretched across the window."""
         hdr = self.table.horizontalHeader()
-        hdr.setStretchLastSection(False)
         self.table.resizeColumnsToContents()
         fm = self.metrics.bold_fm
         for c in range(self.model.columnCount()):
             text = str(self.model.headerData(c, Qt.Orientation.Horizontal) or "")
-            width = max(fm.horizontalAdvance(line) for line in text.split("\n")) + 28
-            hdr.resizeSection(c, max(hdr.sectionSize(c) + 16, width, 72))
-        hdr.setStretchLastSection(True)
+            header_w = max(fm.horizontalAdvance(line)
+                           for line in text.split("\n")) + 8 + 22 + 8
+            cell_w = hdr.sectionSize(c) + 2 * _PivotDelegate.PAD
+            hdr.resizeSection(c, max(cell_w, header_w, 80))
+
+    def _reset_header_card(self):
+        self.subtitle.setText("Choose rows and values, then press Build pivot")
+        self.records_label.setText("—")
+        self.groups_label.setText("records used")
 
     def _set_result_actions(self, on):
         self.export_btn.setEnabled(on)

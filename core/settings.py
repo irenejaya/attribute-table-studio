@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Persistent GeoTable Studio settings (QgsSettings, user profile scope)."""
+"""Persistent Attribute Table Studio settings (QgsSettings, user profile scope)."""
 
 from qgis.core import QgsSettings
 
-PREFIX = "GeoTableStudio"
+PREFIX = "AttributeTableStudio"
 
 DEFAULTS = {
     "explorer/openDocked": False,

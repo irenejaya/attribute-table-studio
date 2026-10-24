@@ -75,7 +75,7 @@ def safe_field_names(names, max_len=63):
 def scope_lines(meta):
     """'key: value' lines for a scope record (dict, ordered)."""
     stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    lines = [f"Exported: {stamp}", "Tool: GeoTable Studio"]
+    lines = [f"Exported: {stamp}", "Tool: Attribute Table Studio"]
     lines += [f"{k}: {v}" for k, v in meta.items()]
     return lines
 

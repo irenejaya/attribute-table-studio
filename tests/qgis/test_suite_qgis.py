@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""End-to-end tests of GeoTable Studio inside a headless QGIS.
+"""End-to-end tests of Attribute Table Studio inside a headless QGIS.
 
 Run with QGIS' Python (QGIS 3.40+ / 4.x):
     QT_QPA_PLATFORM=offscreen python tests/qgis/test_suite_qgis.py
@@ -24,10 +24,10 @@ from qgis.core import (QgsFeatureRequest, QgsProject,  # noqa: E402
                        QgsVectorLayer)
 from qgis.gui import QgsDockWidget  # noqa: E402
 
-from geotable_studio import classFactory  # noqa: E402
-from geotable_studio.core import filters as FL  # noqa: E402
-from geotable_studio.core import fields as F  # noqa: E402
-from geotable_studio.core import pivot as P  # noqa: E402
+from attribute_table_studio import classFactory  # noqa: E402
+from attribute_table_studio.core import filters as FL  # noqa: E402
+from attribute_table_studio.core import fields as F  # noqa: E402
+from attribute_table_studio.core import pivot as P  # noqa: E402
 
 OUT = tempfile.mkdtemp(prefix="gts_out_")
 _next_save = []
@@ -353,13 +353,53 @@ class SuiteTests(unittest.TestCase):
         counts = panel._compare_info["counts"]
         self.assertEqual(counts["Added"], 12)
         self.assertGreater(counts["Modified"], 0)
-        self.assertEqual(panel.filter_buttons["Added"].text(), "Added   12")
+        self.assertEqual(panel.filter_counts["Added"].text(), "· 12")
+        self.assertEqual(panel.filter_boxes["Added"].text(), "Added (In NEW Only)")
         path = os.path.join(OUT, "compare.csv")
         _next_save.append(path)
         panel.export_results()
         self.assertTrue(os.path.exists(path))
         host = self.plugin.compare_host
         self.assertEqual(host.window_title(), "Geometry and Table Compare")
+
+    def test_13b_round2_ui_rules(self):
+        panel = self.plugin.open_explorer(self.layer)
+        H.wait_for(lambda: idle(panel))
+        fl = self.layer.fields().indexOf("FL_1_PCT_MAX")
+        cell = panel.header.cells[fl]
+        texts = [a.text() for a in cell.op_menu.actions()
+                 if not a.isSeparator() and a.data()]
+        # each operator once, as words (the symbol is the icon)
+        self.assertEqual(texts[:6], ["equal to", "not equal to", "less than",
+                                     "less than or equal to", "greater than",
+                                     "greater than or equal to"])
+        self.assertTrue(all(not a.icon().isNull() for a in cell.op_menu.actions()
+                            if a.data()))
+        # no ellipsis in any filter hint
+        for c in panel.header.cells.values():
+            for op_id, _label in FL.operators(c.kind):
+                if op_id in FL.NO_VALUE_OPS:
+                    continue
+                c.set_op(op_id)
+                self.assertNotIn("…", c.edit.placeholderText())
+                self.assertNotIn("…", c.edit2.placeholderText())
+            c.set_filter(None)
+        # only Compare has a progress bar; Explorer / Pivot show Cancel only
+        self.assertFalse(hasattr(panel.status, "progress_bar"))
+        compare = self.plugin.open_compare()
+        self.assertTrue(hasattr(compare, "progress_bar"))
+        # every panel keeps the status bar inside the window
+        for p in (panel, compare):
+            self.assertEqual(p.layout().contentsMargins().bottom(), p.metrics.margin)
+        # pivot filters show as chips
+        pivot = self.plugin.open_pivot(self.layer)
+        pivot.set_spec(P.PivotSpec(["LAND_USE_TYPE"], [], [P.Measure(None, "count")]),
+                       [FL.ColumnFilter("ZONE_CODE", F.INTEGER, "gt", "2"),
+                        FL.ColumnFilter("IN_FLOOD_ZONE", F.BOOL, "true")])
+        self.assertEqual(pivot.chips_flow.count(), 2)
+        self.assertFalse(pivot.filters_empty.isVisibleTo(pivot))
+        pivot._remove_filter(pivot.filters[0])
+        self.assertEqual(pivot.chips_flow.count(), 1)
 
     def test_14a_attribute_only_table(self):
         table = QgsVectorLayer("None?field=name:string&field=v:double",
@@ -435,7 +475,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(self.iface.layer_actions, [])
         self.plugin.initGui()
         bars = [tb for tb in self.iface.mainWindow().findChildren(
-            type(self.plugin.toolbar)) if tb.objectName() == "GeoTableStudioToolbar"]
+            type(self.plugin.toolbar)) if tb.objectName() == "AttributeTableStudioToolbar"]
         self.assertEqual(len(bars), 1)
         self.assertEqual(len(bars[0].actions()), 3)
 

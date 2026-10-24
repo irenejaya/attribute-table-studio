@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Icons for the GeoTable Studio tools.
+Icons for the Attribute Table Studio tools.
 
 Native QGIS theme icons are used wherever one exists (all names below are
 present in QGIS 3.40+ and 4.x).  Glyph-only native icons that are drawn in
@@ -12,7 +12,9 @@ primary buttons, the dropdown chevron) so they follow the theme colours.
 import os
 
 from qgis.PyQt.QtCore import QPointF, QRectF, QSize, Qt
-from qgis.PyQt.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
+from qgis.PyQt.QtGui import (
+    QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap,
+)
 from qgis.core import QgsApplication
 
 from ..core import fields as F
@@ -166,6 +168,33 @@ def _paint(kind, color, size):
         p.drawLine(pt(.64, .16), pt(.64, .30))
     p.end()
     return pm
+
+
+def text_glyph(text, color):
+    """A short symbol (=, ≠, ≈, ∈ ...) drawn as an icon, so operator menus
+    show each symbol once, aligned in the icon column."""
+    key = ("text", text, QColor(color).name())
+    if key in _cache:
+        return _cache[key]
+    icon = QIcon()
+    for size in (16, 24, 32):
+        scale = 2
+        pm = QPixmap(size * scale, size * scale)
+        pm.fill(Qt.GlobalColor.transparent)
+        pm.setDevicePixelRatio(scale)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        font = QFont()
+        font.setBold(True)
+        font.setPixelSize(int(size * (0.80 if len(text) == 1 else 0.58)))
+        p.setFont(font)
+        p.setPen(QColor(color))
+        p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, text)
+        p.end()
+        icon.addPixmap(pm)
+    _cache[key] = icon
+    return icon
 
 
 def glyph(kind, color):

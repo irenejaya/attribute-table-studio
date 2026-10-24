@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GeoTable Studio help (Plugins > GeoTable Studio > Help)."""
+"""Attribute Table Studio help (Plugins > Attribute Table Studio > Help)."""
 
 from qgis.PyQt.QtCore import QSize, Qt
 from qgis.PyQt.QtWidgets import (
@@ -122,14 +122,14 @@ value).</p>
 """
 
 GENERAL_HELP = """
-<h3>GeoTable Studio</h3>
+<h3>Attribute Table Studio</h3>
 <p>Three tools in one toolbar: <b>Attribute Explorer</b>, <b>Pivot Table</b>
 and <b>Geometry and Table Compare</b>.</p>
 <h4>Windows and docking</h4>
 <p>Each tool opens in its own window (with its own taskbar entry) and
 remembers its size and position. Press the <b>Dock</b> button at the top
 right of a tool to dock it into the QGIS main window, and again to undock.
-To open a tool docked every time, tick it in <b>Plugins › GeoTable Studio
+To open a tool docked every time, tick it in <b>Plugins › Attribute Table Studio
 › Settings</b>.</p>
 <h4>Shortcuts</h4>
 <p>All three tools are listed in <b>Settings › Keyboard Shortcuts</b> under
@@ -144,7 +144,7 @@ changed.</p>
 class HelpDialog(QDialog):
     def __init__(self, parent=None, tab=0):
         super().__init__(parent)
-        self.setWindowTitle("GeoTable Studio — Help")
+        self.setWindowTitle("Attribute Table Studio — Help")
         self.setWindowIcon(icons.native(icons.HELP))
         self.resize(720, 640)
         theme, metrics = Theme(), Metrics(self.font())
@@ -154,7 +154,7 @@ class HelpDialog(QDialog):
         tabs = QTabWidget()
         tabs.setIconSize(QSize(metrics.icon, metrics.icon))
         for title, icon, html in (
-                ("GeoTable Studio", icons.native(icons.HELP), GENERAL_HELP),
+                ("Attribute Table Studio", icons.native(icons.HELP), GENERAL_HELP),
                 ("Attribute Explorer", icons.tool(icons.EXPLORER), EXPLORER_HELP),
                 ("Pivot Table", icons.tool(icons.PIVOT), PIVOT_HELP),
                 ("Geometry and Table Compare", icons.tool(icons.COMPARE),

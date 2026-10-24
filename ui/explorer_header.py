@@ -9,7 +9,7 @@ Attribute Explorer column header: profile strip, column names and filters.
     ├───────────────┼───────────────┤
     │ NAME        ▲ │ NAME          │   click = sort, drag = move, edge = resize
     ├───────────────┼───────────────┤
-    │ ≈ contains… ▾ │ = value…    ▾ │   always-visible filter
+    │ ≈ contains  ▾ │ = value     ▾ │   always-visible filter
     └───────────────┴───────────────┘
 
 Cards and filter cells are children of the header viewport positioned from
@@ -360,9 +360,9 @@ class ProfileCard(QWidget):
 # ============================================================================
 
 PLACEHOLDERS = {
-    "contains": "contains…", "eq": "value…", "starts": "starts with…",
-    "ne": "value…", "lt": "value…", "le": "value…", "gt": "value…",
-    "ge": "value…", "between": "from…", "in": "choose values…",
+    "contains": "contains", "eq": "value", "starts": "starts with",
+    "ne": "value", "lt": "value", "le": "value", "gt": "value",
+    "ge": "value", "between": "from", "in": "choose values",
     "null": "is NULL", "notnull": "is not NULL",
 }
 
@@ -398,7 +398,10 @@ class FilterCell(QFrame):
         group = QActionGroup(self.op_menu)
         self._op_actions = {}
         for op_id, op_label in FL.operators(kind):
-            act = QAction(f"{FL.OP_SYMBOLS.get(op_id, '')}   {op_label}", self.op_menu)
+            act = QAction(icons.text_glyph(FL.OP_SYMBOLS.get(op_id, ""),
+                                           theme.accent_text),
+                          op_label, self.op_menu)
+            act.setIconVisibleInMenu(True)
             act.setCheckable(True)
             act.setData(op_id)
             group.addAction(act)
@@ -417,7 +420,7 @@ class FilterCell(QFrame):
         self.edit2 = QLineEdit(self)
         self.edit2.setFrame(False)
         self.edit2.setClearButtonEnabled(True)
-        self.edit2.setPlaceholderText("to…")
+        self.edit2.setPlaceholderText("to")
         self.dash = QLabel("–", self)
         self.dash.setObjectName("gtsDim")
         for e in (self.edit, self.edit2):
@@ -488,14 +491,14 @@ class FilterCell(QFrame):
         elif kind == F.TIME:
             ph = "HH:MM:SS"
         else:
-            ph = PLACEHOLDERS.get(op, "value…")
+            ph = PLACEHOLDERS.get(op, "value")
         if between:
-            ph = "from…"
+            ph = "from"
         self.edit.setPlaceholderText(PLACEHOLDERS.get(op) if no_value else ph)
         self.dash.setVisible(between)
         self.edit2.setVisible(between)
         if kind in (F.DATE, F.DATETIME):
-            self.edit2.setPlaceholderText("to YYYY-MM-DD")
+            self.edit2.setPlaceholderText("to")
         self.aux_btn.setVisible(kind != F.BOOL and not no_value
                                 and (op in ("in", "eq", "contains", "starts")
                                      or kind in (F.DATE, F.DATETIME)))
@@ -659,7 +662,7 @@ class ValuePicker(QFrame):
         title = QLabel(f"<b>{name}</b> — choose values (matched with OR)")
         lay.addWidget(title)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search values…")
+        self.search.setPlaceholderText("Search values")
         self.search.setClearButtonEnabled(True)
         self.search.setFixedHeight(metrics.control_h)
         self.search.textChanged.connect(self._filter)
@@ -773,7 +776,7 @@ class ExplorerHeader(QHeaderView):
         self.metrics = metrics
         self.profile_h = ProfileCard.preferred_height(metrics)
         self.name_h = metrics.font_h + 12
-        self.filter_h = metrics.compact_h + 8
+        self.filter_h = metrics.compact_h + 6      # 24 px cells, 3 px margins
         self.profiles_visible = True
         self.cards = {}
         self.cells = {}
@@ -821,9 +824,12 @@ class ExplorerHeader(QHeaderView):
 
     def _make_bool_menu(self, cell):
         menu = QMenu(cell.op_btn)
-        for text, op in (("any", None), ("✓   true", "true"), ("✗   false", "false"),
-                         ("∅   NULL", "null"), ("!∅   not NULL", "notnull")):
-            act = menu.addAction(text)
+        colour = self.theme.accent_text
+        for symbol, text, op in (("", "any", None), ("✓", "true", "true"),
+                                 ("✗", "false", "false"), ("∅", "is NULL", "null"),
+                                 ("≠∅", "is not NULL", "notnull")):
+            act = menu.addAction(icons.text_glyph(symbol, colour), text)
+            act.setIconVisibleInMenu(True)
             act.triggered.connect(lambda _c=False, o=op, c=cell: c.set_bool(o))
         cell.op_btn.setMenu(menu)
         cell.op_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
@@ -885,8 +891,9 @@ class ExplorerHeader(QHeaderView):
         painter.drawLine(band.bottomLeft(), band.bottomRight())
         painter.drawLine(band.topRight(), band.bottomRight())
         painter.restore()
-        super().paintSection(painter, QRect(rect.left(), rect.top() + top,
-                                            rect.width(), self.name_h), logical)
+        name_rect = QRect(rect.left(), rect.top() + top, rect.width(), self.name_h)
+        super().paintSection(painter, name_rect, logical)
+        W.paint_sort_arrow(self, painter, name_rect, logical, self.theme.text_dim)
 
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
@@ -1081,7 +1088,7 @@ class ProfileDetails(QFrame):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(4)
         search = QLineEdit()
-        search.setPlaceholderText(f"Search {len(p.frequencies):,} values…")
+        search.setPlaceholderText(f"Search {len(p.frequencies):,} values")
         search.setClearButtonEnabled(True)
         search.setFixedHeight(metrics.control_h)
         lay.addWidget(search)

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-GeoTable Studio - QGIS Plugin
+Attribute Table Studio - QGIS Plugin
 
 Three tools in one toolbar: Attribute Explorer (records with attached
 column statistics and per-column filters), Pivot Table (grouped summaries
@@ -15,5 +15,5 @@ __copyright__ = '(C) 2026, Irene Jaya'
 
 def classFactory(iface):
     """Return the plugin instance for the given QGIS interface."""
-    from .plugin import GeoTableStudioPlugin
-    return GeoTableStudioPlugin(iface)
+    from .plugin import AttributeTableStudioPlugin
+    return AttributeTableStudioPlugin(iface)
