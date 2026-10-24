@@ -30,7 +30,6 @@ from qgis.core import (
     QgsFeature, QgsFields, QgsMessageLog, QgsProject,
     QgsVectorFileWriter, QgsVectorLayer,
 )
-from qgis.gui import QgsMapLayerComboBox
 
 from ..core import export as X
 from ..core import fields as F
@@ -458,9 +457,8 @@ class PivotPanel(QWidget):
         top = QHBoxLayout()
         top.setSpacing(m.gap)
         top.addWidget(W.label("Layer", "dim"))
-        self.layer_combo = QgsMapLayerComboBox()
+        self.layer_combo = W.LayerCombo(m)
         self.layer_combo.setFilters(VECTOR_LAYER_FILTER)
-        self.layer_combo.setFixedHeight(m.control_h)
         self.layer_combo.setMinimumWidth(200)
         self.layer_combo.setMaximumWidth(260)
         self.layer_combo.layerChanged.connect(self._on_combo_layer)

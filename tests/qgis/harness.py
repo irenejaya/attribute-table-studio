@@ -37,7 +37,10 @@ def start_qgis(theme=None):
 class FakeIface:
     """Just enough of QgisInterface for the tools."""
 
+    instances = []
+
     def __init__(self):
+        FakeIface.instances.append(self)
         from qgis.PyQt.QtWidgets import QMainWindow
         from qgis.gui import QgsMapCanvas
         self._main = QMainWindow()
@@ -169,6 +172,12 @@ def shutdown(app):
     """Release the project and exit QGIS cleanly (avoids crashes in C++
     static destructors when a headless test process ends)."""
     from qgis.core import QgsProject
+    pump()
+    # a map canvas still holding a render job crashes the process at exit
+    for iface in FakeIface.instances:
+        iface._canvas.stopRendering()
+        iface._main.deleteLater()
+    FakeIface.instances.clear()
     pump()
     QgsProject.instance().clear()
     pump()

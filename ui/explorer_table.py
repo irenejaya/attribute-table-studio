@@ -47,6 +47,7 @@ class FeatureTableModel(QAbstractTableModel):
         self.fields = []
         self.kinds = []
         self.fids = []
+        self._rows = None                   # fid -> row, built when needed
         self.selected = set()
         self._cache = OrderedDict()
         self._null_text = QgsApplication.nullRepresentation() or F.NULL_TEXT
@@ -75,13 +76,21 @@ class FeatureTableModel(QAbstractTableModel):
                 c = t.data_text
             self._colours[col] = QColor(c)
         self.fids = []
+        self._rows = None
         self._cache.clear()
         self.endResetModel()
 
     def set_fids(self, fids):
         self.beginResetModel()
         self.fids = fids
+        self._rows = None
         self.endResetModel()
+
+    def row_of(self, fid):
+        """Row of a feature in the current order, or None when not shown."""
+        if self._rows is None:
+            self._rows = {f: i for i, f in enumerate(self.fids)}
+        return self._rows.get(fid)
 
     def invalidate(self, fids=None):
         """Forget cached attributes (all, or of *fids*) and repaint."""

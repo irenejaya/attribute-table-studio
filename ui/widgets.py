@@ -12,6 +12,8 @@ Shared widgets, so every Attribute Table Studio tool looks and behaves the same.
 - :class:`ButtonRow`: a row of buttons that switches to icon-only (all at
   once, so they stay uniform, icons at full size) when there is not enough
   room, e.g. docked.
+- :class:`LayerCombo`: layer picker listing every layer with its CRS, with
+  a drop-down list wide enough for the full names.
 - :class:`StatusStrip`: the bottom status line (framed, coloured accent)
   with a Cancel button while a job runs.
 - :class:`FieldChecklistDialog`: searchable field checklist used by
@@ -25,6 +27,7 @@ from qgis.PyQt.QtWidgets import (
     QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListWidget,
     QListWidgetItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
+from qgis.gui import QgsMapLayerComboBox
 
 from ..core import fields as F
 from . import icons
@@ -70,6 +73,24 @@ class ElideLabel(QLabel):
             self._full, self._mode, max(self.width(), 10))
         super().setText(elided)
         self.setToolTip(self._full if elided != self._full else "")
+
+
+class LayerCombo(QgsMapLayerComboBox):
+    """Layer picker showing each layer as  name [EPSG:xxxx].  The box keeps
+    its width; the list it opens is always wide enough for the full names."""
+
+    def __init__(self, metrics, parent=None):
+        super().__init__(parent)
+        self.setShowCrs(True)
+        self.setFixedHeight(metrics.control_h)
+        self.layerChanged.connect(lambda *_: self.setToolTip(self.currentText()))
+
+    def showPopup(self):
+        fm = self.view().fontMetrics()
+        widest = max((fm.horizontalAdvance(self.itemText(i))
+                      for i in range(self.count())), default=0)
+        self.view().setMinimumWidth(min(widest + self.iconSize().width() + 48, 1400))
+        super().showPopup()
 
 
 def label(text="", role=None, parent=None):

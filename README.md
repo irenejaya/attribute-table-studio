@@ -44,13 +44,15 @@ proposed and only assigned when no other command uses it; change it in
   dates: on, before, after, between (calendar, YYYY-MM-DD hints); booleans:
   true, false, NULL.
   Columns combine with AND, values within a column with OR. Invalid input is
-  outlined red and the last valid result stays.
+  outlined red and the last valid result stays. The ✕ in a filter box clears
+  it (also for *is one of*); the value list sorts by value or by records.
 - **Scope rules**: profiles describe exactly the filtered records (not just
   the visible screen). NULL is missing; zero and empty text are values.
   Sorting and hiding columns never change the population.
 - **Selection** stays in sync with the map (click, Ctrl, Shift, drag or the
-  tick boxes). *Selected only* limits table and statistics to the selection.
-  Filtering never changes the map selection.
+  tick boxes). A feature selected on the map scrolls its row into view.
+  *Selected only* limits table and statistics to the selection. Filtering
+  never changes the map selection.
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
   reorder; layouts are saved with the layer in the project.
 - *Export* to Excel or CSV with the scope recorded; *Ctrl+C* copies rows;
@@ -83,12 +85,26 @@ the profiles afterwards; stale results are never shown.
 
 ![Geometry and Table Compare](docs/screenshots/dark_compare.png)
 
-The comparison engine is unchanged from the standalone plugin v1.1 (the
-regression test checks that exports match it byte for byte). The v1.1
-*Validate Data* and *Compare OLD → NEW* buttons, the v1.1 Results legend
-(rounded boxes in the row colours with live counts) and the v1.1 bottom bar
-with its progress bar are kept; the rest uses the shared Attribute Table
-Studio look.
+![Reviewing changed values](docs/screenshots/dark_review.png)
+
+A change-tracking tool: an OLD baseline and a NEW update of the same dataset
+are matched by a unique ID and every feature is reported as Added, Deleted,
+Modified or Unchanged. The comparison engine is unchanged from the standalone
+plugin v1.1 (the regression test checks that exports match it byte for byte).
+
+- A **changed value** shows OLD and NEW side by side, split by a divider.
+  Right-click values to **accept** (keeps NEW, lime *Accepted value*),
+  **reject** (keeps OLD, lavender *Rejected value*) or reset them, one cell or
+  many at once; the cell then shows the one value kept.
+- *Accept / Reject / Reset* (buttons or right-click) decide every changed
+  value of whole rows. The Decision column follows the values: Accepted,
+  Rejected, Mixed or *Pending 1/3*. Exports keep OLD for rejected values and
+  NEW otherwise.
+- **Zoom to selection** (button or right-click) selects the rows' features in
+  the OLD and NEW layers, zooms to them and flashes them.
+- The help button explains the tool; the broom button clears the validation
+  results. The v1.1 *Validate Data* and *Compare OLD → NEW* buttons, Results
+  legend and bottom bar with its progress bar are kept.
 
 ## Look and sizes
 

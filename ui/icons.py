@@ -56,6 +56,8 @@ CSV = "/mActionOpenTable.svg"
 XLSX = "/mActionSharingExport.svg"
 GPKG = "/mActionNewGeoPackageLayer.svg"
 WARNING = "/mIconWarning.svg"
+CLEAR = "/console/iconClearConsole.svg"
+GEOM_DIFF = "/algorithms/mAlgorithmSymmetricalDifference.svg"
 
 FIELD_ICONS = {
     F.TEXT: "/mIconFieldText.svg",

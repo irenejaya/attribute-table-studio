@@ -25,13 +25,13 @@ import json
 from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QGuiApplication, QKeySequence
 from qgis.PyQt.QtWidgets import (
-    QFileDialog, QHBoxLayout, QMenu, QMessageBox, QVBoxLayout, QWidget,
+    QAbstractItemView, QFileDialog, QHBoxLayout, QMenu, QMessageBox,
+    QVBoxLayout, QWidget,
 )
 from qgis.core import (
     QgsFeatureRequest, QgsMessageLog, QgsVectorLayer,
     QgsVectorLayerFeatureSource,
 )
-from qgis.gui import QgsMapLayerComboBox
 
 from ..core import export as X
 from ..core import fields as F
@@ -80,6 +80,7 @@ class ExplorerPanel(QWidget):
         self._layer_signals = []
         self._revision = 0               # bumps on every data / schema change
         self._selection_version = 0
+        self._table_selecting = False       # selection made in this table
         self._scope_key = None           # profiles are valid for this key
         self._expr = None
         self._restrict = None
@@ -129,13 +130,11 @@ class ExplorerPanel(QWidget):
         top = QHBoxLayout()
         top.setSpacing(m.gap)
         top.addWidget(W.label("Layer", "dim"))
-        self.layer_combo = QgsMapLayerComboBox()
+        self.layer_combo = W.LayerCombo(m)
         self.layer_combo.setFilters(VECTOR_LAYER_FILTER)
         self.layer_combo.setAllowEmptyLayer(False)
-        self.layer_combo.setFixedHeight(m.control_h)
         self.layer_combo.setMinimumWidth(200)
         self.layer_combo.setMaximumWidth(260)
-        self.layer_combo.setToolTip("Layer shown in this explorer")
         self.layer_combo.layerChanged.connect(self._on_combo_layer)
         top.addWidget(self.layer_combo)
         top.addSpacing(8)
@@ -351,7 +350,11 @@ class ExplorerPanel(QWidget):
     # ====================================================================
 
     def _on_layer_selection(self, *_args):
+        previous = self.model.selected
         self.model.selected = set(self.layer.selectedFeatureIds())
+        if not self._table_selecting and not self.selected_only:
+            # selected on the map (or elsewhere): bring the row into view
+            self._scroll_to_features(self.model.selected - previous)
         self._selection_version += 1
         self.view.viewport().update()
         self.view.verticalHeader().viewport().update()
@@ -809,7 +812,24 @@ class ExplorerPanel(QWidget):
 
     def _select(self, fids, behaviour):
         if self.layer is not None:
-            self.layer.selectByIds(list(fids), behaviour)
+            self._table_selecting = True
+            try:
+                self.layer.selectByIds(list(fids), behaviour)
+            finally:
+                self._table_selecting = False
+
+    def _scroll_to_features(self, fids):
+        """Scroll (vertically only) so the first of *fids* in table order is
+        in the middle of the view."""
+        rows = [r for r in map(self.model.row_of, fids) if r is not None]
+        if not rows:
+            return
+        bar = self.view.horizontalScrollBar()
+        keep = bar.value()
+        column = max(self.view.columnAt(0), 0)
+        self.view.scrollTo(self.model.index(min(rows), column),
+                           QAbstractItemView.ScrollHint.PositionAtCenter)
+        bar.setValue(keep)
 
     def _on_row_pressed(self, row, mods):
         fid = self.model.fid(row)
@@ -862,7 +882,11 @@ class ExplorerPanel(QWidget):
 
     def deselect_all(self):
         if self.layer is not None:
-            self.layer.removeSelection()
+            self._table_selecting = True
+            try:
+                self.layer.removeSelection()
+            finally:
+                self._table_selecting = False
 
     # ====================================================================
     # MAP

@@ -410,6 +410,12 @@ class FilterCell(QFrame):
         self.edit = QLineEdit(self)
         self.edit.setFrame(False)
         self.edit.setClearButtonEnabled(True)
+        # the box is read-only for 'is one of'; Qt then disables its clear
+        # button, so it is enabled again (_apply_op_ui) and also empties the
+        # chosen values
+        self._clear_action = self.edit.findChild(QAction, "_q_qlineeditclearaction")
+        if self._clear_action is not None:
+            self._clear_action.triggered.connect(self._on_clear_button)
         self.edit2 = QLineEdit(self)
         self.edit2.setFrame(False)
         self.edit2.setClearButtonEnabled(True)
@@ -440,6 +446,12 @@ class FilterCell(QFrame):
         self._apply_op_ui()
 
     # ------------------------------------------------------------------
+    def _on_clear_button(self):
+        if self.op == "in" and self.values:
+            self.values = []
+            self.edit.clear()
+            self._emit(True)
+
     def _on_op_action(self, action):
         op = action.data()
         if op is None:
@@ -481,6 +493,8 @@ class FilterCell(QFrame):
         self.edit.setVisible(not no_value or kind != F.BOOL)
         self.edit.setEnabled(not no_value)
         self.edit.setReadOnly(op == "in")
+        if self._clear_action is not None:
+            self._clear_action.setEnabled(True)
         if kind == F.BOOL:
             self.edit.setVisible(False)
             labels = {"true": "true", "false": "false", "null": "NULL",
@@ -636,6 +650,26 @@ class FilterCell(QFrame):
 # POPUPS
 # ============================================================================
 
+class _ValueItem(QTreeWidgetItem):
+    """A row of the value list.  Values sort by type (numbers as numbers),
+    records as numbers; the NULL entry stays at the top either way."""
+
+    def __init__(self, texts, raw, count):
+        super().__init__(texts)
+        self.is_null = raw is None
+        value_key = F.sort_key(F.group_value(raw))
+        self.keys = (value_key, (-1 if count is None else count, value_key))
+
+    def __lt__(self, other):
+        tree = self.treeWidget()
+        ascending = (tree is None or tree.header().sortIndicatorOrder()
+                     == Qt.SortOrder.AscendingOrder)
+        if self.is_null != other.is_null:
+            return self.is_null if ascending else other.is_null
+        column = tree.sortColumn() if tree is not None else 0
+        return self.keys[min(max(column, 0), 1)] < other.keys[min(max(column, 0), 1)]
+
+
 class ValuePicker(QFrame):
     """Checklist of the column's values ('is one of'), with record counts."""
 
@@ -649,7 +683,15 @@ class ValuePicker(QFrame):
         self.setMinimumSize(300, 340)
         self.setStyleSheet(
             f"QFrame#gtsPopup {{ background: {theme.card}; border: 1px solid "
-            f"{theme.border}; border-radius: 4px; }}")
+            f"{theme.border}; border-radius: 4px; }}"
+            # headings like every table of the suite, with room for the arrow
+            f"QTreeWidget#gtsValueList QHeaderView::section {{ background: "
+            f"{theme.header}; color: {theme.text_strong}; font-weight: 700; "
+            f"border: none; border-right: 1px solid {theme.border}; "
+            f"border-bottom: 1px solid {theme.border}; padding: 3px 22px 3px 6px; }}"
+            "QTreeWidget#gtsValueList QHeaderView::up-arrow, "
+            "QTreeWidget#gtsValueList QHeaderView::down-arrow "
+            "{ image: none; width: 0px; height: 0px; }")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
@@ -662,14 +704,18 @@ class ValuePicker(QFrame):
         self.search.textChanged.connect(self._filter)
         lay.addWidget(self.search)
         self.tree = QTreeWidget()
+        self.tree.setObjectName("gtsValueList")
+        self.tree.setHeader(W.SortHeader(theme, self.tree))
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
         self.tree.setHeaderLabels(["Value", "Records"])
+        self.tree.header().setToolTip("Click a heading to sort")
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         current_keys = {F.group_value(v) for v in current}
         null_colour = QColor(theme.data_null)
         for raw, text, count in entries:
-            item = QTreeWidgetItem([text, "" if count is None else f"{count:,}"])
+            item = _ValueItem([text, "" if count is None else f"{count:,}"],
+                              raw, count)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(0, Qt.CheckState.Checked
                                if F.group_value(raw) in current_keys
@@ -687,6 +733,10 @@ class ValuePicker(QFrame):
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.tree.header().setSectionResizeMode(
             1, QHeaderView.ResizeMode.ResizeToContents)
+        # the list arrives sorted by value; clicking a heading re-sorts it
+        self.tree.header().setSortIndicator(0, Qt.SortOrder.AscendingOrder)
+        self.tree.header().setSortIndicatorShown(True)
+        self.tree.setSortingEnabled(True)
         self.tree.itemDoubleClicked.connect(lambda *_: self._apply())
         lay.addWidget(self.tree, 1)
         if len(entries) >= 5000:
