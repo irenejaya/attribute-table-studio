@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Geometry and Table Compare - Comparison Dialog  (v1.1.0)
+Geometry and Table Compare - comparison panel (Attribute Table Studio tool 3)
 
 Compares an OLD (baseline) layer against a NEW (updated) layer:
-- Qt5 / Qt6 compatible (QGIS 3.x and QGIS 4.x) with light / dark theme support
+- Qt5 / Qt6 compatible (QGIS 3.40+ and QGIS 4.x) with light / dark theme support
 - Pre-flight validation (duplicate IDs, field structure, null checks)
 - Optional geometry property comparison (length / area / centroid / vertices)
-- Colour-coded results with filter chips, live counts and text search
-- Review workflow (accept / reject changes) and CSV export
+- Colour-coded results with status filters, live counts and text search
+- Review workflow (accept / reject changes) and Excel / CSV export
+
+The comparison logic is unchanged from the standalone plugin (v1.1); the
+interface uses the shared Attribute Table Studio theme, buttons and status strip
+and is shown in a window or dock by ui/tool_host.py.
 """
 
 import os
@@ -16,28 +20,29 @@ import math
 from collections import Counter
 
 from qgis.PyQt.QtCore import (
-    Qt, QDate, QDateTime, QTimer, QSize, QRectF, QPointF, QStringListModel,
+    Qt, QDate, QDateTime, QTimer, QSize, QStringListModel,
 )
-from qgis.PyQt.QtGui import (
-    QIcon, QColor, QBrush, QPixmap, QPainter, QPen, QPainterPath, QPalette,
-    QFont, QFontMetrics,
-)
+from qgis.PyQt.QtGui import QColor, QBrush, QFont, QFontMetrics, QPalette
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QComboBox, QLabel,
-    QPushButton, QToolButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QCheckBox, QFileDialog, QMessageBox, QAbstractItemView, QProgressBar,
-    QWidget, QFrame, QApplication, QLineEdit, QStackedWidget, QListWidget,
-    QListWidgetItem, QDialogButtonBox, QSizePolicy, QScrollArea, QCompleter,
-    QMenu, QDoubleSpinBox,
+    QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QFileDialog,
+    QMessageBox, QAbstractItemView, QWidget, QFrame, QApplication, QLineEdit,
+    QStackedWidget, QSizePolicy, QScrollArea, QCompleter, QMenu,
+    QDoubleSpinBox, QProgressBar, QPushButton,
 )
 from qgis.core import (
-    Qgis, QgsApplication, QgsWkbTypes, NULL, QgsGeometry, QgsFeature,
+    Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature,
     QgsVectorLayer, QgsProject, QgsRectangle, QgsCoordinateTransform,
     QgsSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest, QgsSpatialIndex,
     QgsVectorFileWriter, QgsCategorizedSymbolRenderer, QgsRendererCategory,
     QgsMarkerSymbol,
 )
 from qgis.gui import QgsMapLayerComboBox
+
+from ..core import fields as FK
+from . import icons
+from . import widgets as W
+from .theme import Metrics, Theme, stylesheet
 
 try:
     from openpyxl import Workbook
@@ -469,202 +474,20 @@ class _SortItem(QTableWidgetItem):
 
 
 # ============================================================================
-# THEME (derived from the active QGIS / Qt palette -> works in dark mode)
+# THEME / ICONS (shared Attribute Table Studio look - the Compare palette)
 # ============================================================================
 
-def _mix(a, b, t):
-    """Blend colour *a* towards colour *b* by factor *t* (0..1)."""
-    return QColor(
-        int(a.red() * (1 - t) + b.red() * t),
-        int(a.green() * (1 - t) + b.green() * t),
-        int(a.blue() * (1 - t) + b.blue() * t),
-    )
+def _qgis_icon(theme_name, *_fallback):
+    """Built-in QGIS theme icon."""
+    return icons.native(theme_name)
 
 
-class _Theme:
-    """Resolved colours for the current light / dark appearance.
-
-    Panel / card / border values follow TUFLOW Sentinel: the dialog keeps the
-    native window colour and the cards sit slightly lighter on top of it.
-    """
-
-    # (row background, accent) per status; text colour is shared
-    _LIGHT_STATUS = {
-        "Added":        ("#D8ECFF", "#1E88E5"),
-        "Deleted":      ("#FFD9D9", "#E53935"),
-        "Modified":     ("#FFF2BF", "#F9A825"),
-        "Unchanged":    ("#F1F1F1", "#9E9E9E"),
-        "ChangedField": ("#FF9FCB", "#D81B7A"),
-    }
-    _DARK_STATUS = {
-        "Added":        ("#1F4568", "#64B5F6"),
-        "Deleted":      ("#6B2A2A", "#EF5350"),
-        "Modified":     ("#5E5120", "#FFCA28"),
-        "Unchanged":    ("#383838", "#9E9E9E"),
-        "ChangedField": ("#9C2A68", "#F06292"),
-    }
-
-    def __init__(self):
-        pal = QApplication.instance().palette()
-        role = QPalette.ColorRole
-        win = pal.color(role.Window)
-        txt = pal.color(role.WindowText)
-        self.dark = win.lightnessF() < 0.5
-        dark = self.dark
-
-        self.text = txt.name()
-        self.text_dim = _mix(txt, win, 0.38).name()
-        # Sentinel palette: panel #F5F5F5 / card #FAFAFA (dark #353535 / #3C3C3C)
-        self.panel = "#353535" if dark else "#F5F5F5"
-        self.card = "#3C3C3C" if dark else "#FAFAFA"
-        self.status_bg = "#353535" if dark else "#F0F0F0"
-        self.card_hover = "#4A4A4A" if dark else "#E9E9E9"
-        self.border = "#555555" if dark else "#CCCCCC"
-        self.base = "#2B2B2B" if dark else "#FFFFFF"
-        # Neutral grey (not blue) so headers never read as an 'Added' row
-        self.header = "#454545" if dark else "#E4E4E4"
-        self.selected = "#1565C0" if dark else "#BBDEFB"
-        self.selected_text = "#FFFFFF" if dark else "#0D2A4A"
-        self.accent = "#1976D2" if dark else "#2196F3"
-        self.accent_hover = "#1565C0" if dark else "#1976D2"
-        self.success = "#66BB6A" if dark else "#2E7D32"
-        self.warning = "#FFB74D" if dark else "#E65100"
-        self.danger = "#EF5350" if dark else "#C62828"
-        self.old_colour = "#1E88E5" if dark else "#1565C0"
-        self.new_colour = "#43A047" if dark else "#2E7D32"
-        self.disabled_bg = "#555555" if dark else "#BDBDBD"
-        self.disabled_fg = "#9A9A9A" if dark else "#EEEEEE"
-
-        self.row_text = "#F2F2F2" if dark else "#1B1B1B"
-        status = self._DARK_STATUS if dark else self._LIGHT_STATUS
-        self.status = {k: (QColor(v[0]), QColor(v[1]))
-                       for k, v in status.items()}
-        self.accepted_bg = QColor("#2E5E32" if self.dark else "#C8E6C9")
-        self.rejected_bg = QColor("#6D2F35" if self.dark else "#FFCDD2")
-
-    def bg(self, key):
-        return self.status[key][0]
-
-    def accent_of(self, key):
-        return self.status[key][1]
-
-
-# ============================================================================
-# ICONS (painted, so they follow the theme colours and need no resources)
-# ============================================================================
-
-def _make_icon(kind, color, size=18):
-    scale = 2
-    pm = QPixmap(size * scale, size * scale)
-    pm.fill(Qt.GlobalColor.transparent)
-    pm.setDevicePixelRatio(scale)
-    p = QPainter(pm)
-    p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    col = QColor(color)
-    pen = QPen(col)
-    pen.setWidthF(1.7)
-    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-    p.setPen(pen)
-    p.setBrush(Qt.BrushStyle.NoBrush)
-    s = float(size)
-
-    def pt(x, y):
-        return QPointF(x * s, y * s)
-
-    def poly(points, close=False):
-        path = QPainterPath()
-        path.moveTo(pt(*points[0]))
-        for q in points[1:]:
-            path.lineTo(pt(*q))
-        if close:
-            path.closeSubpath()
-        return path
-
-    if kind == "check":
-        p.drawPath(poly([(.2, .55), (.42, .75), (.8, .28)]))
-    elif kind == "cross":
-        p.drawLine(pt(.25, .25), pt(.75, .75))
-        p.drawLine(pt(.75, .25), pt(.25, .75))
-    elif kind == "play":
-        p.setBrush(QBrush(col))
-        p.drawPath(poly([(.30, .18), (.82, .50), (.30, .82)], close=True))
-    elif kind == "validate":
-        p.drawEllipse(QRectF(.1 * s, .1 * s, .8 * s, .8 * s))
-        p.drawPath(poly([(.3, .52), (.45, .67), (.7, .35)]))
-    elif kind == "reset":
-        rect = QRectF(.2 * s, .2 * s, .6 * s, .6 * s)
-        p.drawArc(rect, 40 * 16, 290 * 16)
-        p.drawPath(poly([(.82, .12), (.80, .36), (.58, .30)]))
-    elif kind == "export":
-        p.drawPath(poly([(.18, .60), (.18, .82), (.82, .82), (.82, .60)]))
-        p.drawLine(pt(.5, .14), pt(.5, .64))
-        p.drawPath(poly([(.30, .48), (.5, .68), (.70, .48)]))
-    elif kind == "swap":
-        p.drawLine(pt(.15, .34), pt(.85, .34))
-        p.drawPath(poly([(.68, .18), (.85, .34), (.68, .50)]))
-        p.drawLine(pt(.85, .68), pt(.15, .68))
-        p.drawPath(poly([(.32, .52), (.15, .68), (.32, .84)]))
-    elif kind == "help":
-        p.drawEllipse(QRectF(.1 * s, .1 * s, .8 * s, .8 * s))
-        font = QFont()
-        font.setBold(True)
-        font.setPixelSize(int(s * .55))
-        p.setFont(font)
-        p.drawText(QRectF(0, 0, s, s), Qt.AlignmentFlag.AlignCenter, "?")
-    elif kind == "dot":
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QBrush(col))
-        p.drawEllipse(QRectF(.28 * s, .28 * s, .44 * s, .44 * s))
-
-    p.end()
-    return QIcon(pm)
-
-
-def _qgis_icon(theme_name, fallback_kind, fallback_color):
-    """Built-in QGIS theme icon, or a painted fallback if it is missing."""
-    icon = QgsApplication.getThemeIcon(theme_name)
-    if icon.isNull() or icon.pixmap(QSize(16, 16)).isNull():
-        return _make_icon(fallback_kind, fallback_color)
-    return icon
-
-
-# ============================================================================
-# FIELD HELPERS (icon + tooltip, same look as the QGIS field pickers)
-# ============================================================================
-
-def _field_icon(field):
-    type_name = (field.typeName() or "").lower()
-    icon_name = "/mIconFieldText.svg"
-    try:
-        if field.isNumeric():
-            is_float = (field.precision() > 0 or any(
-                k in type_name for k in ("real", "double", "float",
-                                         "numeric", "decimal")))
-            icon_name = ("/mIconFieldFloat.svg" if is_float
-                         else "/mIconFieldInteger.svg")
-        elif "datetime" in type_name or "timestamp" in type_name:
-            icon_name = "/mIconFieldDateTime.svg"
-        elif "date" in type_name:
-            icon_name = "/mIconFieldDate.svg"
-        elif "time" in type_name:
-            icon_name = "/mIconFieldTime.svg"
-        elif "bool" in type_name:
-            icon_name = "/mIconFieldBool.svg"
-    except Exception:
-        pass
-    return QgsApplication.getThemeIcon(icon_name)
+def _field_icon(field, theme):
+    return icons.field_for(field, theme)
 
 
 def _field_tooltip(field):
-    try:
-        type_desc = field.displayType(True)
-    except Exception:
-        type_desc = field.typeName()
-    tip = f"<b>{field.name()}</b><br>{type_desc}"
-    if field.alias():
-        tip += f"<br><i>Alias: {field.alias()}</i>"
-    return tip
+    return W.field_tooltip(field)
 
 
 class _CheckLabel(QLabel):
@@ -682,159 +505,38 @@ class _CheckLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
-class _ElideLabel(QLabel):
-    """Single-line label that elides its text instead of widening the layout."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self._full = ""
-        self.setSizePolicy(
-            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        self.setMinimumWidth(50)
-
-    def setText(self, text):
-        self._full = text
-        self._refresh()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._refresh()
-
-    def _refresh(self):
-        elided = self.fontMetrics().elidedText(
-            self._full, Qt.TextElideMode.ElideRight, max(self.width(), 10))
-        super().setText(elided)
-
-
 # ============================================================================
-# COLUMN SELECTION DIALOG
+# MAIN PANEL
 # ============================================================================
 
-class _ColumnSelectDialog(QDialog):
-    """Pick which columns count towards the 'Modified' test."""
-
-    def __init__(self, fields, checked_names, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Field(s) to Compare")
-        self.setMinimumSize(420, 480)
-
-        lay = QVBoxLayout(self)
-        lay.setSpacing(8)
-
-        info = QLabel(
-            "Choose the fields used to decide whether a feature is "
-            "<b>Modified</b>. Unticked fields are ignored "
-            "(e.g. fid, timestamps)."
-        )
-        info.setWordWrap(True)
-        info.setTextFormat(Qt.TextFormat.RichText)
-        lay.addWidget(info)
-
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("Filter fields…")
-        self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._filter)
-        lay.addWidget(self.search)
-
-        self.listw = QListWidget()
-        self.listw.setIconSize(QSize(18, 18))
-        for fld in fields:
-            item = QListWidgetItem(_field_icon(fld), fld.name())
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(
-                Qt.CheckState.Checked if fld.name() in checked_names
-                else Qt.CheckState.Unchecked)
-            item.setToolTip(_field_tooltip(fld))
-            self.listw.addItem(item)
-        lay.addWidget(self.listw, 1)
-
-        row = QHBoxLayout()
-        btn_all = QPushButton("Show All")
-        btn_none = QPushButton("Hide All")
-        btn_toggle = QPushButton("Toggle Selection")
-        btn_all.setToolTip("Tick every field (include in the comparison)")
-        btn_none.setToolTip("Untick every field (ignore in the comparison)")
-        btn_toggle.setToolTip("Invert the tick state of every field")
-        btn_all.clicked.connect(lambda: self._set_all(True))
-        btn_none.clicked.connect(lambda: self._set_all(False))
-        btn_toggle.clicked.connect(self._toggle_all)
-        for b in (btn_all, btn_none, btn_toggle):
-            b.setAutoDefault(False)
-            row.addWidget(b)
-        row.addStretch()
-        lay.addLayout(row)
-
-        box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok
-            | QDialogButtonBox.StandardButton.Cancel)
-        box.accepted.connect(self.accept)
-        box.rejected.connect(self.reject)
-        lay.addWidget(box)
-
-    def _filter(self, text):
-        text = text.lower()
-        for i in range(self.listw.count()):
-            item = self.listw.item(i)
-            item.setHidden(text not in item.text().lower())
-
-    def _toggle_all(self):
-        for i in range(self.listw.count()):
-            item = self.listw.item(i)
-            if not item.isHidden():
-                item.setCheckState(
-                    Qt.CheckState.Unchecked
-                    if item.checkState() == Qt.CheckState.Checked
-                    else Qt.CheckState.Checked)
-
-    def _set_all(self, state):
-        check = Qt.CheckState.Checked if state else Qt.CheckState.Unchecked
-        for i in range(self.listw.count()):
-            item = self.listw.item(i)
-            if not item.isHidden():
-                item.setCheckState(check)
-
-    def checked_names(self):
-        return [
-            self.listw.item(i).text() for i in range(self.listw.count())
-            if self.listw.item(i).checkState() == Qt.CheckState.Checked
-        ]
-
-
-# ============================================================================
-# MAIN DIALOG
-# ============================================================================
-
-class GeoTableCompareDialog(QDialog):
+class GeoTableCompareDialog(QWidget):
     """
-    Main comparison dialog for the Geometry and Table Compare plugin.
+    Main comparison panel for the Geometry and Table Compare tool.
 
     Directional comparison:  OLD (Baseline) ──→ NEW (Updated)
     - Added     = feature exists only in NEW
     - Deleted   = feature exists only in OLD
     - Modified  = feature changed between OLD → NEW
     - Unchanged = feature is identical in both
+
+    Shown by the Attribute Table Studio window / dock host (see ui/tool_host.py).
     """
 
-    BUTTON_SIZE = QSize(190, 28)
-    INPUT_HEIGHT = 22
+    ACTION_SIZE = QSize(190, 28)    # Validate Data and Compare, as in v1.1
 
     def __init__(self, iface, parent=None):
-        # parent=None -> own top-level window with a taskbar entry
-        # (same behaviour as TUFLOW Sentinel)
         super().__init__(parent)
+        self.setObjectName("gtsPanel")
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.iface = iface
-        self.theme = _Theme()
-
-        self.setWindowTitle(PLUGIN_NAME)
-        self.setWindowIcon(QIcon(os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), 'icon.svg')))
-        self.setMinimumSize(1400, 700)
-        self.resize(1440, 820)
-        self.setWindowFlags(
-            self.windowFlags()
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowMaximizeButtonHint
-        )
+        self.theme = Theme()
+        self.metrics = Metrics(self.font())
+        # badges / "Join field" / "Compare geometry" share one column width
+        fm, bold = self.metrics.fm, self.metrics.bold_fm
+        self.LABEL_COLUMN = max(
+            150, bold.horizontalAdvance("NEW  Updated") + 30,
+            fm.horizontalAdvance("Compare geometry") + 34)
+        self.setMinimumSize(1000, 380)       # still fits a bottom dock
 
         # Data storage
         self.decisions = {}
@@ -859,16 +561,29 @@ class GeoTableCompareDialog(QDialog):
         self._wire_signals()
         self._on_layer_changed()
 
+    # host contract (ui/tool_host.py) -----------------------------------
+    def window_title(self):
+        return PLUGIN_NAME
+
+    def full_window_title(self):
+        """Compare keeps its own title (no suite prefix)."""
+        return PLUGIN_NAME
+
+    def shutdown(self):
+        """Nothing runs in the background; layers added to the map stay."""
+
     # ====================================================================
     # UI CONSTRUCTION
     # ====================================================================
 
     def _build_ui(self):
+        m = self.metrics
         root = QVBoxLayout(self)
-        root.setContentsMargins(10, 10, 10, 10)
+        root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)
 
         root.addWidget(self._create_input_card())
+        root.addSpacing(2)
         root.addWidget(self._create_summary_bar())
         root.addWidget(self._create_review_bar())
 
@@ -880,18 +595,16 @@ class GeoTableCompareDialog(QDialog):
         root.addWidget(self._create_bottom_bar())
 
     # ------------------------------------------------------------------
-    def _new_card(self, name="card"):
-        card = QFrame()
-        card.setObjectName(name)
-        return card
-
     def _create_input_card(self):
-        card = self._new_card()
+        m, t = self.metrics, self.theme
+        card = QFrame()
+        card.setObjectName("gtsCard")
         grid = QGridLayout(card)
         grid.setContentsMargins(14, 12, 14, 12)
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(8)
         grid.setColumnStretch(1, 1)
+        grid.setColumnMinimumWidth(0, self.LABEL_COLUMN)
 
         # ---- OLD / NEW layer rows ----
         self.old_table_combo = self._new_layer_combo()
@@ -899,36 +612,35 @@ class GeoTableCompareDialog(QDialog):
         self.old_info = QLabel("")
         self.new_info = QLabel("")
         for lbl in (self.old_info, self.new_info):
-            lbl.setObjectName("dim")
-            lbl.setMinimumWidth(260)
+            lbl.setObjectName("gtsDim")
+            lbl.setMinimumWidth(220)
 
-        grid.addWidget(self._badge("OLD", "Baseline", "badgeOld"), 0, 0)
+        grid.addWidget(self._badge("OLD", "Baseline", t.old_colour), 0, 0)
         grid.addWidget(self.old_table_combo, 0, 1)
         grid.addWidget(self.old_info, 0, 2)
-        grid.addWidget(self._badge("NEW", "Updated", "badgeNew"), 1, 0)
+        grid.addWidget(self._badge("NEW", "Updated", t.new_colour), 1, 0)
         grid.addWidget(self.new_table_combo, 1, 1)
         grid.addWidget(self.new_info, 1, 2)
 
-        self.swap_btn = QToolButton()
-        self.swap_btn.setObjectName("swapBtn")
-        self.swap_btn.setIcon(_make_icon("swap", self.theme.text))
-        self.swap_btn.setIconSize(QSize(18, 18))
-        self.swap_btn.setFixedSize(28, 28)
-        self.swap_btn.setToolTip("Swap OLD and NEW layers")
+        self.swap_btn = W.primary_square(m, icons.native(icons.SWAP),
+                                         "Swap OLD and NEW layers")
         grid.addWidget(self.swap_btn, 0, 3, 2, 1,
-                       Qt.AlignmentFlag.AlignVCenter)
+                       Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight)
+        # same place as in every Attribute Table Studio tool: top right
+        self.dock_btn = W.dock_button(m)
+        grid.addWidget(self.dock_btn, 0, 4,
+                       Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
 
         # ---- Join field + column selector ----
         join_lbl = QLabel("Join field")
-        join_lbl.setObjectName("fieldLabel")
-        join_lbl.setFixedWidth(150)
+        join_lbl.setFixedWidth(self.LABEL_COLUMN)
         grid.addWidget(join_lbl, 2, 0)
 
         self.join_field_combo = QComboBox()
         self.join_field_combo.setMinimumWidth(240)
         self.join_field_combo.setMaximumWidth(340)
-        self.join_field_combo.setFixedHeight(self.INPUT_HEIGHT)
-        self.join_field_combo.setIconSize(QSize(18, 18))
+        self.join_field_combo.setFixedHeight(m.control_h)
+        self.join_field_combo.setIconSize(QSize(m.icon, m.icon))
         self.join_field_combo.setMaxVisibleItems(16)
         self.join_field_combo.view().setMinimumWidth(320)
         self.join_field_combo.setToolTip(
@@ -936,21 +648,13 @@ class GeoTableCompareDialog(QDialog):
             "Used to match rows between OLD and NEW."
         )
 
-        self.column_filter_btn = QPushButton(" Field(s) to Compare")
-        self.column_filter_btn.setIcon(
-            _qgis_icon("/propertyicons/settings.svg", "help", self.theme.text))
-        self.column_filter_btn.setIconSize(QSize(16, 16))
-        self.column_filter_btn.setFixedHeight(self.INPUT_HEIGHT)
-        self.column_filter_btn.setToolTip(
-            "Choose which fields are compared\n"
-            "when detecting modified features"
-        )
-
-        join_row = None  # built below, once the action buttons exist
+        self.column_filter_btn = W.button(
+            m, "Field(s) to Compare", icons.native(icons.COLUMNS),
+            "Choose which fields are compared\nwhen detecting modified features")
 
         # ---- Geometry comparison ----
         self.geom_compare_cb = QCheckBox("Compare geometry")
-        self.geom_compare_cb.setFixedWidth(150)
+        self.geom_compare_cb.setFixedWidth(self.LABEL_COLUMN)
         self.geom_compare_cb.setToolTip(
             "Compare geometry properties between OLD and NEW.\n"
             "Adds virtual fields to the comparison results."
@@ -961,106 +665,99 @@ class GeoTableCompareDialog(QDialog):
         self.geom_area_cb = QCheckBox("Shape Area")
         self.geom_centroid_cb = QCheckBox("Centroid XY")
         self.geom_vertices_cb = QCheckBox("Vertex Count")
-        geom_row = QHBoxLayout()
-        geom_row.setSpacing(8)
+        geom_row = W.FlowLayout(h_spacing=14, v_spacing=6)
         for cb in self._geom_checkboxes():
             cb.setEnabled(False)
+            cb.setFixedHeight(m.control_h)
             geom_row.addWidget(cb)
 
-        self.geom_tol_label = QLabel("Tolerance")
         self.geom_tol_spin = QDoubleSpinBox()
         self.geom_tol_spin.setDecimals(6)
         self.geom_tol_spin.setRange(0.0, 1000000.0)
         self.geom_tol_spin.setSingleStep(0.001)
         self.geom_tol_spin.setValue(DEFAULT_GEOM_TOLERANCE)
-        self.geom_tol_spin.setFixedWidth(92)
-        self.geom_tol_spin.setFixedHeight(self.INPUT_HEIGHT)
+        self.geom_tol_spin.setFixedWidth(100)
+        self.geom_tol_spin.setFixedHeight(m.control_h)
         tol_tip = (
             "Geometry that moved by less than this distance (in the layer's\n"
             "map units) is treated as unchanged. Use 0 for an exact match."
         )
+        tol_box = W.labelled("Tolerance", self.geom_tol_spin)
+        self.geom_tol_label = tol_box.label
         self.geom_tol_label.setToolTip(tol_tip)
         self.geom_tol_spin.setToolTip(tol_tip)
-        geom_row.addSpacing(4)
-        geom_row.addWidget(self.geom_tol_label)
-        geom_row.addWidget(self.geom_tol_spin)
 
         # How a multipart geometry is compared (auto-detected from the input)
-        self.geom_mode_label = QLabel("Comparison Method")
         self.geom_mode_combo = QComboBox()
-        self.geom_mode_combo.setFixedHeight(self.INPUT_HEIGHT)
-        self.geom_mode_combo.setFixedWidth(118)
-        self.geom_mode_combo.setIconSize(QSize(16, 16))
+        self.geom_mode_combo.setFixedHeight(m.control_h)
+        self.geom_mode_combo.setFixedWidth(130)
+        self.geom_mode_combo.setIconSize(QSize(m.icon, m.icon))
         self._add_mode_item("Singlepart", "whole")
+        mode_box = W.labelled("Method", self.geom_mode_combo)
+        self.geom_mode_label = mode_box.label
         self.geom_mode_label.setToolTip(MODE_TIP)
         self.geom_mode_combo.setToolTip(MODE_TIP)
-        geom_row.addSpacing(4)
-        geom_row.addWidget(self.geom_mode_label)
-        geom_row.addWidget(self.geom_mode_combo)
 
         # Where the review points are stored (temporary layer or a file)
-        self.review_out_label = QLabel("Review Points Output")
         self.review_out_combo = QComboBox()
-        self.review_out_combo.setFixedHeight(self.INPUT_HEIGHT)
-        self.review_out_combo.setFixedWidth(214)
-        self.review_out_combo.setIconSize(QSize(16, 16))
+        self.review_out_combo.setFixedHeight(m.control_h)
+        self.review_out_combo.setFixedWidth(210)
+        self.review_out_combo.setIconSize(QSize(m.icon, m.icon))
         for text, key, icon in (
                 ("Temporary Points", "temp", "/mIconPointLayer.svg"),
                 ("Save as shapefile (.shp)", "shp",
                  "/mActionNewVectorLayer.svg"),
                 ("Save as geopackage (.gpkg)", "gpkg",
                  "/mActionNewGeoPackageLayer.svg")):
-            self.review_out_combo.addItem(
-                _qgis_icon(icon, "dot", self.theme.text), text, key)
+            self.review_out_combo.addItem(_qgis_icon(icon), text, key)
+        review_box = W.labelled("Review points", self.review_out_combo)
+        self.review_out_label = review_box.label
         self._review_path = ""
         self._review_fmt = "temp"
         self._set_review_tooltip()
-        geom_row.addSpacing(4)
-        geom_row.addWidget(self.review_out_label)
-        geom_row.addWidget(self.review_out_combo)
-        geom_row.addStretch()
+
+        for box in (tol_box, mode_box, review_box):
+            geom_row.addWidget(box)
 
         for w in (self.geom_tol_label, self.geom_tol_spin,
                   self.geom_mode_label, self.geom_mode_combo,
                   self.review_out_label, self.review_out_combo):
             w.setEnabled(False)
-        grid.addLayout(geom_row, 3, 1, 1, 3)
+        grid.addLayout(geom_row, 3, 1, 1, 4)
 
-        # ---- Action buttons (identical size) ----
+        # ---- Action buttons (identical size, the v1.1 buttons) ----
         self.validate_btn = QPushButton(" Validate Data")
-        self.validate_btn.setIcon(_make_icon("validate", self.theme.text))
+        self.validate_btn.setIcon(icons.action_icon("validate", t.text))
         self.validate_btn.setToolTip(
             "Check for duplicate IDs, field mismatches,\n"
-            "and null values before comparing"
-        )
+            "and null values before comparing")
         self.compare_button = QPushButton(" Compare OLD → NEW")
         self.compare_button.setProperty("role", "primary")
-        self.compare_button.setIcon(_make_icon("play", "#FFFFFF"))
+        self.compare_button.setIcon(icons.action_icon("play", "#FFFFFF"))
         self.compare_button.setToolTip(
             "Detect added, deleted and modified features")
+        # v1.1 size; wider only if the bold 10 pt label would not fit
+        bold = QFont(self.compare_button.font())
+        bold.setPointSizeF(10)
+        bold.setBold(True)
+        label_w = QFontMetrics(bold).horizontalAdvance(self.compare_button.text())
+        size = QSize(max(self.ACTION_SIZE.width(), label_w + 18 + 2 * 14 + 10),
+                     self.ACTION_SIZE.height())
         for b in (self.validate_btn, self.compare_button):
             b.setObjectName("actionBtn")
-            b.setFixedSize(self.BUTTON_SIZE)
+            b.setFixedSize(size)
             b.setIconSize(QSize(18, 18))
             b.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.help_btn = QToolButton()
-        self.help_btn.setObjectName("swapBtn")
-        self.help_btn.setIcon(_make_icon("help", self.theme.text))
-        self.help_btn.setIconSize(QSize(20, 20))
-        self.help_btn.setFixedSize(28, 28)
-        self.help_btn.setToolTip(f"How to use {PLUGIN_NAME}")
-
         # Join row: field pickers on the left, action buttons on the right
         join_row = QHBoxLayout()
-        join_row.setSpacing(8)
+        join_row.setSpacing(m.gap)
         join_row.addWidget(self.join_field_combo)
         join_row.addWidget(self.column_filter_btn)
         join_row.addStretch()
         join_row.addWidget(self.validate_btn)
         join_row.addWidget(self.compare_button)
-        grid.addLayout(join_row, 2, 1, 1, 2)
-        grid.addWidget(self.help_btn, 2, 3, Qt.AlignmentFlag.AlignVCenter)
+        grid.addLayout(join_row, 2, 1, 1, 4)
 
         # ---- Validation results (hidden by default) ----
         self.validation_frame = QFrame()
@@ -1080,7 +777,7 @@ class GeoTableCompareDialog(QDialog):
         scroll.setObjectName("validationScroll")
         vf.addWidget(scroll)
         self.validation_frame.setVisible(False)
-        grid.addWidget(self.validation_frame, 4, 0, 1, 4)
+        grid.addWidget(self.validation_frame, 4, 0, 1, 5)
 
         return card
 
@@ -1094,27 +791,34 @@ class GeoTableCompareDialog(QDialog):
         combo.setAllowEmptyLayer(True)
         combo.setShowCrs(True)
         combo.setMinimumWidth(240)
-        combo.setFixedHeight(self.INPUT_HEIGHT)
+        combo.setFixedHeight(self.metrics.control_h)
         return combo
 
-    def _badge(self, title, subtitle, object_name):
-        lbl = QLabel(f"{title}  ·  {subtitle}")
-        lbl.setObjectName(object_name)
-        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl.setFixedSize(150, self.INPUT_HEIGHT)
+    def _badge(self, title, subtitle, colour):
+        lbl = QLabel(f"<span style='color:{colour}; font-weight:700;'>{title}"
+                     f"</span>&nbsp;&nbsp;{subtitle}")
+        lbl.setObjectName("gtsBadge")
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setFixedSize(self.LABEL_COLUMN, self.metrics.control_h)
+        return lbl
+
+    def _row_title(self, text):
+        lbl = W.label(text, "title")
+        fm = self.metrics.bold_fm
+        lbl.setFixedWidth(max(fm.horizontalAdvance("Results"),
+                              fm.horizontalAdvance("Review")) + 22)
         return lbl
 
     # ------------------------------------------------------------------
     def _create_summary_bar(self):
-        card = self._new_card("panel")
-        lay = QHBoxLayout(card)
-        lay.setContentsMargins(12, 8, 12, 8)
-        lay.setSpacing(8)
+        m = self.metrics
+        bar = QWidget()
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(2, 0, 0, 0)
+        lay.setSpacing(m.gap)
+        lay.addWidget(self._row_title("Results"))
 
-        title = QLabel("Results")
-        title.setObjectName("sectionTitle")
-        lay.addWidget(title)
-
+        # v1.1 legend: tick box + rounded box in the row colour + live count
         self.filter_buttons = {}
         self.filter_boxes = {}
         self.filter_counts = {}
@@ -1136,38 +840,36 @@ class GeoTableCompareDialog(QDialog):
             cb.setObjectName(f"filter{status}")
             cb.setChecked(True)
             cb.setToolTip(f"{tips[status]}\n(tick to show / untick to hide)")
-            cb.setFixedHeight(self.INPUT_HEIGHT + 2)
+            cb.setFixedHeight(m.control_h)
             box = _CheckLabel(labels[status], cb)
             box.setObjectName(f"filterBox{status}")
             box.setToolTip(cb.toolTip())
-            box.setFixedHeight(self.INPUT_HEIGHT + 2)
-            bold = QFont(box.font())
-            bold.setBold(True)
+            box.setFixedHeight(m.control_h)
             box.setMinimumWidth(
-                QFontMetrics(bold).horizontalAdvance(labels[status]) + 34)
+                m.bold_fm.horizontalAdvance(labels[status]) + 34)
             cb.toggled.connect(
-                lambda checked, s=status: self._style_filter_box(s))
+                lambda _checked, s=status: self._style_filter_box(s))
             count = QLabel("")
-            count.setObjectName("dim")
+            count.setObjectName("gtsDim")
             self.filter_buttons[status] = cb
             self.filter_boxes[status] = box
             self.filter_counts[status] = count
             item = QHBoxLayout()
-            item.setSpacing(6)
+            item.setSpacing(m.gap)
             item.addWidget(cb)
             item.addWidget(box)
             item.addWidget(count)
             lay.addLayout(item)
-            lay.addSpacing(6)
+            lay.addSpacing(m.gap)
             self._style_filter_box(status)
         lay.addStretch()
 
         # ---- Filter by field value (field picker + suggestions) ----
         self.filter_field_combo = QComboBox()
-        self.filter_field_combo.setFixedHeight(self.INPUT_HEIGHT)
+        self.filter_field_combo.setFixedHeight(m.control_h)
         self.filter_field_combo.setMinimumWidth(170)
         self.filter_field_combo.setMaximumWidth(240)
-        self.filter_field_combo.setIconSize(QSize(18, 18))
+        self.filter_field_combo.setIconSize(QSize(m.icon, m.icon))
         self.filter_field_combo.setMaxVisibleItems(16)
         self.filter_field_combo.view().setMinimumWidth(280)
         self.filter_field_combo.addItem(self._all_fields_icon(), "All fields", -1)
@@ -1176,11 +878,11 @@ class GeoTableCompareDialog(QDialog):
         lay.addWidget(self.filter_field_combo)
 
         self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Filter by value…")
+        self.search_edit.setPlaceholderText("Filter by value")
         self.search_edit.setClearButtonEnabled(True)
-        self.search_edit.setFixedHeight(self.INPUT_HEIGHT)
+        self.search_edit.setFixedHeight(m.control_h)
         self.search_edit.setMinimumWidth(150)
-        self.search_edit.setMaximumWidth(360)
+        self.search_edit.setMaximumWidth(300)
         self.search_edit.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.search_edit.setToolTip(
@@ -1195,194 +897,26 @@ class GeoTableCompareDialog(QDialog):
         self.search_edit.setCompleter(self.value_completer)
         lay.addWidget(self.search_edit, 1)
 
-        self.export_btn = QPushButton(" Export")
-        self.export_btn.setIcon(
-            _qgis_icon("/mActionSharingExport.svg", "export",
-                       self.theme.text))
-        self.export_btn.setIconSize(QSize(16, 16))
-        self.export_btn.setFixedHeight(self.INPUT_HEIGHT + 2)
-        self.export_btn.setMinimumWidth(96)
-        self.export_btn.setToolTip(
-            "Export the rows shown in the table to Excel or CSV")
-        export_menu = QMenu(self.export_btn)
+        export_menu = QMenu(self)
         self.export_xlsx_action = export_menu.addAction(
-            _qgis_icon("/mActionSharingExport.svg", "export",
-                       self.theme.text),
-            "Excel (.xlsx) — coloured, as shown")
+            _qgis_icon(icons.XLSX), "Excel (.xlsx) — coloured, as shown")
         self.export_csv_action = export_menu.addAction(
-            _qgis_icon("/mActionOpenTable.svg", "export", self.theme.text),
-            "CSV (.csv) — plain values")
+            _qgis_icon(icons.CSV), "CSV (.csv) — plain values")
         if not HAS_OPENPYXL:
             self.export_xlsx_action.setEnabled(False)
             self.export_xlsx_action.setToolTip(
                 "Excel export needs the 'openpyxl' Python package")
-        self.export_btn.setMenu(export_menu)
+        self.export_btn = W.button(
+            m, "Export", icons.native(icons.EXPORT),
+            "Export the rows shown in the table to Excel or CSV",
+            menu=export_menu)
         self.export_btn.setEnabled(False)
         lay.addWidget(self.export_btn)
-        return card
+        return bar
 
-    def _all_fields_icon(self):
-        return _qgis_icon("/mActionOpenTable.svg", "dot", self.theme.text)
+    def _set_filter_count(self, status, count):
+        self.filter_counts[status].setText(f"· {count:,}")
 
-    def _field_icon_and_tip(self, name):
-        """Icon + tooltip for a result field (layer field or geometry value)."""
-        fields = self._old_fields
-        if fields is not None and fields.indexOf(name) >= 0:
-            fld = fields.field(name)
-            return _field_icon(fld), _field_tooltip(fld)
-        if name == "_geom_status":
-            return (QgsApplication.getThemeIcon("/mIconFieldText.svg"),
-                    f"<b>{name}</b><br>Exact geometry comparison result")
-        integer = name in ('_vertex_count', '_parts', '_parts_changed')
-        icon = QgsApplication.getThemeIcon(
-            "/mIconFieldInteger.svg" if integer else "/mIconFieldFloat.svg")
-        return icon, (f"<b>{name}</b><br>Geometry property "
-                      f"({'integer' if integer else 'decimal'}, calculated)")
-
-    def _create_review_bar(self):
-        card = self._new_card("panel")
-        lay = QHBoxLayout(card)
-        lay.setContentsMargins(12, 6, 12, 6)
-        lay.setSpacing(8)
-
-        title = QLabel("Review")
-        title.setObjectName("sectionTitle")
-        title.setToolTip(
-            "Mark Added / Modified rows as Accepted or Rejected.\n"
-            "Nothing is written to your layers — decisions are saved "
-            "in the exported CSV\n(a Rejected row exports its OLD value)."
-        )
-        lay.addWidget(title)
-
-        self.review_scope = QComboBox()
-        self.review_scope.addItems(["Selected rows", "All visible rows"])
-        self.review_scope.setFixedHeight(self.INPUT_HEIGHT)
-        self.review_scope.setToolTip("Which rows the buttons apply to")
-        lay.addWidget(self.review_scope)
-
-        t = self.theme
-        self.accept_btn = self._review_button(
-            " Accept", _qgis_icon("/mIconSuccess.svg", "check", t.success),
-            "accept", "Mark the Added / Modified rows as accepted")
-        self.reject_btn = self._review_button(
-            " Reject", _qgis_icon("/mIconDelete.svg", "cross", t.danger),
-            "reject", "Mark the Added / Modified rows as rejected "
-            "(exports the OLD value)")
-        self.reset_btn = self._review_button(
-            " Reset", _qgis_icon("/mActionUndo.svg", "reset", t.text),
-            "reset", "Return the rows to Pending")
-        for b in (self.accept_btn, self.reject_btn, self.reset_btn):
-            lay.addWidget(b)
-
-        self.map_btn = QPushButton(" Show on map")
-        self.map_btn.setIcon(
-            _qgis_icon("/mActionZoomToSelected.svg", "validate", t.text))
-        self.map_btn.setIconSize(QSize(16, 16))
-        self.map_btn.setFixedSize(116, self.INPUT_HEIGHT + 2)
-        self.map_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.map_btn.setToolTip(
-            "Add the geometry that was ADDED (green) and REMOVED (red) for the\n"
-            "selected rows (or all visible rows if none are selected) to the\n"
-            "map, and zoom to it.\n"
-            "Needs 'Compare geometry' to be ticked when comparing.")
-        self.map_btn.setEnabled(False)
-        lay.addSpacing(8)
-        lay.addWidget(self.map_btn)
-        self.review_tally = QLabel("")
-        self.review_tally.setObjectName("dim")
-        lay.addWidget(self.review_tally)
-
-        lay.addStretch(1)
-        self.changed_field_legend = QLabel("Changed field")
-        self.changed_field_legend.setObjectName("legendChanged")
-        self.changed_field_legend.setFixedHeight(self.INPUT_HEIGHT + 2)
-        self.changed_field_legend.setToolTip(
-            "A pink cell shows a value that differs between OLD and NEW.\n"
-            "Format:  OLD value → NEW value  (blank = empty / NULL)"
-        )
-        lay.addWidget(self.changed_field_legend)
-        self.geom_summary_label = QLabel("")
-        self.geom_summary_label.setObjectName("dim")
-        lay.addWidget(self.geom_summary_label)
-        self.rows_label = QLabel("")
-        self.rows_label.setObjectName("dim")
-        lay.addWidget(self.rows_label)
-
-        self.review_widgets = (
-            self.review_scope, self.accept_btn, self.reject_btn,
-            self.reset_btn)
-        for w in self.review_widgets:
-            w.setEnabled(False)
-        return card
-
-    def _review_button(self, text, icon, role, tip):
-        btn = QPushButton(text)
-        btn.setProperty("role", role)
-        btn.setIcon(icon)
-        btn.setIconSize(QSize(16, 16))
-        btn.setFixedSize(96, self.INPUT_HEIGHT + 2)
-        btn.setToolTip(tip)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        return btn
-
-    def _create_empty_state(self):
-        page = QFrame()
-        page.setObjectName("emptyPage")
-        lay = QVBoxLayout(page)
-        self.empty_label = QLabel(
-            "<div style='font-size:13pt; font-weight:600;'>"
-            "No comparison yet</div><br>"
-            "1.&nbsp; Pick the <b>OLD</b> and <b>NEW</b> layers<br>"
-            "2.&nbsp; Choose the <b>Join field</b> (unique ID)<br>"
-            "3.&nbsp; Press <b>Compare OLD → NEW</b>"
-        )
-        self.empty_label.setObjectName("emptyState")
-        self.empty_label.setTextFormat(Qt.TextFormat.RichText)
-        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(self.empty_label)
-        return page
-
-    def _create_results_table(self):
-        self.results_table = QTableWidget()
-        tbl = self.results_table
-        tbl.setSortingEnabled(True)
-        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        tbl.setAlternatingRowColors(False)
-        tbl.setShowGrid(True)
-        tbl.horizontalHeader().sectionClicked.connect(self._on_column_sort)
-        return tbl
-
-    def _create_bottom_bar(self):
-        """Full-width progress bar above a full-width status line
-        (same structure as TUFLOW Sentinel)."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(0, 4, 0, 0)
-        layout.setSpacing(4)
-
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("%p%")
-        self.progress_bar.setValue(0)
-        self.progress_bar.setVisible(False)
-        layout.addWidget(self.progress_bar)
-
-        self.status_bar = QFrame()
-        self.status_bar.setObjectName("statusBar")
-        self.status_bar.setMinimumHeight(28)
-        sb = QHBoxLayout(self.status_bar)
-        sb.setContentsMargins(8, 3, 8, 3)
-        self.status_label = _ElideLabel()
-        self.status_label.setObjectName("statusMsg")
-        sb.addWidget(self.status_label)
-        layout.addWidget(self.status_bar)
-        return widget
-
-    # ------------------------------------------------------------------
-    # Styling
-    # ------------------------------------------------------------------
     def _style_filter_box(self, status):
         """Coloured legend box next to a filter tick (dimmed when unticked)."""
         t = self.theme
@@ -1398,87 +932,205 @@ class GeoTableCompareDialog(QDialog):
                 f"border: 1px solid {t.border}; border-radius: 4px; "
                 f"padding: 0 10px;")
 
+    def _all_fields_icon(self):
+        return _qgis_icon(icons.TABLE)
+
+    def _field_icon_and_tip(self, name):
+        """Icon + tooltip for a result field (layer field or geometry value)."""
+        fields = self._old_fields
+        if fields is not None and fields.indexOf(name) >= 0:
+            fld = fields.field(name)
+            return _field_icon(fld, self.theme), _field_tooltip(fld)
+        if name == "_geom_status":
+            return (icons.field(FK.TEXT, self.theme),
+                    f"<b>{name}</b><br>Exact geometry comparison result")
+        integer = name in ('_vertex_count', '_parts', '_parts_changed')
+        icon = icons.field(FK.INTEGER if integer else FK.REAL, self.theme)
+        return icon, (f"<b>{name}</b><br>Geometry property "
+                      f"({'integer' if integer else 'decimal'}, calculated)")
+
+    def _create_review_bar(self):
+        m = self.metrics
+        bar = QWidget()
+        lay = QHBoxLayout(bar)
+        lay.setContentsMargins(2, 0, 0, 0)
+        lay.setSpacing(m.gap)
+
+        title = self._row_title("Review")
+        title.setToolTip(
+            "Mark Added / Modified rows as Accepted or Rejected.\n"
+            "Nothing is written to your layers — decisions are saved "
+            "in the exported CSV\n(a Rejected row exports its OLD value)."
+        )
+        lay.addWidget(title)
+
+        self.review_scope = QComboBox()
+        self.review_scope.addItems(["Selected rows", "All visible rows"])
+        self.review_scope.setFixedHeight(m.control_h)
+        self.review_scope.setMinimumWidth(150)
+        self.review_scope.setToolTip("Which rows the buttons apply to")
+        lay.addWidget(self.review_scope)
+
+        self.accept_btn = self._review_button(
+            "Accept", icons.SUCCESS, "accept",
+            "Mark the Added / Modified rows as accepted")
+        self.reject_btn = self._review_button(
+            "Reject", icons.DELETE, "reject",
+            "Mark the Added / Modified rows as rejected (exports the OLD value)")
+        self.reset_btn = self._review_button(
+            "Reset", icons.UNDO, "reset", "Return the rows to Pending")
+        for b in (self.accept_btn, self.reject_btn, self.reset_btn):
+            lay.addWidget(b)
+
+        self.map_btn = W.button(
+            m, "Show on map", icons.native(icons.ZOOM_SELECTED),
+            "Add the geometry that was ADDED (green) and REMOVED (red) for the\n"
+            "selected rows (or all visible rows if none are selected) to the\n"
+            "map, and zoom to it.\n"
+            "Needs 'Compare geometry' to be ticked when comparing.")
+        self.map_btn.setEnabled(False)
+        lay.addSpacing(m.gap)
+        lay.addWidget(self.map_btn)
+        lay.addSpacing(m.gap)
+        self.review_tally = QLabel("")
+        self.review_tally.setObjectName("gtsDim")
+        self.review_tally.setMinimumWidth(40)
+        self.review_tally.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                        QSizePolicy.Policy.Preferred)
+        lay.addWidget(self.review_tally, 1)
+
+        lay.addStretch(1)
+        self.changed_field_legend = QLabel("Changed value")
+        self.changed_field_legend.setObjectName("legendChanged")
+        self.changed_field_legend.setFixedHeight(m.compact_h)
+        self.changed_field_legend.setToolTip(
+            "A highlighted cell shows a value that differs between OLD and "
+            "NEW.\nFormat:  OLD value → NEW value  (blank = empty / NULL)"
+        )
+        lay.addWidget(self.changed_field_legend)
+        self.geom_summary_label = W.ElideLabel()
+        self.geom_summary_label.setObjectName("gtsDim")
+        self.geom_summary_label.setMinimumWidth(60)
+        self.geom_summary_label.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                              QSizePolicy.Policy.Preferred)
+        lay.addWidget(self.geom_summary_label)
+
+        self.review_widgets = (
+            self.review_scope, self.accept_btn, self.reject_btn,
+            self.reset_btn)
+        for w in self.review_widgets:
+            w.setEnabled(False)
+        return bar
+
+    def _review_button(self, text, icon_name, role, tip):
+        btn = W.button(self.metrics, text, icons.native(icon_name), tip)
+        btn.setProperty("role", role)
+        btn.setMinimumWidth(96)
+        return btn
+
+    def _create_empty_state(self):
+        page = QFrame()
+        page.setObjectName("emptyPage")
+        lay = QVBoxLayout(page)
+        self.empty_label = QLabel(
+            f"<div style='font-size:{self.metrics.display_pt}pt; font-weight:600;'>"
+            "No comparison yet</div><br>"
+            "1.&nbsp; Pick the <b>OLD</b> and <b>NEW</b> layers<br>"
+            "2.&nbsp; Choose the <b>Join field</b> (unique ID)<br>"
+            "3.&nbsp; Press <b>Compare OLD → NEW</b>"
+        )
+        self.empty_label.setObjectName("emptyState")
+        self.empty_label.setTextFormat(Qt.TextFormat.RichText)
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(self.empty_label)
+        return page
+
+    def _create_results_table(self):
+        self.results_table = QTableWidget()
+        tbl = self.results_table
+        tbl.setObjectName("gtsTable")
+        tbl.setHorizontalHeader(W.SortHeader(self.theme, tbl))
+        tbl.setSortingEnabled(True)
+        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        tbl.setAlternatingRowColors(False)
+        tbl.setShowGrid(True)
+        tbl.setWordWrap(False)
+        tbl.horizontalHeader().setDefaultAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        tbl.horizontalHeader().setMinimumHeight(self.metrics.font_h + 14)
+        tbl.horizontalHeader().sectionClicked.connect(self._on_column_sort)
+        return tbl
+
+    def _create_bottom_bar(self):
+        """Full-width progress bar (shown while comparing) above the shared
+        status strip - the v1.1 bottom bar."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(4)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setObjectName("gtsProgressWide")
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setFixedHeight(self.metrics.font_h + 4)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+        self.status = W.StatusStrip(self.metrics)
+        self.rows_label = self.status.extra
+        layout.addWidget(self.status)
+        return widget
+
+    # ------------------------------------------------------------------
+    # Styling
+    # ------------------------------------------------------------------
     def _apply_style(self):
-        t = self.theme
-
-        self.setStyleSheet(f"""
-            QFrame#card {{ background: {t.card}; border: 1px solid {t.border};
-                           border-radius: 4px; }}
-            QFrame#panel {{ background: {t.panel}; border: 1px solid {t.border};
-                           border-radius: 4px; }}
+        t, m = self.theme, self.metrics
+        self.setStyleSheet(stylesheet(t, m) + f"""
             QFrame#emptyPage {{ background: {t.base};
-                           border: 1px solid {t.border}; border-radius: 4px; }}
-            QFrame#validation {{ background: {t.base};
-                           border: 1px solid {t.border}; border-radius: 4px; }}
-            QScrollArea#validationScroll, QScrollArea#validationScroll > QWidget > QWidget
-                {{ background: transparent; }}
-            QLabel#sectionTitle {{ font-weight: 700; font-size: 10pt; }}
-            QLabel#fieldLabel {{ font-weight: 600; }}
-            QLabel#dim {{ color: {t.text_dim}; }}
-            QLabel#badgeOld, QLabel#badgeNew {{ color: white;
-                font-weight: 700; border-radius: 4px; }}
-            QLabel#badgeOld {{ background: {t.old_colour}; }}
-            QLabel#badgeNew {{ background: {t.new_colour}; }}
-            QLabel#legendChanged {{ background: {t.bg('ChangedField').name()};
-                color: {t.row_text}; border: 1px solid
-                {t.accent_of('ChangedField').name()};
-                border-radius: 4px; padding: 3px 10px; }}
-            QLabel#emptyState {{ color: {t.text_dim}; }}
-            QFrame#vsep {{ color: {t.border}; }}
-
-            QPushButton {{ background: {t.card}; color: {t.text};
-                border: 1px solid {t.border}; border-radius: 4px;
-                padding: 2px 12px; }}
-            QPushButton:hover {{ background: {t.card_hover}; }}
-            QPushButton:disabled {{ color: {t.text_dim}; }}
-            QPushButton#actionBtn {{ font-size: 10pt; font-weight: 700;
-                padding: 0 14px; }}
-            QPushButton[role="primary"] {{ background: {t.accent};
-                color: white; border: none; font-weight: 700; }}
-            QPushButton[role="primary"]:hover {{
-                background: {t.accent_hover}; }}
-            QPushButton[role="primary"]:disabled {{
-                background: {t.disabled_bg}; color: {t.disabled_fg}; }}
-            QPushButton[role="accept"] {{ color: {t.success};
-                border-color: {t.success}; }}
-            QPushButton[role="reject"] {{ color: {t.danger};
-                border-color: {t.danger}; }}
-            QPushButton[role="accept"]:hover {{
-                background: {t.accepted_bg.name()}; color: {t.row_text}; }}
-            QPushButton[role="reject"]:hover {{
-                background: {t.rejected_bg.name()}; color: {t.row_text}; }}
-            QPushButton[role="accept"]:disabled,
-            QPushButton[role="reject"]:disabled {{
-                color: {t.text_dim}; border-color: {t.border}; }}
-            QToolButton#swapBtn {{ background: {t.card};
                 border: 1px solid {t.border}; border-radius: 4px; }}
-            QToolButton#swapBtn:hover {{ background: {t.card_hover}; }}
-
-            QTableWidget {{ gridline-color: {t.border};
-                background: {t.base}; border: 1px solid {t.border};
-                border-radius: 4px; outline: 0; }}
-            QTableWidget::item:selected {{ background-color: {t.selected};
-                color: {t.selected_text}; }}
-            QHeaderView::section {{ background-color: {t.header};
-                color: {t.text}; padding: 5px 8px;
-                border: 1px solid {t.border}; font-weight: 700; }}
-
-            QFrame#statusBar {{ background: {t.status_bg};
-                border-top: 1px solid {t.border};
-                border-left: 5px solid {t.text_dim}; }}
-            QFrame#statusBar[level="success"] {{
-                border-left-color: {t.success}; }}
-            QFrame#statusBar[level="warning"] {{
-                border-left-color: {t.warning}; }}
-            QFrame#statusBar[level="error"] {{
-                border-left-color: {t.danger}; }}
-            QFrame#statusBar[level="busy"] {{
-                border-left-color: {t.accent}; }}
-            QLabel#statusMsg {{ font-size: 9pt; }}
+            QFrame#validation {{ background: {t.base};
+                border: 1px solid {t.border}; border-radius: 4px; }}
+            QScrollArea#validationScroll,
+            QScrollArea#validationScroll > QWidget > QWidget
+                {{ background: transparent; }}
+            QLabel#emptyState {{ color: {t.text_dim}; }}
+            QPushButton#actionBtn {{ background: {t.card}; color: {t.text};
+                border: 1px solid {t.border}; border-radius: 4px;
+                font-size: 10pt; font-weight: 700; padding: 0 14px; }}
+            QPushButton#actionBtn:hover {{ background: {t.card_hover}; }}
+            QPushButton#actionBtn:disabled {{ color: {t.text_dim}; }}
+            QPushButton#actionBtn[role="primary"] {{ background: {t.accent};
+                color: white; border: none; }}
+            QPushButton#actionBtn[role="primary"]:hover {{
+                background: {t.accent_hover}; }}
+            QPushButton#actionBtn[role="primary"]:disabled {{
+                background: {t.disabled_bg}; color: {t.disabled_fg}; }}
+            QLabel#gtsBadge {{ background: {t.base}; color: {t.text_strong};
+                border: 1px solid {t.border}; border-radius: 4px;
+                padding: 0px 10px; }}
+            QLabel#legendChanged {{ background: {t.bg('ChangedField').name()};
+                color: {t.row_text};
+                border: 1px solid {t.accent_of('ChangedField').name()};
+                border-radius: 4px; padding: 0px 8px; }}
+            QToolButton#gtsButton[role="accept"] {{ color: {t.success};
+                border-color: {t.success}; }}
+            QToolButton#gtsButton[role="reject"] {{ color: {t.danger};
+                border-color: {t.danger}; }}
+            QToolButton#gtsButton[role="accept"]:hover {{
+                background: {t.accepted_bg.name()}; color: {t.row_text}; }}
+            QToolButton#gtsButton[role="reject"]:hover {{
+                background: {t.rejected_bg.name()}; color: {t.row_text}; }}
+            QToolButton#gtsButton[role="accept"]:disabled,
+            QToolButton#gtsButton[role="reject"]:disabled {{
+                color: {t.text_faint}; border-color: {t.border_soft}; }}
         """)
 
-        self.results_table.verticalHeader().setDefaultSectionSize(26)
-        self.results_table.verticalHeader().setMinimumWidth(36)
+        vh = self.results_table.verticalHeader()
+        vh.setDefaultSectionSize(m.font_h + 10)
+        vh.setMinimumWidth(40)
 
         # Selection colour via the palette: a ::item:selected style rule makes
         # Qt re-lay-out the selected row (text shifts, inner focus box appears)
@@ -1488,18 +1140,9 @@ class GeoTableCompareDialog(QDialog):
                      QColor(t.selected_text))
         self.results_table.setPalette(pal)
 
-        # Stop Enter (e.g. in the search box) from triggering a button
-        for btn in self.findChildren(QPushButton):
-            btn.setAutoDefault(False)
-
     def _set_status(self, text, level="info"):
-        """Update the status bar message and its coloured accent."""
-        self.status_label.setText(text)
-        self.status_label.setToolTip(text)
-        self.status_bar.setProperty("level", level)
-        style = self.status_bar.style()
-        style.unpolish(self.status_bar)
-        style.polish(self.status_bar)
+        """Update the status strip message and its coloured accent."""
+        self.status.set_status(text, level)
 
     # ====================================================================
     # SIGNAL WIRING
@@ -1517,7 +1160,6 @@ class GeoTableCompareDialog(QDialog):
         self.validate_btn.clicked.connect(self.validate_data)
         self.compare_button.clicked.connect(self.compare_tables)
         self.column_filter_btn.clicked.connect(self.select_columns_to_check)
-        self.help_btn.clicked.connect(self.show_help)
         self.export_xlsx_action.triggered.connect(self.export_xlsx)
         self.export_csv_action.triggered.connect(self.export_results)
 
@@ -1696,7 +1338,7 @@ class GeoTableCompareDialog(QDialog):
             for fld in old_layer.fields():
                 if fld.name() in new_names:
                     self.join_field_combo.addItem(
-                        _field_icon(fld), fld.name())
+                        _field_icon(fld, self.theme), fld.name())
                     self.join_field_combo.setItemData(
                         self.join_field_combo.count() - 1,
                         _field_tooltip(fld), _ROLE_TOOLTIP)
@@ -1808,49 +1450,6 @@ class GeoTableCompareDialog(QDialog):
 
         if self.geom_vertices_cb.isChecked() and self.geom_vertices_cb.isEnabled():
             data['_vertex_count'] = sum(1 for _ in geom.vertices())
-
-    # ====================================================================
-    # HELP
-    # ====================================================================
-
-    def show_help(self):
-        QMessageBox.information(
-            self, f"{PLUGIN_NAME} — Help",
-            "<h3>How to use</h3>"
-            "<ol>"
-            "<li>Select the <b>OLD</b> (baseline) and <b>NEW</b> (updated) "
-            "layers.</li>"
-            "<li>Choose a <b>Join field</b> — a unique ID (e.g. asset_id) "
-            "that links matching rows in both layers.</li>"
-            "<li>Optionally enable <b>geometry comparison</b>.</li>"
-            "<li>Press <b>Validate Data</b> to check for problems, then "
-            "<b>Compare OLD → NEW</b>.</li>"
-            "</ol>"
-            "<h3>Reading the results</h3>"
-            "<ul>"
-            "<li><b>Added</b> — only in NEW &nbsp; <b>Deleted</b> — only in "
-            "OLD</li>"
-            "<li><b>Modified</b> — in both, but a compared value differs. "
-            "Pink cells show <i>old → new</i> (blank = empty).</li>"
-            "<li><b>Unchanged</b> — identical in both.</li>"
-            "</ul>"
-            "<h3>Geometry &amp; review points</h3>"
-            "<p>With <b>Compare geometry</b> ticked, multipart input is "
-            "detected automatically. <b>Comparison Method → Singlepart</b> "
-            "splits every feature into its parts and matches them one by "
-            "one; <b>Multipart</b> compares each feature as a single "
-            "shape. "
-            "A <b>review point</b> is created at every place that changed "
-            "(<b>Review Points Output</b>: temporary points, a shapefile or "
-            "a geopackage) so you can "
-            "visit it. <b>Show on map</b> adds the added (green) and "
-            "removed (red) geometry; double-click a row to zoom to it.</p>"
-            "<h3>Review &amp; export</h3>"
-            "<p>Use <b>Accept / Reject / Reset</b> to record a decision on "
-            "Added and Modified rows. Your layers are <b>never edited</b>; "
-            "decisions are stored in the exported CSV (a Rejected row "
-            "exports its OLD value, otherwise the NEW value).</p>"
-        )
 
     # ====================================================================
     # PRE-FLIGHT VALIDATION
@@ -2288,7 +1887,7 @@ class GeoTableCompareDialog(QDialog):
     # ====================================================================
 
     # Excel always uses the light palette (white sheet) so it prints well
-    _XL_STATUS = _Theme._LIGHT_STATUS
+    _XL_STATUS = Theme.LIGHT_STATUS
     _XL_HEADER = "E4E4E4"
     _XL_ACCEPTED = "C8E6C9"
     _XL_REJECTED = "FFCDD2"
@@ -2577,7 +2176,13 @@ class GeoTableCompareDialog(QDialog):
             checked = {f.name() for f in fields
                        if f.name().lower() not in AUTO_SKIP_FIELDS}
 
-        dlg = _ColumnSelectDialog(fields, checked, self)
+        entries = [(f.name(), _field_icon(f, self.theme), _field_tooltip(f),
+                    f.name() in checked) for f in fields]
+        dlg = W.FieldChecklistDialog(
+            entries, self.metrics, self.theme, "Field(s) to Compare",
+            "Choose the fields used to decide whether a feature is "
+            "<b>Modified</b>. Unticked fields are ignored "
+            "(e.g. fid, timestamps).", parent=self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.columns_to_check = dlg.checked_names()
             if self._has_results:
@@ -2710,9 +2315,9 @@ class GeoTableCompareDialog(QDialog):
             self._set_status("Error during comparison", "error")
         finally:
             self.compare_button.setText(" Compare OLD → NEW")
-            QTimer.singleShot(
-                1500, lambda: self.progress_bar.setVisible(False)
-            )
+            # bound to the progress bar, so Qt drops the timer if the panel
+            # is closed within the delay (a lambda would hit a deleted widget)
+            QTimer.singleShot(1500, self.progress_bar.hide)
             self._update_ready_state()
 
     def _read_features(self, layer, join_field, attr_fields, geom_fields,
@@ -3044,8 +2649,8 @@ class GeoTableCompareDialog(QDialog):
             w.setEnabled(True)
         self.map_btn.setEnabled(bool(geom_diffs))
 
-        for status, count_lbl in self.filter_counts.items():
-            count_lbl.setText(f"· {counts[status]:,}")
+        for status in STATUSES:
+            self._set_filter_count(status, counts[status])
         self.geom_summary_label.setText(
             f"{geom_change_count:,} geometry change(s)"
             if (geom_field_set or geom_diffs) else "")
