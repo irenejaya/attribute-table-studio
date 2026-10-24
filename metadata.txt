@@ -1,0 +1,60 @@
+[general]
+name=Geometry and Table Compare
+qgisMinimumVersion=3.22
+qgisMaximumVersion=4.99
+
+description=Visual comparison tool for vector layer attributes and geometry — detect added, deleted, and modified features between two dataset versions.
+about=Geometry and Table Compare lets you visually compare two versions of the same vector dataset side by side. Select an OLD (baseline) layer and a NEW (updated) layer, pick a unique join field, and instantly see which features were added, deleted, modified, or unchanged. Features include colour-coded results, field-level old-to-new tracking, exact geometry comparison with review points that show where a (multipart) geometry changed, duplicate-ID detection, pre-flight data validation, accept/reject workflow, and Excel / CSV export. Built for GIS analysts, data managers, and QA teams who need fast, reliable change detection between shapefile or geopackage versions.
+
+version=1.1
+author=Irene Jaya
+email=irenejaya1@gmail.com
+
+category=Analysis
+tags=python,diff,compare,change-detection,version-control,data-quality,audit,QA,shapefile,geopackage,attributes,geometry
+
+icon=icon.svg
+
+experimental=False
+deprecated=False
+hasProcessingProvider=no
+server=False
+supportsQt6=True
+
+changelog=
+    1.1 - Interface redesign
+        * Plugin renamed to Geometry and Table Compare
+        * Qt5 / Qt6 compatible (QGIS 3.x and 4.x) with light and dark theme support
+        * Card-based layout, tick boxes with coloured legend labels and live counts, filter by field value
+        * Dedicated colour-coded status bar with inline progress
+        * Validate / Compare buttons with icons and identical size
+        * OLD / NEW layer pickers with badges, layer summary and swap button
+        * Join field picker shows field type icons and tooltips
+        * Review (Accept / Reject / Reset) simplified with a Decision column
+        * Tick boxes keep their native tick; the label is a coloured legend box
+        * Export menu: Excel (.xlsx) with the table's colours, or plain CSV
+        * Geometry changes located: exact, tolerance-aware part comparison (works for huge multipart features)
+        * New columns _geom_status / _added_* / _removed_* / _changed_pct / _parts (numeric sort)
+        * "Show on map": Added (green) and Removed (red) geometry layers + zoom and flash
+        * Tolerance setting for geometry comparison (default 0.001 map units)
+        * Multipart input is auto-detected; Comparison Method: Singlepart (parts matched one by one) or Multipart (whole feature)
+        * Review Points Output: Temporary Points, shapefile (.shp) or geopackage (.gpkg); attribute names fit the 10-character .dbf limit
+        * Double-click a changed row to zoom to where it changed
+        * Opens as its own window (taskbar entry), no Close button, like TUFLOW Sentinel
+        * Bottom progress + status bar like TUFLOW Sentinel
+        * Sentinel-matched light/dark base colours with neutral grey table headers
+        * Filter-by-value field picker shows field type icons like Join field
+        * "Field(s) to Compare" picker with Show All / Hide All / Toggle Selection
+    1.0 - Initial release
+        * Directional comparison workflow: OLD (baseline) -> NEW (updated)
+        * Colour-coded status: Added / Deleted / Modified / Unchanged
+        * Field-level change tracking with old -> new display
+        * Pre-flight validation: duplicate IDs, null join fields, field structure, geometry type
+        * Optional geometry comparison: shape length, area, centroid XY, vertex count
+        * Auto-configures geometry options based on layer type (point / line / polygon)
+        * Smart column selection to exclude system fields (fid, objectid, etc.)
+        * Accept / reject workflow for individual or bulk changes
+        * CSV export with decision tracking (Accepted / Rejected / Pending)
+        * QgsMapLayerComboBox for native QGIS layer selection
+        * Sortable results with dynamic row numbering
+        * Splitter layout with help panel, legend, and action buttons
