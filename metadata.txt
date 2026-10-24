@@ -1,17 +1,26 @@
 [general]
-name=Geometry and Table Compare
-qgisMinimumVersion=3.22
+name=GeoTable Studio
+qgisMinimumVersion=3.40
 qgisMaximumVersion=4.99
+supportsQt6=True
 
-description=Visual comparison tool for vector layer attributes and geometry — detect added, deleted, and modified features between two dataset versions.
-about=Geometry and Table Compare lets you visually compare two versions of the same vector dataset side by side. Select an OLD (baseline) layer and a NEW (updated) layer, pick a unique join field, and instantly see which features were added, deleted, modified, or unchanged. Features include colour-coded results, field-level old-to-new tracking, exact geometry comparison with review points that show where a (multipart) geometry changed, duplicate-ID detection, pre-flight data validation, accept/reject workflow, and Excel / CSV export. Built for GIS analysts, data managers, and QA teams who need fast, reliable change detection between shapefile or geopackage versions.
+description=Explore, summarise and compare vector attribute tables: Attribute Explorer, Pivot Table, and Geometry and Table Compare in one toolbar.
+about=GeoTable Studio adds three tools to one QGIS toolbar.
+    Attribute Explorer - a fast, read-only attribute table with exact column statistics attached above every column (missing and distinct counts, top categories, histograms, date ranges), an always-visible typed filter under every heading, map selection sync, column layouts saved per layer, and CSV / Excel export with the scope recorded.
+    Pivot Table - grouped summaries and cross tabs with multiple measures (count, count distinct, sum, mean, median, min, max, standard deviation), correct totals calculated from records, an explicit input scope (all, Explorer filtered or selected records) with stale detection, drill-through to the contributing records, saved layouts, and CSV / Excel / GeoPackage export.
+    Geometry and Table Compare - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
+    Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
 
-version=1.1
+version=1.0.0
 author=Irene Jaya
 email=irenejaya1@gmail.com
 
-category=Analysis
-tags=python,diff,compare,change-detection,version-control,data-quality,audit,QA,shapefile,geopackage,attributes,geometry
+homepage=https://github.com/irenejaya/attribute-table-studio
+repository=https://github.com/irenejaya/attribute-table-studio
+tracker=https://github.com/irenejaya/attribute-table-studio/issues
+
+category=Vector
+tags=attribute table,attributes,statistics,profile,filter,pivot,pivot table,cross tab,summary,compare,diff,change detection,data quality,QA,geometry,geopackage
 
 icon=icon.svg
 
@@ -19,42 +28,17 @@ experimental=False
 deprecated=False
 hasProcessingProvider=no
 server=False
-supportsQt6=True
 
 changelog=
-    1.1 - Interface redesign
-        * Plugin renamed to Geometry and Table Compare
-        * Qt5 / Qt6 compatible (QGIS 3.x and 4.x) with light and dark theme support
-        * Card-based layout, tick boxes with coloured legend labels and live counts, filter by field value
-        * Dedicated colour-coded status bar with inline progress
-        * Validate / Compare buttons with icons and identical size
-        * OLD / NEW layer pickers with badges, layer summary and swap button
-        * Join field picker shows field type icons and tooltips
-        * Review (Accept / Reject / Reset) simplified with a Decision column
-        * Tick boxes keep their native tick; the label is a coloured legend box
-        * Export menu: Excel (.xlsx) with the table's colours, or plain CSV
-        * Geometry changes located: exact, tolerance-aware part comparison (works for huge multipart features)
-        * New columns _geom_status / _added_* / _removed_* / _changed_pct / _parts (numeric sort)
-        * "Show on map": Added (green) and Removed (red) geometry layers + zoom and flash
-        * Tolerance setting for geometry comparison (default 0.001 map units)
-        * Multipart input is auto-detected; Comparison Method: Singlepart (parts matched one by one) or Multipart (whole feature)
-        * Review Points Output: Temporary Points, shapefile (.shp) or geopackage (.gpkg); attribute names fit the 10-character .dbf limit
-        * Double-click a changed row to zoom to where it changed
-        * Opens as its own window (taskbar entry), no Close button, like TUFLOW Sentinel
-        * Bottom progress + status bar like TUFLOW Sentinel
-        * Sentinel-matched light/dark base colours with neutral grey table headers
-        * Filter-by-value field picker shows field type icons like Join field
-        * "Field(s) to Compare" picker with Show All / Hide All / Toggle Selection
-    1.0 - Initial release
-        * Directional comparison workflow: OLD (baseline) -> NEW (updated)
-        * Colour-coded status: Added / Deleted / Modified / Unchanged
-        * Field-level change tracking with old -> new display
-        * Pre-flight validation: duplicate IDs, null join fields, field structure, geometry type
-        * Optional geometry comparison: shape length, area, centroid XY, vertex count
-        * Auto-configures geometry options based on layer type (point / line / polygon)
-        * Smart column selection to exclude system fields (fid, objectid, etc.)
-        * Accept / reject workflow for individual or bulk changes
-        * CSV export with decision tracking (Accepted / Rejected / Pending)
-        * QgsMapLayerComboBox for native QGIS layer selection
-        * Sortable results with dynamic row numbering
-        * Splitter layout with help panel, legend, and action buttons
+    1.0.0 - GeoTable Studio
+        * One plugin, one toolbar with three tools: Attribute Explorer, Pivot Table, Geometry and Table Compare
+        * New: Attribute Explorer - column profiles attached above the table, permanent typed filters (AND across columns, OR within a value list), map selection sync, Selected only, layouts saved per layer, exact background statistics, CSV / Excel export with scope
+        * New: Pivot Table - rows, optional columns, multiple measures, totals from records, input scope with stale detection, drill-through to Attribute Explorer, layouts, CSV / Excel / GeoPackage export
+        * Geometry and Table Compare (from standalone v1.1) - comparison logic unchanged; interface restyled to the shared suite look
+        * Every tool opens as its own window and can be docked (Dock button); Settings to open docked by default
+        * Shortcuts registered with QGIS (Attribute Explorer proposes Ctrl+Alt+T when free); layer context menu entry
+        * Native QGIS icons, uniform 16 px icons and control heights, light and dark theme support
+        * QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)
+    Standalone Geometry and Table Compare history
+        * 1.1 - Interface redesign, Qt5 / Qt6, geometry review points, tolerance, multipart methods, Excel export
+        * 1.0 - Initial release

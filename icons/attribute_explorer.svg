@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Attribute Explorer</title>
+  <desc>A table with column profile bars: explore and filter records.</desc>
+
+  <!-- table body -->
+  <rect x="5" y="8" width="54" height="48" rx="4" fill="#FFFFFF"/>
+  <!-- header band -->
+  <path d="M9 8h46a4 4 0 0 1 4 4v8H5v-8a4 4 0 0 1 4-4Z" fill="#3B82F6"/>
+  <!-- column guides -->
+  <path d="M23 20v36M41 20v36" fill="none" stroke="#CBD5E1" stroke-width="1.5"/>
+  <!-- profile bars, one per column -->
+  <rect x="9.5" y="37" width="9" height="15" rx="1.5" fill="#3B82F6"/>
+  <rect x="27.5" y="26" width="9" height="26" rx="1.5" fill="#3B82F6"/>
+  <rect x="45.5" y="32" width="9" height="20" rx="1.5" fill="#3B82F6"/>
+  <!-- outline -->
+  <rect x="5" y="8" width="54" height="48" rx="4" fill="none" stroke="#475569" stroke-width="2.5"/>
+</svg>
