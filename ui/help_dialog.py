@@ -28,7 +28,8 @@ one column combine with <b>OR</b> (use ▾ to pick values).</li>
 <li>Typing applies after a short pause; <b>Enter</b> applies at once. An
 invalid value is outlined red and the last valid result stays on screen.</li>
 <li><b>Clear filters</b> removes every filter; <i>Clear this filter</i> in an
-operator menu clears one column.</li>
+operator menu or the ✕ in a filter box clears one column. In the value list
+(▾), click <i>Value</i> or <i>Records</i> to sort it.</li>
 </ul>
 <h4>Statistics</h4>
 <p>Profiles describe exactly the records in scope (all filtered rows, not
@@ -41,8 +42,9 @@ collapses the strip. Statistics are exact and calculated in the
 background - visible columns first.</p>
 <h4>Selection and map</h4>
 <p>Click, Ctrl+click, Shift+click or drag rows (or tick the boxes) to select
-features; the table and the map selection stay in sync. Filtering never
-changes the map selection. <b>Selected only</b> limits the table and the
+features; the table and the map selection stay in sync. Selecting features
+on the map scrolls the table to the first of them. Filtering never changes
+the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
 double-click a row to zoom to one feature.</p>
 <h4>Columns, sorting, export</h4>
@@ -90,35 +92,58 @@ layout and scope recorded.</p>
 
 COMPARE_HELP = """
 <h3>Geometry and Table Compare</h3>
+<p><b>What it is for:</b> tracking what changed between two versions of the
+same dataset - an <b>OLD</b> baseline (for example the last issued layer)
+and a <b>NEW</b> update (for example a revised delivery). Every feature is
+matched by a unique ID and reported as <b>Added</b>, <b>Deleted</b>,
+<b>Modified</b> or <b>Unchanged</b>, so you can check an update value by
+value, decide which changes to accept, and keep a record of that review.
+Your layers are <b>never edited</b>.</p>
 <h4>How to use</h4>
 <ol>
-<li>Select the <b>OLD</b> (baseline) and <b>NEW</b> (updated) layers.</li>
-<li>Choose a <b>Join field</b> - a unique ID (e.g. asset_id) that links
-matching rows in both layers.</li>
-<li>Optionally enable <b>geometry comparison</b>.</li>
-<li>Press <b>Validate Data</b> to check for problems, then
-<b>Compare OLD → NEW</b>.</li>
+<li>Pick the <b>OLD</b> and <b>NEW</b> layers (<b>Swap</b> exchanges
+them).</li>
+<li>Choose the <b>Join field</b> - the unique ID present in both layers
+(for example a parcel or asset ID).</li>
+<li>Optionally limit the attributes with <b>Field(s) to Compare</b>, and
+tick <b>Compare geometry</b> to compare the shapes too.</li>
+<li>Press <b>Validate Data</b> to check for duplicate or missing IDs and
+field differences (the broom button clears these results).</li>
+<li>Press <b>Compare OLD → NEW</b>.</li>
 </ol>
 <h4>Reading the results</h4>
 <ul>
-<li><b>Added</b> - only in NEW &nbsp; <b>Deleted</b> - only in OLD</li>
-<li><b>Modified</b> - in both, but a compared value differs. Highlighted
-cells show <i>old → new</i> (blank = empty).</li>
-<li><b>Unchanged</b> - identical in both.</li>
+<li>Row colours: <b>Added</b> (only in NEW), <b>Deleted</b> (only in OLD),
+<b>Modified</b> (a compared value differs) and <b>Unchanged</b>. Untick a
+kind in <b>Results</b> to hide it; <b>Filter by value</b> searches a field.</li>
+<li>A pink <b>Changed value</b> cell shows the OLD value on the left and the
+NEW value on the right of the divider (blank = empty / NULL).</li>
 </ul>
-<h4>Geometry &amp; review points</h4>
-<p>With <b>Compare geometry</b> ticked, multipart input is detected
-automatically. <b>Method → Singlepart</b> splits every feature into its
-parts and matches them one by one; <b>Multipart</b> compares each feature as
-a single shape. A <b>review point</b> is created at every place that
-changed (<b>Review points</b>: temporary points, a shapefile or a
-geopackage) so you can visit it. <b>Show on map</b> adds the added (green)
-and removed (red) geometry; double-click a row to zoom to it.</p>
-<h4>Review &amp; export</h4>
-<p>Use <b>Accept / Reject / Reset</b> to record a decision on Added and
-Modified rows. Your layers are <b>never edited</b>; decisions are stored in
-the export (a Rejected row exports its OLD value, otherwise the NEW
-value).</p>
+<h4>Reviewing changes</h4>
+<ul>
+<li>Right-click changed values and choose <b>Accept</b> (keeps the NEW value,
+lime <b>Accepted value</b>), <b>Reject</b> (keeps the OLD value, lavender
+<b>Rejected value</b>) or <b>Reset</b>. Select several cells to decide them
+together.</li>
+<li>The <b>Accept / Reject / Reset</b> buttons (or <i>Accept row</i> in the
+right-click menu) decide every changed value of the selected rows, or of all
+visible rows. Added rows are decided as a whole.</li>
+<li>The <b>Decision</b> column follows the values: <i>Accepted</i>,
+<i>Rejected</i>, <i>Mixed</i> (some each way) or <i>Pending 1/3</i> while
+values are still undecided.</li>
+</ul>
+<h4>On the map</h4>
+<p><b>Zoom to selection</b> (also in the right-click menu) selects the
+features of the selected rows in the OLD and NEW layers, zooms to them and
+flashes them. With <b>Compare geometry</b> ticked, <b>Show on map</b> adds the
+geometry that was added (green) and removed (red), and a <b>review point</b>
+marks every place that changed (<b>Method</b>: Singlepart matches each part,
+Multipart compares whole features). Double-click a changed row to see its
+changes on the map.</p>
+<h4>Export</h4>
+<p>Excel (coloured, as shown) or CSV (plain values) of the visible rows. A
+rejected value exports its OLD value; accepted and pending values export the
+NEW value. The Decision column records each row's decision.</p>
 """
 
 GENERAL_HELP = """
@@ -141,30 +166,50 @@ changed.</p>
 """
 
 
+TOPICS = {
+    "general": ("Attribute Table Studio", icons.HELP, GENERAL_HELP),
+    "explorer": ("Attribute Explorer", icons.EXPLORER, EXPLORER_HELP),
+    "pivot": ("Pivot Table", icons.PIVOT, PIVOT_HELP),
+    "compare": ("Geometry and Table Compare", icons.COMPARE, COMPARE_HELP),
+}
+
+
+def _topic_icon(name):
+    return icons.native(name) if name.startswith("/") else icons.tool(name)
+
+
 class HelpDialog(QDialog):
-    def __init__(self, parent=None, tab=0):
+    """Every tool in tabs, or one tool alone (*topic*, e.g. Compare's help
+    button)."""
+
+    def __init__(self, parent=None, tab=0, topic=None):
         super().__init__(parent)
-        self.setWindowTitle("Attribute Table Studio — Help")
-        self.setWindowIcon(icons.native(icons.HELP))
-        self.resize(720, 640)
         theme, metrics = Theme(), Metrics(self.font())
         lay = QVBoxLayout(self)
         lay.setContentsMargins(metrics.margin, metrics.margin,
                                metrics.margin, metrics.margin)
-        tabs = QTabWidget()
-        tabs.setIconSize(QSize(metrics.icon, metrics.icon))
-        for title, icon, html in (
-                ("Attribute Table Studio", icons.native(icons.HELP), GENERAL_HELP),
-                ("Attribute Explorer", icons.tool(icons.EXPLORER), EXPLORER_HELP),
-                ("Pivot Table", icons.tool(icons.PIVOT), PIVOT_HELP),
-                ("Geometry and Table Compare", icons.tool(icons.COMPARE),
-                 COMPARE_HELP)):
+        if topic is not None:
+            title, icon, html = TOPICS[topic]
+            self.setWindowTitle(f"{title} — Help")
+            self.setWindowIcon(_topic_icon(icon))
+            self.resize(640, 620)
             view = QTextBrowser()
             view.setOpenExternalLinks(True)
             view.setHtml(html)
-            tabs.addTab(view, icon, title)
-        tabs.setCurrentIndex(tab)
-        lay.addWidget(tabs, 1)
+            lay.addWidget(view, 1)
+        else:
+            self.setWindowTitle("Attribute Table Studio — Help")
+            self.setWindowIcon(icons.native(icons.HELP))
+            self.resize(720, 640)
+            tabs = QTabWidget()
+            tabs.setIconSize(QSize(metrics.icon, metrics.icon))
+            for title, icon, html in TOPICS.values():
+                view = QTextBrowser()
+                view.setOpenExternalLinks(True)
+                view.setHtml(html)
+                tabs.addTab(view, _topic_icon(icon), title)
+            tabs.setCurrentIndex(tab)
+            lay.addWidget(tabs, 1)
         box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         box.rejected.connect(self.reject)
         box.accepted.connect(self.accept)

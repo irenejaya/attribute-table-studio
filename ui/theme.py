@@ -34,6 +34,8 @@ class Theme:
         "Modified":     ("#FFF2BF", "#F9A825"),
         "Unchanged":    ("#F1F1F1", "#9E9E9E"),
         "ChangedField": ("#FF9FCB", "#D81B7A"),
+        "AcceptedValue": ("#D4F0A0", "#558B2F"),
+        "RejectedValue": ("#E2D6F5", "#7E57C2"),
     }
     DARK_STATUS = {
         "Added":        ("#1F4568", "#64B5F6"),
@@ -41,6 +43,8 @@ class Theme:
         "Modified":     ("#5E5120", "#FFCA28"),
         "Unchanged":    ("#383838", "#9E9E9E"),
         "ChangedField": ("#9C2A68", "#F06292"),
+        "AcceptedValue": ("#4F6B1E", "#9CCC65"),
+        "RejectedValue": ("#4E3B70", "#B39DDB"),
     }
 
     def __init__(self, palette=None):
@@ -100,8 +104,9 @@ class Theme:
         status = self.DARK_STATUS if dark else self.LIGHT_STATUS
         self.status = {k: (QColor(v[0]), QColor(v[1]))
                        for k, v in status.items()}
-        self.accepted_bg = QColor("#2E5E32" if dark else "#C8E6C9")
-        self.rejected_bg = QColor("#6D2F35" if dark else "#FFCDD2")
+        # Compare review decisions: accepted lime, rejected lavender
+        self.accepted_bg = self.status["AcceptedValue"][0]
+        self.rejected_bg = self.status["RejectedValue"][0]
 
     def bg(self, key):
         return self.status[key][0]

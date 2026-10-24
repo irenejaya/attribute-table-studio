@@ -20,15 +20,16 @@ import math
 from collections import Counter
 
 from qgis.PyQt.QtCore import (
-    Qt, QDate, QDateTime, QTimer, QSize, QStringListModel,
+    Qt, QDate, QDateTime, QRect, QTimer, QSize, QStringListModel,
 )
-from qgis.PyQt.QtGui import QColor, QBrush, QFont, QFontMetrics, QPalette
+from qgis.PyQt.QtGui import QColor, QBrush, QFont, QFontMetrics, QPalette, QPen
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QComboBox, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QFileDialog,
     QMessageBox, QAbstractItemView, QWidget, QFrame, QApplication, QLineEdit,
     QStackedWidget, QSizePolicy, QScrollArea, QCompleter, QMenu,
-    QDoubleSpinBox, QProgressBar, QPushButton,
+    QDoubleSpinBox, QProgressBar, QPushButton, QStyle, QStyledItemDelegate,
+    QStyleOptionViewItem,
 )
 from qgis.core import (
     Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature,
@@ -37,9 +38,9 @@ from qgis.core import (
     QgsVectorFileWriter, QgsCategorizedSymbolRenderer, QgsRendererCategory,
     QgsMarkerSymbol,
 )
-from qgis.gui import QgsMapLayerComboBox
 
 from ..core import fields as FK
+from ..core.compat import SELECT_SET
 from . import icons
 from . import widgets as W
 from .theme import Metrics, Theme, stylesheet
@@ -74,6 +75,7 @@ except AttributeError:
 
 _ROLE_USER = Qt.ItemDataRole.UserRole
 _ROLE_KIND = Qt.ItemDataRole.UserRole + 1     # "changed" for pink cells
+_ROLE_DECISION = Qt.ItemDataRole.UserRole + 2  # a changed value's decision
 _ROLE_TOOLTIP = Qt.ItemDataRole.ToolTipRole
 
 STATUSES = ("Added", "Deleted", "Modified", "Unchanged")
@@ -505,6 +507,73 @@ class _CheckLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
+class _CompareDelegate(QStyledItemDelegate):
+    """Draws a changed value that is still pending as  OLD | NEW : two equal
+    halves with a divider, so the dividers line up down the column.  Every
+    other cell (and an accepted / rejected value) is drawn normally."""
+
+    PAD = 6
+
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self._divider = QColor(theme.accent_of("ChangedField"))
+
+    @staticmethod
+    def pair(index):
+        if index.data(_ROLE_KIND) != "changed" or index.data(_ROLE_DECISION):
+            return None
+        pair = index.data(_ROLE_USER)
+        if isinstance(pair, (tuple, list)) and len(pair) == 2:
+            return pair
+        return None
+
+    def paint(self, painter, option, index):
+        pair = self.pair(index)
+        if pair is None:
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        rect = opt.rect
+        painter.save()
+        if opt.state & QStyle.StateFlag.State_Selected:
+            painter.fillRect(rect, opt.palette.highlight())
+            fg = opt.palette.highlightedText().color()
+            line = fg
+        else:
+            bg = index.data(Qt.ItemDataRole.BackgroundRole)
+            if bg is not None:
+                painter.fillRect(rect, bg)
+            brush = index.data(Qt.ItemDataRole.ForegroundRole)
+            fg = brush.color() if brush is not None else opt.palette.text().color()
+            line = self._divider
+        mid = rect.left() + rect.width() // 2
+        painter.setPen(QPen(line, 1))
+        painter.drawLine(mid, rect.top() + 3, mid, rect.bottom() - 3)
+        painter.setPen(fg)
+        painter.setFont(opt.font)
+        fm = opt.fontMetrics
+        pad = self.PAD
+        halves = (QRect(rect.left() + pad, rect.top(), mid - rect.left() - 2 * pad,
+                        rect.height()),
+                  QRect(mid + pad, rect.top(), rect.right() - mid - 2 * pad + 1,
+                        rect.height()))
+        for area, text in zip(halves, pair):
+            painter.drawText(
+                area, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                fm.elidedText(str(text), Qt.TextElideMode.ElideRight, area.width()))
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        hint = super().sizeHint(option, index)
+        pair = self.pair(index)
+        if pair is not None:
+            fm = option.fontMetrics
+            half = max(fm.horizontalAdvance(str(v)) for v in pair)
+            hint.setWidth(2 * (half + 2 * self.PAD) + 1)
+        return hint
+
+
 # ============================================================================
 # MAIN PANEL
 # ============================================================================
@@ -539,7 +608,11 @@ class GeoTableCompareDialog(QWidget):
         self.setMinimumSize(1000, 380)       # still fits a bottom dock
 
         # Data storage
-        self.decisions = {}
+        self.decisions = {}            # join id -> row decision
+        self.cell_decisions = {}       # (join id, field) -> value decision
+        self._fid_maps = {"old": {}, "new": {}}   # join id -> feature id
+        self._run_layer_ids = (None, None)
+        self._help_dialog = None
         self.columns_to_check = []
         self._compare_info = {}
         self._old_fields = None
@@ -554,6 +627,7 @@ class GeoTableCompareDialog(QWidget):
         self._review_note = ""
         self._geom_by_part_run = False
         self._reviewable_total = 0
+        self._value_total = 0            # changed values (OLD | NEW cells)
         self._has_results = False
 
         self._build_ui()
@@ -725,23 +799,32 @@ class GeoTableCompareDialog(QWidget):
             w.setEnabled(False)
         grid.addLayout(geom_row, 3, 1, 1, 4)
 
-        # ---- Action buttons (identical size, the v1.1 buttons) ----
+        # ---- Help, clear validation and the action buttons ----
+        self.help_btn = W.primary_square(
+            m, icons.native(icons.HELP),
+            f"What {PLUGIN_NAME} is for and how to use it")
+        self.clear_validation_btn = W.primary_square(
+            m, icons.native(icons.CLEAR), "Clear the validation results")
+        self.clear_validation_btn.setEnabled(False)
+
+        # identical size, the v1.1 buttons
         self.validate_btn = QPushButton(" Validate Data")
         self.validate_btn.setIcon(icons.action_icon("validate", t.text))
         self.validate_btn.setToolTip(
             "Check for duplicate IDs, field mismatches,\n"
             "and null values before comparing")
-        self.compare_button = QPushButton(" Compare OLD → NEW")
+        self.compare_button = QPushButton("Compare OLD → NEW")
         self.compare_button.setProperty("role", "primary")
-        self.compare_button.setIcon(icons.action_icon("play", "#FFFFFF"))
         self.compare_button.setToolTip(
             "Detect added, deleted and modified features")
         # v1.1 size; wider only if the bold 10 pt label would not fit
         bold = QFont(self.compare_button.font())
         bold.setPointSizeF(10)
         bold.setBold(True)
-        label_w = QFontMetrics(bold).horizontalAdvance(self.compare_button.text())
-        size = QSize(max(self.ACTION_SIZE.width(), label_w + 18 + 2 * 14 + 10),
+        label_w = QFontMetrics(bold).horizontalAdvance(" Validate Data") + 18
+        label_w = max(label_w, QFontMetrics(bold).horizontalAdvance(
+            self.compare_button.text()))
+        size = QSize(max(self.ACTION_SIZE.width(), label_w + 2 * 14 + 10),
                      self.ACTION_SIZE.height())
         for b in (self.validate_btn, self.compare_button):
             b.setObjectName("actionBtn")
@@ -755,6 +838,9 @@ class GeoTableCompareDialog(QWidget):
         join_row.addWidget(self.join_field_combo)
         join_row.addWidget(self.column_filter_btn)
         join_row.addStretch()
+        join_row.addWidget(self.help_btn)
+        join_row.addWidget(self.clear_validation_btn)
+        join_row.addSpacing(m.gap)
         join_row.addWidget(self.validate_btn)
         join_row.addWidget(self.compare_button)
         grid.addLayout(join_row, 2, 1, 1, 4)
@@ -786,12 +872,10 @@ class GeoTableCompareDialog(QWidget):
                 self.geom_centroid_cb, self.geom_vertices_cb)
 
     def _new_layer_combo(self):
-        combo = QgsMapLayerComboBox()
+        combo = W.LayerCombo(self.metrics)
         combo.setFilters(_VECTOR_FILTER)
         combo.setAllowEmptyLayer(True)
-        combo.setShowCrs(True)
         combo.setMinimumWidth(240)
-        combo.setFixedHeight(self.metrics.control_h)
         return combo
 
     def _badge(self, title, subtitle, colour):
@@ -982,32 +1066,43 @@ class GeoTableCompareDialog(QWidget):
         for b in (self.accept_btn, self.reject_btn, self.reset_btn):
             lay.addWidget(b)
 
+        self.zoom_btn = W.button(
+            m, "Zoom to selection", icons.native(icons.ZOOM_SELECTED),
+            "Select the features of the selected rows in the OLD and NEW\n"
+            "layers, zoom the map to them and flash them\n"
+            "(the NEW shape; the OLD one for Deleted rows).")
+        self.zoom_btn.setEnabled(False)
         self.map_btn = W.button(
-            m, "Show on map", icons.native(icons.ZOOM_SELECTED),
+            m, "Show on map", icons.native(icons.GEOM_DIFF),
             "Add the geometry that was ADDED (green) and REMOVED (red) for the\n"
             "selected rows (or all visible rows if none are selected) to the\n"
             "map, and zoom to it.\n"
             "Needs 'Compare geometry' to be ticked when comparing.")
         self.map_btn.setEnabled(False)
         lay.addSpacing(m.gap)
+        lay.addWidget(self.zoom_btn)
         lay.addWidget(self.map_btn)
-        lay.addSpacing(m.gap)
-        self.review_tally = QLabel("")
-        self.review_tally.setObjectName("gtsDim")
-        self.review_tally.setMinimumWidth(40)
-        self.review_tally.setSizePolicy(QSizePolicy.Policy.Ignored,
-                                        QSizePolicy.Policy.Preferred)
-        lay.addWidget(self.review_tally, 1)
-
         lay.addStretch(1)
         self.changed_field_legend = QLabel("Changed value")
         self.changed_field_legend.setObjectName("legendChanged")
         self.changed_field_legend.setFixedHeight(m.compact_h)
         self.changed_field_legend.setToolTip(
             "A highlighted cell shows a value that differs between OLD and "
-            "NEW.\nFormat:  OLD value → NEW value  (blank = empty / NULL)"
+            "NEW:\nOLD value on the left | NEW value on the right "
+            "(blank = empty / NULL).\nRight-click it to accept or reject it."
         )
         lay.addWidget(self.changed_field_legend)
+        self.accepted_legend = QLabel("Accepted value")
+        self.accepted_legend.setObjectName("legendAccepted")
+        self.accepted_legend.setToolTip(
+            "An accepted change: the NEW value is kept (and exported)")
+        self.rejected_legend = QLabel("Rejected value")
+        self.rejected_legend.setObjectName("legendRejected")
+        self.rejected_legend.setToolTip(
+            "A rejected change: the OLD value is kept (and exported)")
+        for legend in (self.accepted_legend, self.rejected_legend):
+            legend.setFixedHeight(m.compact_h)
+            lay.addWidget(legend)
         self.geom_summary_label = W.ElideLabel()
         self.geom_summary_label.setObjectName("gtsDim")
         self.geom_summary_label.setMinimumWidth(60)
@@ -1017,7 +1112,7 @@ class GeoTableCompareDialog(QWidget):
 
         self.review_widgets = (
             self.review_scope, self.accept_btn, self.reject_btn,
-            self.reset_btn)
+            self.reset_btn, self.zoom_btn)
         for w in self.review_widgets:
             w.setEnabled(False)
         return bar
@@ -1051,8 +1146,12 @@ class GeoTableCompareDialog(QWidget):
         tbl.setObjectName("gtsTable")
         tbl.setHorizontalHeader(W.SortHeader(self.theme, tbl))
         tbl.setSortingEnabled(True)
-        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        # single cells can be picked, so values are accepted one by one;
+        # the row header still selects whole rows
+        tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         tbl.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        tbl.setItemDelegate(_CompareDelegate(self.theme, tbl))
+        tbl.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         tbl.setAlternatingRowColors(False)
         tbl.setShowGrid(True)
@@ -1080,6 +1179,12 @@ class GeoTableCompareDialog(QWidget):
         layout.addWidget(self.progress_bar)
         self.status = W.StatusStrip(self.metrics)
         self.rows_label = self.status.extra
+        # row decisions sit beside the row count, on the right
+        self.review_tally = QLabel("")
+        self.review_tally.setObjectName("gtsDim")
+        strip = self.status.layout()
+        strip.insertWidget(strip.indexOf(self.rows_label), self.review_tally)
+        strip.insertSpacing(strip.indexOf(self.rows_label), self.metrics.group_gap)
         layout.addWidget(self.status)
         return widget
 
@@ -1115,10 +1220,20 @@ class GeoTableCompareDialog(QWidget):
                 color: {t.row_text};
                 border: 1px solid {t.accent_of('ChangedField').name()};
                 border-radius: 4px; padding: 0px 8px; }}
-            QToolButton#gtsButton[role="accept"] {{ color: {t.success};
-                border-color: {t.success}; }}
-            QToolButton#gtsButton[role="reject"] {{ color: {t.danger};
-                border-color: {t.danger}; }}
+            QLabel#legendAccepted {{ background: {t.bg('AcceptedValue').name()};
+                color: {t.row_text};
+                border: 1px solid {t.accent_of('AcceptedValue').name()};
+                border-radius: 4px; padding: 0px 8px; }}
+            QLabel#legendRejected {{ background: {t.bg('RejectedValue').name()};
+                color: {t.row_text};
+                border: 1px solid {t.accent_of('RejectedValue').name()};
+                border-radius: 4px; padding: 0px 8px; }}
+            QToolButton#gtsButton[role="accept"] {{
+                color: {t.accent_of('AcceptedValue').name()};
+                border-color: {t.accent_of('AcceptedValue').name()}; }}
+            QToolButton#gtsButton[role="reject"] {{
+                color: {t.accent_of('RejectedValue').name()};
+                border-color: {t.accent_of('RejectedValue').name()}; }}
             QToolButton#gtsButton[role="accept"]:hover {{
                 background: {t.accepted_bg.name()}; color: {t.row_text}; }}
             QToolButton#gtsButton[role="reject"]:hover {{
@@ -1158,6 +1273,8 @@ class GeoTableCompareDialog(QWidget):
         self.geom_compare_cb.toggled.connect(self._on_geom_toggle)
 
         self.validate_btn.clicked.connect(self.validate_data)
+        self.help_btn.clicked.connect(self.show_help)
+        self.clear_validation_btn.clicked.connect(self.clear_validation)
         self.compare_button.clicked.connect(self.compare_tables)
         self.column_filter_btn.clicked.connect(self.select_columns_to_check)
         self.export_xlsx_action.triggered.connect(self.export_xlsx)
@@ -1173,6 +1290,8 @@ class GeoTableCompareDialog(QWidget):
         self.reject_btn.clicked.connect(lambda: self._apply_decision("Rejected"))
         self.reset_btn.clicked.connect(lambda: self._apply_decision(None))
         self.map_btn.clicked.connect(self.show_changes_on_map)
+        self.zoom_btn.clicked.connect(self.zoom_to_selection)
+        self.results_table.customContextMenuRequested.connect(self._on_table_menu)
         self.review_out_combo.activated.connect(self._on_review_out_activated)
         self.geom_mode_combo.activated.connect(self._on_mode_activated)
         self.results_table.cellDoubleClicked.connect(self._on_row_double_click)
@@ -1193,6 +1312,7 @@ class GeoTableCompareDialog(QWidget):
         self._update_geom_mode()
         self._update_layer_info()
         self.validation_frame.setVisible(False)
+        self.clear_validation_btn.setEnabled(False)
         self._update_ready_state()
 
     # ------------------------------------------------------------------
@@ -1549,6 +1669,7 @@ class GeoTableCompareDialog(QWidget):
         )
         self.validation_label.setText("<br>".join(html_parts))
         self.validation_frame.setVisible(True)
+        self.clear_validation_btn.setEnabled(True)
 
         if err_msgs:
             self._set_status(
@@ -1665,21 +1786,91 @@ class GeoTableCompareDialog(QWidget):
     # REVIEW (ACCEPT / REJECT)
     # ====================================================================
 
-    def _style_decision_item(self, item, decision, status):
+    def _style_decision_item(self, item, decision, status, progress=None):
+        """Decision cell: Accepted / Rejected / Mixed, or Pending (with
+        'decided / changed values' while a row is partly reviewed)."""
         t = self.theme
         item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        item.setForeground(QBrush(QColor(t.row_text)))
         if decision == "Accepted":
             item.setText("✓ Accepted")
             item.setBackground(QBrush(t.accepted_bg))
-            item.setForeground(QBrush(QColor(t.row_text)))
         elif decision == "Rejected":
             item.setText("✗ Rejected")
             item.setBackground(QBrush(t.rejected_bg))
-            item.setForeground(QBrush(QColor(t.row_text)))
-        else:
-            item.setText("Pending")
+        elif decision == "Mixed":
+            item.setText("◐ Mixed")
             item.setBackground(QBrush(t.bg(status)))
-            item.setForeground(QBrush(QColor(t.row_text)))
+        else:
+            item.setText(f"Pending {progress[0]}/{progress[1]}" if progress
+                         else "Pending")
+            item.setBackground(QBrush(t.bg(status)))
+
+    # a changed value (pink cell with an OLD / NEW pair) can be decided alone
+    @staticmethod
+    def _reviewable(item):
+        if item is None or item.column() < COL_FIRST_FIELD:
+            return False
+        pair = item.data(_ROLE_USER)
+        return (item.data(_ROLE_KIND) == "changed"
+                and isinstance(pair, (tuple, list)) and len(pair) == 2)
+
+    def _row_values(self, row):
+        tbl = self.results_table
+        items = (tbl.item(row, c) for c in range(COL_FIRST_FIELD, tbl.columnCount()))
+        return [it for it in items if self._reviewable(it)]
+
+    def _set_value_decision(self, item, decision):
+        """Accept (keep NEW), reject (keep OLD) or reset one changed value."""
+        t = self.theme
+        tbl = self.results_table
+        fid = tbl.item(item.row(), COL_STATUS).data(_ROLE_USER)
+        header = tbl.horizontalHeaderItem(item.column())
+        name = header.text() if header else str(item.column())
+        old_v, new_v = item.data(_ROLE_USER)
+        if decision == "Accepted":
+            self.cell_decisions[(fid, name)] = decision
+            item.setText(new_v)
+            item.setBackground(QBrush(t.bg("AcceptedValue")))
+            note = "\nAccepted: the NEW value is kept"
+        elif decision == "Rejected":
+            self.cell_decisions[(fid, name)] = decision
+            item.setText(old_v)
+            item.setBackground(QBrush(t.bg("RejectedValue")))
+            note = "\nRejected: the OLD value is kept"
+        else:
+            self.cell_decisions.pop((fid, name), None)
+            item.setText(f"{old_v} → {new_v}")
+            item.setBackground(QBrush(t.bg("ChangedField")))
+            note = "\nRight-click to accept or reject"
+        item.setData(_ROLE_DECISION, decision)
+        item.setToolTip(f"{name}\nOLD: {old_v or '(empty)'}\n"
+                        f"NEW: {new_v or '(empty)'}{note}")
+
+    def _refresh_row_decision(self, row):
+        """A row with changed values takes its decision from them."""
+        tbl = self.results_table
+        st = tbl.item(row, COL_STATUS)
+        values = self._row_values(row)
+        if not values:
+            return
+        fid = st.data(_ROLE_USER)
+        states = [it.data(_ROLE_DECISION) for it in values]
+        decided = sum(1 for s in states if s)
+        if decided < len(states):
+            self.decisions.pop(fid, None)
+            decision = None
+        elif all(s == "Accepted" for s in states):
+            decision = "Accepted"
+        elif all(s == "Rejected" for s in states):
+            decision = "Rejected"
+        else:
+            decision = "Mixed"
+        if decision:
+            self.decisions[fid] = decision
+        self._style_decision_item(
+            tbl.item(row, COL_DECISION), decision, st.text(),
+            (decided, len(states)) if decided and not decision else None)
 
     def _target_rows(self):
         tbl = self.results_table
@@ -1688,28 +1879,38 @@ class GeoTableCompareDialog(QWidget):
         return [r for r in range(tbl.rowCount()) if not tbl.isRowHidden(r)]
 
     def _apply_decision(self, decision):
-        tbl = self.results_table
+        """Accept / Reject / Reset buttons (rows chosen by the scope box)."""
         rows = self._target_rows()
         if not rows:
             self._set_status(
                 "Select one or more rows first (or switch to "
                 "'All visible rows')", "warning")
             return
+        self._decide_rows(rows, decision)
 
+    def _decide_rows(self, rows, decision):
+        """Decide whole rows: every changed value of a Modified row, or an
+        Added row as a whole."""
+        tbl = self.results_table
         changed = 0
         sorting = tbl.isSortingEnabled()
         tbl.setSortingEnabled(False)
-        for r in rows:
-            st = tbl.item(r, COL_STATUS)
-            dec_item = tbl.item(r, COL_DECISION)
+        items = [(tbl.item(r, COL_STATUS), tbl.item(r, COL_DECISION),
+                  self._row_values(r)) for r in rows]
+        for st, dec_item, values in items:
             if not st or st.text() not in REVIEWABLE or not dec_item:
                 continue
-            fid = st.data(_ROLE_USER)
-            if decision is None:
-                self.decisions.pop(fid, None)
+            if values:
+                for item in values:
+                    self._set_value_decision(item, decision)
+                self._refresh_row_decision(st.row())
             else:
-                self.decisions[fid] = decision
-            self._style_decision_item(dec_item, decision, st.text())
+                fid = st.data(_ROLE_USER)
+                if decision is None:
+                    self.decisions.pop(fid, None)
+                else:
+                    self.decisions[fid] = decision
+                self._style_decision_item(dec_item, decision, st.text())
             changed += 1
         tbl.setSortingEnabled(sorting)
 
@@ -1722,19 +1923,187 @@ class GeoTableCompareDialog(QWidget):
             self._set_status(
                 "Only Added and Modified rows can be reviewed", "warning")
 
+    def _decide_values(self, decision):
+        """Accept / reject / reset the selected changed values only."""
+        tbl = self.results_table
+        values = [it for it in tbl.selectedItems() if self._reviewable(it)]
+        if not values:
+            self._set_status(
+                "Select one or more highlighted (changed) values first",
+                "warning")
+            return
+        sorting = tbl.isSortingEnabled()
+        tbl.setSortingEnabled(False)
+        statuses = [tbl.item(it.row(), COL_STATUS) for it in values]
+        for item in values:
+            self._set_value_decision(item, decision)
+        for st in {id(s): s for s in statuses}.values():
+            self._refresh_row_decision(st.row())
+        tbl.setSortingEnabled(sorting)
+        self._update_review_tally()
+        verb = {"Accepted": "Accepted", "Rejected": "Rejected",
+                None: "Reset to Pending"}[decision]
+        self._set_status(f"{verb}: {len(values):,} value(s)", "success")
+
     def _update_review_tally(self):
         if not self._has_results:
             self.review_tally.setText("")
             return
-        acc = sum(1 for d in self.decisions.values() if d == "Accepted")
-        rej = sum(1 for d in self.decisions.values() if d == "Rejected")
-        pend = max(self._reviewable_total - acc - rej, 0)
+        counts = Counter(self.decisions.values())
+        acc, rej, mixed = counts["Accepted"], counts["Rejected"], counts["Mixed"]
+        pend = max(self._reviewable_total - acc - rej - mixed, 0)
         t = self.theme
-        self.review_tally.setText(
-            f"<span style='color:{t.success};'>Accepted {acc:,}</span>"
-            f"  ·  <span style='color:{t.danger};'>Rejected {rej:,}</span>"
-            f"  ·  Pending {pend:,}"
-        )
+        text = (f"<span style='color:{t.accent_of('AcceptedValue').name()};'>"
+                f"Accepted {acc:,}</span>"
+                f"  ·  <span style='color:{t.accent_of('RejectedValue').name()};'>"
+                f"Rejected {rej:,}</span>")
+        if mixed:
+            text += f"  ·  Mixed {mixed:,}"
+        self.review_tally.setText("Rows: " + text + f"  ·  Pending {pend:,}")
+        values = Counter(self.cell_decisions.values())
+        pending = max(self._value_total - values["Accepted"] - values["Rejected"], 0)
+        self.changed_field_legend.setText(f"Changed value · {pending:,}")
+        self.accepted_legend.setText(f"Accepted value · {values['Accepted']:,}")
+        self.rejected_legend.setText(f"Rejected value · {values['Rejected']:,}")
+
+    # ------------------------------------------------------------------
+    # Right-click menu on the results
+    # ------------------------------------------------------------------
+
+    def _on_table_menu(self, pos):
+        tbl = self.results_table
+        item = tbl.itemAt(pos)
+        if item is None:
+            return
+        if not item.isSelected():
+            tbl.clearSelection()
+            tbl.setCurrentItem(item)
+        selected = tbl.selectedItems()
+        values = [it for it in selected if self._reviewable(it)]
+        rows = sorted({it.row() for it in selected})
+        review_rows = [r for r in rows
+                       if tbl.item(r, COL_STATUS).text() in REVIEWABLE]
+
+        def label(verb, n, noun):
+            return f"{verb} {noun}" if n == 1 else f"{verb} {n:,} {noun}s"
+
+        menu = QMenu(tbl)
+        choices = (("Accept", icons.SUCCESS, "Accepted"),
+                   ("Reject", icons.DELETE, "Rejected"),
+                   ("Reset", icons.UNDO, None))
+        if values:
+            for verb, icon, decision in choices:
+                menu.addAction(icons.native(icon),
+                               label(verb, len(values), "value")).triggered.connect(
+                    lambda _c=False, d=decision: self._decide_values(d))
+            menu.addSeparator()
+        if review_rows:
+            for verb, icon, decision in choices:
+                menu.addAction(icons.native(icon),
+                               label(verb, len(review_rows), "row")).triggered.connect(
+                    lambda _c=False, d=decision, r=review_rows: self._decide_rows(r, d))
+            menu.addSeparator()
+        zoom = menu.addAction(icons.native(icons.ZOOM_SELECTED),
+                              label("Zoom to", len(rows), "feature"))
+        zoom.triggered.connect(self.zoom_to_selection)
+        if self._geom_diffs:
+            menu.addAction(icons.native(icons.GEOM_DIFF), "Show changes on map"
+                           ).triggered.connect(self.show_changes_on_map)
+        menu.exec(tbl.viewport().mapToGlobal(pos))
+
+    # ------------------------------------------------------------------
+    # Zoom to / select the features of the selected rows
+    # ------------------------------------------------------------------
+
+    def zoom_to_selection(self):
+        tbl = self.results_table
+        rows = sorted({it.row() for it in tbl.selectedItems()})
+        if not rows:
+            self._set_status("Select one or more rows first", "warning")
+            return
+        project = QgsProject.instance()
+        old_layer = project.mapLayer(self._run_layer_ids[0] or "")
+        new_layer = project.mapLayer(self._run_layer_ids[1] or "")
+        if old_layer is None or new_layer is None:
+            self._set_status("The compared layers are no longer in the project "
+                             "— press Compare again", "warning")
+            return
+        old_map, new_map = self._fid_maps["old"], self._fid_maps["new"]
+        old_ids, new_ids, old_only = [], [], []
+        for r in rows:
+            key = tbl.item(r, COL_STATUS).data(_ROLE_USER)
+            if key in new_map:
+                new_ids.append(new_map[key])
+            if key in old_map:
+                old_ids.append(old_map[key])
+                if key not in new_map:
+                    old_only.append(old_map[key])
+        if old_layer.id() == new_layer.id():
+            new_layer.selectByIds(sorted(set(old_ids) | set(new_ids)), SELECT_SET)
+        else:
+            old_layer.selectByIds(old_ids, SELECT_SET)
+            new_layer.selectByIds(new_ids, SELECT_SET)
+
+        canvas = self.iface.mapCanvas()
+        dest = canvas.mapSettings().destinationCrs()
+        extent = QgsRectangle()
+        extent.setNull()
+        flashes = []
+        for layer, ids in ((new_layer, new_ids), (old_layer, old_only)):
+            if not ids or not layer.isSpatial():
+                continue
+            request = QgsFeatureRequest().setFilterFids(sorted(ids))
+            geoms = [QgsGeometry(f.geometry()) for f in layer.getFeatures(request)
+                     if _geom_present(f.geometry())]
+            if not geoms:
+                continue
+            to_canvas = QgsCoordinateTransform(layer.crs(), dest, project)
+            for g in geoms:
+                try:
+                    extent.combineExtentWith(
+                        to_canvas.transformBoundingBox(g.boundingBox()))
+                except Exception:
+                    extent.combineExtentWith(g.boundingBox())
+            flashes.append((geoms[:200], layer.crs()))
+
+        n = len(set(old_ids) | set(new_ids)) if old_layer.id() == new_layer.id() \
+            else len(rows)
+        if not flashes:
+            self._set_status(f"Selected the features of {n:,} row(s) "
+                             "— there is no geometry to zoom to", "success")
+            return
+        if extent.width() == 0 or extent.height() == 0:
+            pad = max(extent.width(), extent.height(), 1e-4) * 0.5
+            extent.grow(pad)
+        extent.scale(1.25)
+        canvas.setExtent(extent)
+        canvas.refresh()
+        for geoms, crs in flashes:
+            try:
+                canvas.flashGeometries(geoms, crs)
+            except Exception:
+                pass
+        self._set_status(
+            f"Selected and zoomed to {n:,} row(s) — {len(new_ids):,} in NEW, "
+            f"{len(old_ids):,} in OLD", "success")
+
+    # ------------------------------------------------------------------
+    # Help and validation
+    # ------------------------------------------------------------------
+
+    def show_help(self):
+        from .help_dialog import HelpDialog
+        if self._help_dialog is None:
+            self._help_dialog = HelpDialog(self, topic="compare")
+        self._help_dialog.show()
+        self._help_dialog.raise_()
+        self._help_dialog.activateWindow()
+
+    def clear_validation(self):
+        self.validation_label.setText("")
+        self.validation_frame.setVisible(False)
+        self.clear_validation_btn.setEnabled(False)
+        self._set_status("Validation results cleared")
 
     # ====================================================================
     # SHOW CHANGES ON THE MAP
@@ -1845,7 +2214,7 @@ class GeoTableCompareDialog(QWidget):
             self._map_layer_ids.append(layer.id())
 
         extent = QgsRectangle()
-        extent.setMinimal()
+        extent.setNull()
         for layer in layers:
             extent.combineExtentWith(layer.extent())
         self._zoom_map_to(extent, layers)
@@ -1889,8 +2258,8 @@ class GeoTableCompareDialog(QWidget):
     # Excel always uses the light palette (white sheet) so it prints well
     _XL_STATUS = Theme.LIGHT_STATUS
     _XL_HEADER = "E4E4E4"
-    _XL_ACCEPTED = "C8E6C9"
-    _XL_REJECTED = "FFCDD2"
+    _XL_ACCEPTED = Theme.LIGHT_STATUS["AcceptedValue"][0].lstrip("#")
+    _XL_REJECTED = Theme.LIGHT_STATUS["RejectedValue"][0].lstrip("#")
 
     def export_xlsx(self):
         """Export exactly what the table shows (visible rows, same order),
@@ -1992,9 +2361,14 @@ class GeoTableCompareDialog(QWidget):
                 cell.border = border
                 cell.alignment = centre if c in (COL_STATUS, COL_DECISION) \
                     else left
+                value_decision = item.data(_ROLE_DECISION) if item else None
                 if c == COL_DECISION and decision == "Accepted":
                     cell.fill = fill(self._XL_ACCEPTED)
                 elif c == COL_DECISION and decision == "Rejected":
+                    cell.fill = fill(self._XL_REJECTED)
+                elif c >= COL_FIRST_FIELD and value_decision == "Accepted":
+                    cell.fill = fill(self._XL_ACCEPTED)
+                elif c >= COL_FIRST_FIELD and value_decision == "Rejected":
                     cell.fill = fill(self._XL_REJECTED)
                 elif (c >= COL_FIRST_FIELD and item
                         and item.data(_ROLE_KIND) == "changed"):
@@ -2061,6 +2435,10 @@ class GeoTableCompareDialog(QWidget):
             ("Unchanged", "Unchanged", "Identical in both"),
             ("ChangedField", "Changed field",
              "Cell shows  OLD value → NEW value  (blank = empty)"),
+            ("AcceptedValue", "Accepted value",
+             "Change accepted: the cell shows the NEW value"),
+            ("RejectedValue", "Rejected value",
+             "Change rejected: the cell shows the OLD value"),
         ]
         for key, label, desc in legend:
             swatch = ws.cell(row=row, column=1, value=label)
@@ -2075,10 +2453,10 @@ class GeoTableCompareDialog(QWidget):
                 ws.cell(row=row, column=2, value=desc).font = font
             row += 1
 
-        acc = sum(1 for d in self.decisions.values() if d == "Accepted")
-        rej = sum(1 for d in self.decisions.values() if d == "Rejected")
-        for label, colour, n in (("Accepted", self._XL_ACCEPTED, acc),
-                                 ("Rejected", self._XL_REJECTED, rej)):
+        decided = Counter(self.decisions.values())
+        for label, colour, n in (("Accepted", self._XL_ACCEPTED, decided["Accepted"]),
+                                 ("Rejected", self._XL_REJECTED, decided["Rejected"]),
+                                 ("Mixed", self._XL_HEADER, decided["Mixed"])):
             swatch = ws.cell(row=row, column=1, value=label)
             swatch.font = font
             swatch.border = border
@@ -2132,9 +2510,12 @@ class GeoTableCompareDialog(QWidget):
                             continue
                         pair = item.data(_ROLE_USER) if c != COL_STATUS else None
                         if pair:
+                            # a rejected value keeps OLD; accepted / pending NEW
                             old_v, new_v = pair
-                            row_data.append(
-                                old_v if decision == "Rejected" else new_v)
+                            rejected = (item.data(_ROLE_DECISION) == "Rejected"
+                                        or (decision == "Rejected"
+                                            and not self._reviewable(item)))
+                            row_data.append(old_v if rejected else new_v)
                         else:
                             row_data.append(item.text())
                     row_data.append(decision)
@@ -2229,7 +2610,7 @@ class GeoTableCompareDialog(QWidget):
         self.progress_bar.setValue(0)
         self.compare_button.setEnabled(False)
         self.validate_btn.setEnabled(False)
-        self.compare_button.setText(" Processing…")
+        self.compare_button.setText("Processing…")
         self._set_status("Comparing tables…", "busy")
         QApplication.processEvents()
 
@@ -2237,6 +2618,9 @@ class GeoTableCompareDialog(QWidget):
             self.results_table.setRowCount(0)
             self.results_table.setColumnCount(0)
             self.decisions = {}
+            self.cell_decisions = {}
+            self._fid_maps = {"old": {}, "new": {}}
+            self._run_layer_ids = (old_layer.id(), new_layer.id())
 
             new_field_set = {f.name() for f in new_layer.fields()}
             attr_fields = [
@@ -2270,13 +2654,15 @@ class GeoTableCompareDialog(QWidget):
 
             old_features = self._read_features(
                 old_layer, join_field, attr_fields, geom_fields,
-                old_geoms if geom_diff_on else None, to_new_crs)
+                old_geoms if geom_diff_on else None, to_new_crs,
+                self._fid_maps["old"])
             self.progress_bar.setValue(25)
             QApplication.processEvents()
 
             new_features = self._read_features(
                 new_layer, join_field, attr_fields, geom_fields,
-                new_geoms if geom_diff_on else None)
+                new_geoms if geom_diff_on else None, None,
+                self._fid_maps["new"])
             self.progress_bar.setValue(45)
             QApplication.processEvents()
 
@@ -2314,19 +2700,21 @@ class GeoTableCompareDialog(QWidget):
             )
             self._set_status("Error during comparison", "error")
         finally:
-            self.compare_button.setText(" Compare OLD → NEW")
+            self.compare_button.setText("Compare OLD → NEW")
             # bound to the progress bar, so Qt drops the timer if the panel
             # is closed within the delay (a lambda would hit a deleted widget)
             QTimer.singleShot(1500, self.progress_bar.hide)
             self._update_ready_state()
 
     def _read_features(self, layer, join_field, attr_fields, geom_fields,
-                       geom_store=None, transform=None):
+                       geom_store=None, transform=None, id_store=None):
         features = {}
         for feat in layer.getFeatures():
             key = feat[join_field]
             if key is None or key == NULL:
                 continue
+            if id_store is not None:
+                id_store[key] = feat.id()
             data = {fn: feat[fn] for fn in attr_fields}
             if geom_fields:
                 self._add_geom_properties(data, feat.geometry())
@@ -2546,6 +2934,7 @@ class GeoTableCompareDialog(QWidget):
                 hi.setToolTip(extra_tips.get(name, ""))
 
         counts = {s: 0 for s in STATUSES}
+        value_total = 0
         geom_change_count = 0
         geom_field_set = set(self._get_geom_field_names())
         check_set = set(check_fields)
@@ -2606,13 +2995,15 @@ class GeoTableCompareDialog(QWidget):
                     old_v = self.format_value(old_d.get(fn))
                     new_v = self.format_value(new_d.get(fn))
                     item = _SortItem(f"{old_v} → {new_v}")
+                    value_total += 1
                     item.setData(_ROLE_USER, (old_v, new_v))
                     item.setData(_ROLE_KIND, "changed")
                     item.setBackground(QBrush(t.bg("ChangedField")))
                     item.setForeground(QBrush(QColor(t.row_text)))
                     item.setToolTip(
                         f"{fn}\nOLD: {old_v or '(empty)'}\n"
-                        f"NEW: {new_v or '(empty)'}")
+                        f"NEW: {new_v or '(empty)'}\n"
+                        "Right-click to accept or reject")
                 else:
                     item = self._new_row_item(
                         self.format_value(data.get(fn, '')), status)
@@ -2628,6 +3019,7 @@ class GeoTableCompareDialog(QWidget):
                     item.setBackground(QBrush(t.bg("ChangedField")))
                 if pair:
                     item.setData(_ROLE_USER, pair)
+                    value_total += pink
                 tbl.setItem(row, col, item)
 
             if total > 0 and row % 50 == 0:
@@ -2643,6 +3035,7 @@ class GeoTableCompareDialog(QWidget):
 
         self._has_results = True
         self._reviewable_total = sum(counts[s] for s in REVIEWABLE)
+        self._value_total = value_total
         self.results_stack.setCurrentIndex(1)
         self.export_btn.setEnabled(True)
         for w in self.review_widgets:

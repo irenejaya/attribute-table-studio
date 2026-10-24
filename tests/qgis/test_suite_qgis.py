@@ -18,9 +18,10 @@ import harness as H  # noqa: E402
 APP = H.start_qgis()
 PKG = H.plugin_package()
 
-from qgis.PyQt.QtCore import Qt  # noqa: E402
+from qgis.PyQt.QtCore import QPoint, Qt  # noqa: E402
 from qgis.PyQt.QtGui import QColor  # noqa: E402
-from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
+from qgis.PyQt.QtWidgets import (QFileDialog, QMenu, QMessageBox,  # noqa: E402
+                                 QTextBrowser)
 from qgis.core import (QgsFeatureRequest, QgsProject,  # noqa: E402
                        QgsVectorLayer)
 from qgis.gui import QgsDockWidget  # noqa: E402
@@ -29,6 +30,7 @@ from attribute_table_studio import classFactory  # noqa: E402
 from attribute_table_studio.core import filters as FL  # noqa: E402
 from attribute_table_studio.core import fields as F  # noqa: E402
 from attribute_table_studio.core import pivot as P  # noqa: E402
+from attribute_table_studio.core.compat import QAction, SELECT_SET  # noqa: E402
 
 OUT = tempfile.mkdtemp(prefix="gts_out_")
 _next_save = []
@@ -478,6 +480,179 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(c.property("role"), "primary")
         self.assertEqual(v.iconSize().width(), 18)
         self.assertEqual(v.text(), " Validate Data")
+
+    def test_13d_round4_explorer(self):
+        panel = self.plugin.open_explorer(self.layer)
+        H.wait_for(lambda: idle(panel))
+        # layer pickers list each layer with its CRS, in a list wide enough
+        combo = panel.layer_combo
+        self.assertTrue(combo.showCrs())
+        self.assertIn("[EPSG:28355]", combo.currentText())
+        combo.showPopup()
+        H.settle(0.1)
+        self.assertGreaterEqual(combo.view().minimumWidth(),
+                                combo.view().fontMetrics().horizontalAdvance(
+                                    combo.currentText()))
+        combo.hidePopup()
+        self.assertTrue(self.plugin.open_pivot(self.layer).layer_combo.showCrs())
+
+        # a feature selected on the map scrolls into view ...
+        view = panel.view
+        view.scrollToTop()
+        H.settle(0.1)
+        fid = panel.model.fids[-40]
+        self.layer.selectByIds([fid])
+        H.settle(0.1)
+        rect = view.visualRect(panel.model.index(panel.model.row_of(fid), 0))
+        self.assertTrue(view.viewport().rect().contains(rect.center()))
+        # ... but a selection made in the table never moves it
+        view.scrollToTop()
+        H.settle(0.1)
+        panel._select([panel.model.fids[-10]], SELECT_SET)
+        H.settle(0.1)
+        self.assertEqual(view.verticalScrollBar().value(), 0)
+        self.layer.removeSelection()
+
+        # the clear button empties an 'is one of' filter
+        pfi = self.layer.fields().indexOf("PARCEL_VIEW_PFI")
+        value = next(self.layer.getFeatures())["PARCEL_VIEW_PFI"]
+        cell = panel.header.cells[pfi]
+        cell.set_filter(FL.ColumnFilter("PARCEL_VIEW_PFI", F.TEXT, "in",
+                                        values=[value]), emit=True)
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertLess(len(panel.model.fids), self.layer.featureCount())
+        clear = cell.edit.findChild(QAction, "_q_qlineeditclearaction")
+        self.assertIsNotNone(clear)
+        clear.trigger()
+        self.assertIsNone(cell.current_filter())
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(len(panel.model.fids), self.layer.featureCount())
+
+        # the value list sorts by value or by records, NULL kept on top
+        from attribute_table_studio.ui.explorer_header import ValuePicker
+        lu = self.layer.fields().indexOf("LAND_USE_TYPE")
+        picker = ValuePicker("LAND_USE_TYPE", panel._values_for(lu), [],
+                             panel.theme, panel.metrics, panel)
+        tree = picker.tree
+
+        def column(c):
+            return [tree.topLevelItem(i).text(c)
+                    for i in range(tree.topLevelItemCount())]
+        names = column(0)
+        self.assertEqual(names[0], F.NULL_TEXT)
+        self.assertEqual(names[1:], sorted(names[1:], key=str.lower))
+        tree.sortByColumn(1, Qt.SortOrder.DescendingOrder)
+        counts = [int(c.replace(",", "")) for c in column(1)[1:]]
+        self.assertEqual(column(0)[0], F.NULL_TEXT)
+        self.assertEqual(counts, sorted(counts, reverse=True))
+        tree.sortByColumn(0, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(column(0)[0], F.NULL_TEXT)
+        self.assertEqual(column(0)[1:], sorted(names[1:], key=str.lower, reverse=True))
+        picker.close()
+
+    def test_13e_round4_compare(self):
+        base = H.demo_layer(n=600, name="Review baseline")
+        new = H.demo_updated_layer(base)
+        flds = new.fields()
+        i1, i2 = flds.indexOf("FL_1_PCT_MIN"), flds.indexOf("LAND_USE_TYPE")
+        new.dataProvider().changeAttributeValues({
+            f.id(): {i1: (f[i1] or 0) + 1.5, i2: "COMMERCIAL"}
+            for k, f in enumerate(new.getFeatures()) if k % 50 == 7})
+        panel = self.plugin.open_compare()
+        panel.old_table_combo.setLayer(base)
+        panel.new_table_combo.setLayer(new)
+        panel.join_field_combo.setCurrentIndex(
+            panel.join_field_combo.findText("PARCEL_VIEW_PFI"))
+
+        # Help, clear validation, Validate Data, Compare OLD -> NEW (no icon)
+        row = (panel.help_btn, panel.clear_validation_btn, panel.validate_btn,
+               panel.compare_button)
+        xs = [w.mapTo(panel, QPoint(0, 0)).x() for w in row]
+        self.assertEqual(xs, sorted(xs))
+        self.assertTrue(panel.compare_button.icon().isNull())
+        self.assertEqual(panel.compare_button.text(), "Compare OLD → NEW")
+        self.assertFalse(panel.clear_validation_btn.isEnabled())
+        panel.validate_data()
+        self.assertTrue(panel.validation_frame.isVisibleTo(panel))
+        self.assertTrue(panel.clear_validation_btn.isEnabled())
+        panel.clear_validation()
+        self.assertFalse(panel.validation_frame.isVisibleTo(panel))
+        self.assertFalse(panel.clear_validation_btn.isEnabled())
+        panel.show_help()
+        self.assertTrue(panel._help_dialog.isVisible())
+        self.assertIn("tracking what changed",
+                      panel._help_dialog.findChild(QTextBrowser).toPlainText())
+        panel._help_dialog.close()
+
+        panel.compare_tables()
+        tbl = panel.results_table
+        delegate = tbl.itemDelegate()
+        rows = [r for r in range(tbl.rowCount()) if len(panel._row_values(r)) >= 2]
+        self.assertGreaterEqual(len(rows), 2)
+        r = rows[0]
+        values = panel._row_values(r)
+        user, decided = Qt.ItemDataRole.UserRole, Qt.ItemDataRole.UserRole + 2
+        # a pending changed value is drawn split, OLD | NEW
+        self.assertIsNotNone(delegate.pair(tbl.indexFromItem(values[0])))
+        # accept one value: one cell with the NEW value; row Pending 1/n
+        tbl.clearSelection()
+        values[0].setSelected(True)
+        panel._decide_values("Accepted")
+        old0, new0 = values[0].data(user)
+        self.assertEqual(values[0].text(), new0)
+        self.assertIsNone(delegate.pair(tbl.indexFromItem(values[0])))
+        self.assertEqual(tbl.item(r, 1).text(), f"Pending 1/{len(values)}")
+        # reject the others: the row is Mixed, the cells show OLD
+        tbl.clearSelection()
+        for item in values[1:]:
+            item.setSelected(True)
+        panel._decide_values("Rejected")
+        self.assertEqual(tbl.item(r, 1).text(), "◐ Mixed")
+        self.assertEqual(values[1].text(), values[1].data(user)[0])
+        # a row decision decides every changed value of the row
+        r2 = rows[1]
+        panel._decide_rows([r2], "Accepted")
+        self.assertTrue(all(it.data(decided) == "Accepted"
+                            for it in panel._row_values(r2)))
+        self.assertEqual(tbl.item(r2, 1).text(), "✓ Accepted")
+        self.assertTrue(panel.accepted_legend.text().startswith("Accepted value · "))
+        self.assertIn("Mixed 1", panel.review_tally.text())
+
+        # export: a rejected value gives OLD, an accepted one NEW
+        path = os.path.join(OUT, "compare_review.csv")
+        _next_save.append(path)
+        panel.export_results()
+        with open(path, newline="", encoding="utf-8") as fh:
+            records = list(csv.DictReader(fh))
+        key = tbl.item(r, 0).data(user)
+        rec = next(d for d in records if d["PARCEL_VIEW_PFI"] == str(key))
+        name = [tbl.horizontalHeaderItem(it.column()).text() for it in values]
+        self.assertEqual(rec[name[0]], new0)
+        self.assertEqual(rec[name[1]], values[1].data(user)[0])
+        self.assertEqual(rec["Decision"], "Mixed")
+
+        # the right-click menu offers value, row and zoom actions
+        shown = []
+        original = QMenu.exec
+        QMenu.exec = lambda menu, *a: shown.extend(
+            act.text() for act in menu.actions() if not act.isSeparator())
+        try:
+            panel._on_table_menu(tbl.visualItemRect(values[0]).center())
+        finally:
+            QMenu.exec = original
+        for text in ("Accept value", "Reject value", "Accept row", "Zoom to feature"):
+            self.assertIn(text, shown)
+
+        # zoom to selection selects the row's features in OLD and NEW
+        tbl.clearSelection()
+        tbl.selectRow(r)
+        panel.zoom_to_selection()
+        self.assertEqual(new.selectedFeatureIds(), [panel._fid_maps["new"][key]])
+        self.assertEqual(base.selectedFeatureIds(), [panel._fid_maps["old"][key]])
+        canvas_extent = self.iface.mapCanvas().extent()
+        self.assertFalse(canvas_extent.isEmpty())
 
     def test_14a_attribute_only_table(self):
         table = QgsVectorLayer("None?field=name:string&field=v:double",
