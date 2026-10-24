@@ -19,6 +19,7 @@ APP = H.start_qgis()
 PKG = H.plugin_package()
 
 from qgis.PyQt.QtCore import Qt  # noqa: E402
+from qgis.PyQt.QtGui import QColor  # noqa: E402
 from qgis.PyQt.QtWidgets import QFileDialog, QMessageBox  # noqa: E402
 from qgis.core import (QgsFeatureRequest, QgsProject,  # noqa: E402
                        QgsVectorLayer)
@@ -41,6 +42,25 @@ QFileDialog.getSaveFileName = staticmethod(_fake_save)
 for name in ("information", "warning", "critical"):
     setattr(QMessageBox, name, staticmethod(lambda *a, **k: None))
 QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.StandardButton.Yes)
+
+
+def _ink_width(btn):
+    """Width of what a compact button draws inside its border (the icon),
+    menu arrow excluded."""
+    img = btn.grab().toImage()
+    w, h = img.width(), img.height()
+    ratio = img.devicePixelRatio() or 1
+    bg = QColor(img.pixel(int(4 * ratio), h // 2))
+    right = w - int((16 if btn.menu() is not None else 4) * ratio)
+    cols = set()
+    for x in range(int(4 * ratio), right):
+        for y in range(int(4 * ratio), h - int(4 * ratio)):
+            p = QColor(img.pixel(x, y))
+            if max(abs(p.red() - bg.red()), abs(p.green() - bg.green()),
+                   abs(p.blue() - bg.blue())) > 40:
+                cols.add(x)
+                break
+    return (max(cols) - min(cols) + 1) / ratio if cols else 0
 
 
 def idle(panel):
@@ -400,6 +420,64 @@ class SuiteTests(unittest.TestCase):
         self.assertFalse(pivot.filters_empty.isVisibleTo(pivot))
         pivot._remove_filter(pivot.filters[0])
         self.assertEqual(pivot.chips_flow.count(), 1)
+
+    def test_13c_round3_ui_rules(self):
+        panel = self.plugin.open_explorer(self.layer)
+        H.wait_for(lambda: idle(panel))
+        t = panel.theme
+        date = self.layer.fields().indexOf("SURVEY_DATE")
+        flag = self.layer.fields().indexOf("IN_FLOOD_ZONE")
+        # dates: one blue for both themes; booleans purple
+        self.assertEqual(t.data_temporal, "#3A80EA")
+        self.assertEqual(t.data_bool, "#C9A0DC" if t.dark else "#7B1FA2")
+        self.assertEqual(panel.model._colours[date], QColor(t.data_temporal))
+        self.assertEqual(panel.model._colours[flag], QColor(t.data_bool))
+        # every date value box says YYYY-MM-DD, 'between' included
+        cell = panel.header.cells[date]
+        for op_id in ("eq", "lt", "le", "gt", "ge", "between"):
+            cell.set_op(op_id)
+            self.assertEqual(cell.edit.placeholderText(), "YYYY-MM-DD")
+        self.assertEqual(cell.edit2.placeholderText(), "YYYY-MM-DD")
+        self.assertGreaterEqual(panel.header.sectionSize(date),
+                                cell._between_width())
+        cell.set_filter(None)
+        num = panel.header.cells[self.layer.fields().indexOf("FL_1_PCT_MAX")]
+        num.set_op("between")
+        self.assertEqual((num.edit.placeholderText(), num.edit2.placeholderText()),
+                         ("from", "to"))
+        num.set_filter(None)
+
+        # Build Pivot: blue, label only, as tall as its neighbours
+        pivot = self.plugin.open_pivot(self.layer)
+        b = pivot.build_btn
+        self.assertEqual(b.text(), "Build Pivot")
+        self.assertTrue(b.icon().isNull())
+        self.assertEqual(b.objectName(), "gtsPrimary")
+        for other in (pivot.refresh_btn, pivot.export_btn, pivot.dock_btn):
+            self.assertEqual(b.height(), other.height())
+        # a narrow window collapses the row to icons drawn at full size
+        win = self.plugin.pivot_host._window
+        win.resize(1000, win.height())
+        row = pivot.refresh_btn.parentWidget()
+        self.assertTrue(H.wait_for(lambda: row._compact, 5))
+        H.settle(0.2)
+        for btn in (pivot.refresh_btn, pivot.export_btn):
+            self.assertTrue(btn.property("gtsCompact"))
+            self.assertGreaterEqual(_ink_width(btn), 13, btn.toolTip())
+        win.resize(2000, win.height())          # room for every label
+        self.assertTrue(H.wait_for(lambda: not row._compact, 5))
+        win.resize(1440, win.height())
+
+        # Compare: the v1.1 action buttons
+        compare = self.plugin.open_compare()
+        v, c = compare.validate_btn, compare.compare_button
+        self.assertEqual(v.size(), c.size())
+        self.assertEqual(v.height(), 28)
+        self.assertGreaterEqual(v.width(), 190)
+        self.assertEqual((v.objectName(), c.objectName()), ("actionBtn", "actionBtn"))
+        self.assertEqual(c.property("role"), "primary")
+        self.assertEqual(v.iconSize().width(), 18)
+        self.assertEqual(v.text(), " Validate Data")
 
     def test_14a_attribute_only_table(self):
         table = QgsVectorLayer("None?field=name:string&field=v:double",

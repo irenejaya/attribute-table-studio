@@ -66,7 +66,7 @@ summary into a cross tab.</li>
 <li>Add <b>Values</b>: a field, an aggregation (count records, count
 non-NULL, count distinct, sum, mean, median, min, max, population standard
 deviation) and an optional label. The same field may be used twice.</li>
-<li>Optionally add <b>Filters</b>, then press <b>Build pivot</b>.</li>
+<li>Optionally add <b>Filters</b>, then press <b>Build Pivot</b>.</li>
 </ol>
 <h4>Rules</h4>
 <ul>
@@ -79,7 +79,7 @@ averaging the group results.</li>
 <h4>Input and refresh</h4>
 <p>The records of the scope are captured when the input is set; later
 edits, selection or Explorer filter changes mark the result stale - use
-<b>Refresh input</b> then <b>Build pivot</b>. Double-click a result to open
+<b>Refresh input</b> then <b>Build Pivot</b>. Double-click a result to open
 its contributing records in Attribute Explorer (paused while stale).</p>
 <h4>Layouts and export</h4>
 <p><b>Save layout</b> stores the recipe (fields, values, filters - never the

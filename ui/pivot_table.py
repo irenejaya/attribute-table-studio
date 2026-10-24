@@ -5,7 +5,7 @@ Pivot Table - grouped summaries and cross tabs in a separate window.
 Input scope (plan, "Pivot Table behaviour and calculation rules"):
 All available records, Explorer filtered records or Selected records.  The
 feature ids of the scope are captured when the input is set / refreshed;
-Build pivot calculates on that captured input.  Any later change to the
+Build Pivot calculates on that captured input.  Any later change to the
 layer, the selection or the Explorer filter marks the input stale ("Source
 changed? Refresh input then rebuild") and drill-through is blocked until
 the pivot is rebuilt.
@@ -355,7 +355,6 @@ class _FilterDialog(QDialog):
         self.value.setFixedHeight(metrics.control_h)
         self.value2 = QLineEdit()
         self.value2.setFixedHeight(metrics.control_h)
-        self.value2.setPlaceholderText("to")
         self.error = QLabel("")
         self.error.setStyleSheet(f"color: {theme.danger};")
         lay.addRow("Field", self.field)
@@ -397,9 +396,9 @@ class _FilterDialog(QDialog):
         op = self.op.currentData()
         self.value.setEnabled(op not in FL.NO_VALUE_OPS)
         self.value2.setVisible(op == "between")
-        kind = self.field.kind() or F.TEXT
-        self.value.setPlaceholderText("YYYY-MM-DD" if kind in (F.DATE, F.DATETIME)
-                                      else "value")
+        hint, hint2 = FL.value_hints(self.field.kind() or F.TEXT, op)
+        self.value.setPlaceholderText(hint)
+        self.value2.setPlaceholderText(hint2)
 
     def column_filter(self):
         return FL.ColumnFilter(self.field.current_name(), self.field.kind(),
@@ -497,8 +496,8 @@ class PivotPanel(QWidget):
         self.refresh_btn = row.add(W.button(
             m, "Refresh input", icons.native(icons.REFRESH),
             "Capture the records of the current scope again"))
-        self.build_btn = W.primary_button(m, "Build pivot", t,
-                                          "Calculate the pivot from the input")
+        self.build_btn = W.action_button(m, "Build Pivot",
+                                         "Calculate the pivot from the input")
         row.add(self.build_btn)
         export_menu = QMenu(self)
         self.export_xlsx = export_menu.addAction(icons.native(icons.XLSX),
@@ -643,7 +642,7 @@ class PivotPanel(QWidget):
         titles.setSpacing(2)
         self.title_label = W.label("Pivot Table", "display")
         titles.addWidget(self.title_label)
-        self.subtitle = W.ElideLabel("Choose rows and values, then press Build pivot")
+        self.subtitle = W.ElideLabel("Choose rows and values, then press Build Pivot")
         self.subtitle.setObjectName("gtsDim")
         titles.addWidget(self.subtitle)
         hl.addLayout(titles, 1)
@@ -661,7 +660,7 @@ class PivotPanel(QWidget):
         lay.addWidget(head)
         self.stack = QStackedWidget()
         empty = QLabel("Choose row fields and values on the left,\n"
-                       "then press  Build pivot.")
+                       "then press  Build Pivot.")
         empty.setObjectName("gtsDim")
         empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.stack.addWidget(empty)
@@ -1156,7 +1155,7 @@ class PivotPanel(QWidget):
             hdr.resizeSection(c, max(cell_w, header_w, 80))
 
     def _reset_header_card(self):
-        self.subtitle.setText("Choose rows and values, then press Build pivot")
+        self.subtitle.setText("Choose rows and values, then press Build Pivot")
         self.records_label.setText("—")
         self.groups_label.setText("records used")
 
@@ -1191,7 +1190,7 @@ class PivotPanel(QWidget):
         result = self.model.result
         stale = self._stale_reason()
         if result is None:
-            text = "Ready  •  choose rows and values, then Build pivot"
+            text = "Ready  •  choose rows and values, then Build Pivot"
             if self._input_stale:
                 text = "Source changed  •  Refresh input then build"
             self.status.set_status(text, "warning" if self._input_stale else "info")
@@ -1204,10 +1203,10 @@ class PivotPanel(QWidget):
                 "(drill-through is paused)", "warning")
         elif stale == "layout":
             self.status.set_status(
-                f"{base}  •  Layout changed — press Build pivot to update", "warning")
+                f"{base}  •  Layout changed — press Build Pivot to update", "warning")
         else:
             self.status.set_status(
-                f"Ready  •  {base}  •  Input captured at Build pivot", "success")
+                f"Ready  •  {base}  •  Input captured at Build Pivot", "success")
 
     # ====================================================================
     # DRILL / COPY / CONTEXT
@@ -1308,7 +1307,7 @@ class PivotPanel(QWidget):
                 "Layout loaded — missing fields: " + ", ".join(sorted(set(missing))),
                 "warning")
         else:
-            self.status.set_status("Layout loaded — press Build pivot", "success")
+            self.status.set_status("Layout loaded — press Build Pivot", "success")
 
     def _project_layouts(self):
         text, ok = QgsProject.instance().readEntry(PROJECT_SCOPE, PROJECT_LAYOUTS, "")

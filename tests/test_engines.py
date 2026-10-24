@@ -192,6 +192,17 @@ class FilterTests(unittest.TestCase):
             expr, "(\"LAND_USE_TYPE\" = 'RESIDENTIAL') AND (\"FL_1_PCT_MAX\" > 60)")
         self.assertIn("X", errors)
 
+    def test_value_hints(self):
+        # dates show their format in every value box, 'between' included
+        for op in ("eq", "lt", "ge", "between"):
+            self.assertEqual(FL.value_hints(F.DATE, op), ("YYYY-MM-DD", "YYYY-MM-DD"))
+        self.assertEqual(FL.value_hints(F.DATETIME, "between")[1], "YYYY-MM-DD")
+        self.assertEqual(FL.value_hints(F.TIME, "between"), ("HH:MM:SS", "HH:MM:SS"))
+        self.assertEqual(FL.value_hints(F.DATE, "null")[0], "is NULL")
+        self.assertEqual(FL.value_hints(F.TEXT, "contains")[0], "contains")
+        self.assertEqual(FL.value_hints(F.REAL, "between"), ("from", "to"))
+        self.assertEqual(FL.value_hints(F.INTEGER, "gt")[0], "value")
+
     def test_round_trip_dict(self):
         a = FL.ColumnFilter("F", F.TEXT, "in", values=["A", None])
         b = FL.ColumnFilter.from_dict(a.to_dict())

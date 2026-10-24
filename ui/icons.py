@@ -56,7 +56,6 @@ CSV = "/mActionOpenTable.svg"
 XLSX = "/mActionSharingExport.svg"
 GPKG = "/mActionNewGeoPackageLayer.svg"
 WARNING = "/mIconWarning.svg"
-VALIDATE = "/mActionOpenTableInvalid.svg"
 
 FIELD_ICONS = {
     F.TEXT: "/mIconFieldText.svg",
@@ -168,6 +167,48 @@ def _paint(kind, color, size):
         p.drawLine(pt(.64, .16), pt(.64, .30))
     p.end()
     return pm
+
+
+def action_icon(kind, color, size=18):
+    """Compare's action button icons, drawn exactly as in v1.1:
+    'validate' (circled tick) and 'play' (filled triangle)."""
+    key = ("action", kind, QColor(color).name(), size)
+    if key in _cache:
+        return _cache[key]
+    scale = 2
+    pm = QPixmap(size * scale, size * scale)
+    pm.fill(Qt.GlobalColor.transparent)
+    pm.setDevicePixelRatio(scale)
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    col = QColor(color)
+    pen = QPen(col)
+    pen.setWidthF(1.7)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setBrush(Qt.BrushStyle.NoBrush)
+    s = float(size)
+
+    def pt(x, y):
+        return QPointF(x * s, y * s)
+
+    path = QPainterPath()
+    if kind == "play":
+        path.moveTo(pt(.30, .18))
+        path.lineTo(pt(.82, .50))
+        path.lineTo(pt(.30, .82))
+        path.closeSubpath()
+        p.setBrush(col)
+    elif kind == "validate":
+        p.drawEllipse(QRectF(.1 * s, .1 * s, .8 * s, .8 * s))
+        path.moveTo(pt(.3, .52))
+        path.lineTo(pt(.45, .67))
+        path.lineTo(pt(.7, .35))
+    p.drawPath(path)
+    p.end()
+    _cache[key] = QIcon(pm)
+    return _cache[key]
 
 
 def text_glyph(text, color):

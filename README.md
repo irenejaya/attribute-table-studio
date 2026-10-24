@@ -41,7 +41,8 @@ proposed and only assigned when no other command uses it; change it in
   frequency list, blank and whitespace values, histogram bins).
 - **Filters** under every heading — text: contains, equals, starts with, is
   one of, is NULL, is not NULL; numbers: =, ≠, <, ≤, >, ≥, between, is one of;
-  dates: on, before, after, between (calendar); booleans: true, false, NULL.
+  dates: on, before, after, between (calendar, YYYY-MM-DD hints); booleans:
+  true, false, NULL.
   Columns combine with AND, values within a column with OR. Invalid input is
   outlined red and the last valid result stays.
 - **Scope rules**: profiles describe exactly the filtered records (not just
@@ -65,7 +66,7 @@ the profiles afterwards; stale results are never shown.
 
 - Input scope: all available records, Explorer filtered records or selected
   records; the ids are captured, later changes mark the result stale
-  (*Refresh input*, then *Build pivot*).
+  (*Refresh input*, then *Build Pivot*).
 - Rows (one or more), optional columns (cross tab), several values — count
   records, count non-NULL, count distinct, sum, mean, median, min, max,
   population standard deviation — with optional labels.
@@ -84,16 +85,23 @@ the profiles afterwards; stale results are never shown.
 
 The comparison engine is unchanged from the standalone plugin v1.1 (the
 regression test checks that exports match it byte for byte). The v1.1
-Results legend (rounded boxes in the row colours with live counts) and the
-v1.1 bottom bar with its progress bar are kept; the rest uses the shared
-Attribute Table Studio look.
+*Validate Data* and *Compare OLD → NEW* buttons, the v1.1 Results legend
+(rounded boxes in the row colours with live counts) and the v1.1 bottom bar
+with its progress bar are kept; the rest uses the shared Attribute Table
+Studio look.
 
 ## Look and sizes
 
 All three tools share one palette, native QGIS icons (16 px) and one size
-ladder: inputs, buttons and square icon buttons are 24 px; the main actions
-(*Compare OLD → NEW*, *Validate Data*, *Build pivot*) and *Swap* are 28 px.
+ladder: inputs, buttons and square icon buttons are 24 px, including the blue
+*Build Pivot*; Compare's *Validate Data* and *Compare OLD → NEW* (190 × 28,
+as in v1.1) and *Swap* are 28 px. When a window is too narrow for the button
+labels, the buttons turn icon-only together and keep their 16 px icons.
 The status bar sits fully inside every window.
+
+Attribute Explorer colours values by type: text orange, numbers green, dates
+blue (one blue that reads on light and dark themes), booleans purple, NULL
+grey.
 
 ## Project layout
 

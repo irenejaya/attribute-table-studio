@@ -771,6 +771,9 @@ class ExplorerPanel(QWidget):
         name = self.model.fields[logical].name()
         # wide enough for the profile card's "Distinct 9,999 (100%)" row
         card = self.metrics.fm.horizontalAdvance("Distinct   99,999 (100%)") + 26
+        if self.model.kinds[logical] in F.TEMPORAL:
+            # the whole YYYY-MM-DD hint beside the operator and calendar buttons
+            card = max(card, self.metrics.fm.horizontalAdvance("YYYY-MM-DD") + 96)
         return max(150, card, min(340, fm.horizontalAdvance(name) + 56))
 
     def _choose_columns(self):

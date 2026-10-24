@@ -359,18 +359,11 @@ class ProfileCard(QWidget):
 # FILTER CELL
 # ============================================================================
 
-PLACEHOLDERS = {
-    "contains": "contains", "eq": "value", "starts": "starts with",
-    "ne": "value", "lt": "value", "le": "value", "gt": "value",
-    "ge": "value", "between": "from", "in": "choose values",
-    "null": "is NULL", "notnull": "is not NULL",
-}
-
-
 class FilterCell(QFrame):
     """Operator button + value input (+ value list / calendar button)."""
 
     changed = pyqtSignal(int, bool)        # logical, apply immediately
+    widthWanted = pyqtSignal(int, int)     # logical, section width
 
     def __init__(self, logical, name, kind, theme, metrics, parent=None):
         super().__init__(parent)
@@ -420,7 +413,6 @@ class FilterCell(QFrame):
         self.edit2 = QLineEdit(self)
         self.edit2.setFrame(False)
         self.edit2.setClearButtonEnabled(True)
-        self.edit2.setPlaceholderText("to")
         self.dash = QLabel("–", self)
         self.dash.setObjectName("gtsDim")
         for e in (self.edit, self.edit2):
@@ -465,6 +457,16 @@ class FilterCell(QFrame):
                 self.edit.clear()
         self.op = op
         self._apply_op_ui()
+        if op == "between" and self.kind in F.TEMPORAL:
+            self.widthWanted.emit(self.logical, self._between_width())
+
+    def _between_width(self):
+        """Section width that shows both YYYY-MM-DD hints of 'between' in
+        full (text margins and clear button included)."""
+        box = self.edit.fontMetrics().horizontalAdvance(
+            self.edit.placeholderText()) + 34
+        return (self.op_btn.sizeHint().width() + self.aux_btn.sizeHint().width()
+                + self.dash.sizeHint().width() + 2 * box + 12)
 
     def _apply_op_ui(self):
         op, kind = self.op, self.kind
@@ -486,19 +488,11 @@ class FilterCell(QFrame):
             self.op_btn.setText(f"{symbol}  {labels.get(op, '')}" if self.is_active()
                                 else "any")
             self.op_btn.setSizePolicy(self.edit.sizePolicy())
-        if kind in (F.DATE, F.DATETIME):
-            ph = "YYYY-MM-DD"
-        elif kind == F.TIME:
-            ph = "HH:MM:SS"
-        else:
-            ph = PLACEHOLDERS.get(op, "value")
-        if between:
-            ph = "from"
-        self.edit.setPlaceholderText(PLACEHOLDERS.get(op) if no_value else ph)
+        hint, hint2 = FL.value_hints(kind, op)
+        self.edit.setPlaceholderText(hint)
+        self.edit2.setPlaceholderText(hint2)
         self.dash.setVisible(between)
         self.edit2.setVisible(between)
-        if kind in (F.DATE, F.DATETIME):
-            self.edit2.setPlaceholderText("to")
         self.aux_btn.setVisible(kind != F.BOOL and not no_value
                                 and (op in ("in", "eq", "contains", "starts")
                                      or kind in (F.DATE, F.DATETIME)))
@@ -812,12 +806,17 @@ class ExplorerHeader(QHeaderView):
             cell = FilterCell(logical, fld.name(), kind, self.theme,
                               self.metrics, vp)
             cell.changed.connect(self.filterChanged.emit)
+            cell.widthWanted.connect(self._grow_section)
             cell.values_provider = self._provide_values
             if kind == F.BOOL:
                 self._make_bool_menu(cell)
             self.cards[logical] = card
             self.cells[logical] = cell
         self.relayout()
+
+    def _grow_section(self, logical, width):
+        if self.sectionSize(logical) < width:
+            self.resizeSection(logical, width)
 
     def _provide_values(self, logical):
         return self.values_provider(logical) if self.values_provider else []

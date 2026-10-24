@@ -22,13 +22,13 @@ from collections import Counter
 from qgis.PyQt.QtCore import (
     Qt, QDate, QDateTime, QTimer, QSize, QStringListModel,
 )
-from qgis.PyQt.QtGui import QColor, QBrush, QPalette
+from qgis.PyQt.QtGui import QColor, QBrush, QFont, QFontMetrics, QPalette
 from qgis.PyQt.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QComboBox, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox, QFileDialog,
     QMessageBox, QAbstractItemView, QWidget, QFrame, QApplication, QLineEdit,
     QStackedWidget, QSizePolicy, QScrollArea, QCompleter, QMenu,
-    QDoubleSpinBox, QProgressBar,
+    QDoubleSpinBox, QProgressBar, QPushButton,
 )
 from qgis.core import (
     Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature,
@@ -522,7 +522,7 @@ class GeoTableCompareDialog(QWidget):
     Shown by the Attribute Table Studio window / dock host (see ui/tool_host.py).
     """
 
-    ACTION_WIDTH = 190          # Validate Data and Compare share one width
+    ACTION_SIZE = QSize(190, 28)    # Validate Data and Compare, as in v1.1
 
     def __init__(self, iface, parent=None):
         super().__init__(parent)
@@ -725,18 +725,29 @@ class GeoTableCompareDialog(QWidget):
             w.setEnabled(False)
         grid.addLayout(geom_row, 3, 1, 1, 4)
 
-        # ---- Action buttons (identical size) ----
-        self.validate_btn = W.button(
-            m, "Validate Data", icons.native(icons.VALIDATE),
+        # ---- Action buttons (identical size, the v1.1 buttons) ----
+        self.validate_btn = QPushButton(" Validate Data")
+        self.validate_btn.setIcon(icons.action_icon("validate", t.text))
+        self.validate_btn.setToolTip(
             "Check for duplicate IDs, field mismatches,\n"
             "and null values before comparing")
-        self.compare_button = W.primary_button(
-            m, "Compare OLD → NEW", t,
+        self.compare_button = QPushButton(" Compare OLD → NEW")
+        self.compare_button.setProperty("role", "primary")
+        self.compare_button.setIcon(icons.action_icon("play", "#FFFFFF"))
+        self.compare_button.setToolTip(
             "Detect added, deleted and modified features")
-        width = max(self.ACTION_WIDTH, self.validate_btn.sizeHint().width(),
-                    self.compare_button.minimumWidth())
+        # v1.1 size; wider only if the bold 10 pt label would not fit
+        bold = QFont(self.compare_button.font())
+        bold.setPointSizeF(10)
+        bold.setBold(True)
+        label_w = QFontMetrics(bold).horizontalAdvance(self.compare_button.text())
+        size = QSize(max(self.ACTION_SIZE.width(), label_w + 18 + 2 * 14 + 10),
+                     self.ACTION_SIZE.height())
         for b in (self.validate_btn, self.compare_button):
-            b.setFixedSize(width, m.primary_h)
+            b.setObjectName("actionBtn")
+            b.setFixedSize(size)
+            b.setIconSize(QSize(18, 18))
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
 
         # Join row: field pickers on the left, action buttons on the right
         join_row = QHBoxLayout()
@@ -1086,6 +1097,17 @@ class GeoTableCompareDialog(QWidget):
             QScrollArea#validationScroll > QWidget > QWidget
                 {{ background: transparent; }}
             QLabel#emptyState {{ color: {t.text_dim}; }}
+            QPushButton#actionBtn {{ background: {t.card}; color: {t.text};
+                border: 1px solid {t.border}; border-radius: 4px;
+                font-size: 10pt; font-weight: 700; padding: 0 14px; }}
+            QPushButton#actionBtn:hover {{ background: {t.card_hover}; }}
+            QPushButton#actionBtn:disabled {{ color: {t.text_dim}; }}
+            QPushButton#actionBtn[role="primary"] {{ background: {t.accent};
+                color: white; border: none; }}
+            QPushButton#actionBtn[role="primary"]:hover {{
+                background: {t.accent_hover}; }}
+            QPushButton#actionBtn[role="primary"]:disabled {{
+                background: {t.disabled_bg}; color: {t.disabled_fg}; }}
             QLabel#gtsBadge {{ background: {t.base}; color: {t.text_strong};
                 border: 1px solid {t.border}; border-radius: 4px;
                 padding: 0px 10px; }}

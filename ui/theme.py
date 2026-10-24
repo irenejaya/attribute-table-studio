@@ -85,12 +85,13 @@ class Theme:
         self.disabled_fg = "#9A9A9A" if dark else "#EEEEEE"
         self.row_text = "#F2F2F2" if dark else "#1B1B1B"
 
-        # Attribute Explorer data colours (reference table: text orange,
-        # numbers green, NULL grey)
+        # Attribute Explorer data colours: text orange, numbers green,
+        # booleans purple, NULL grey; dates use one blue that reads on both
+        # the light and the dark table background
         self.data_text = "#E0A27A" if dark else "#A0430A"
         self.data_number = "#B5CEA8" if dark else "#2E7D32"
-        self.data_temporal = "#C9A0DC" if dark else "#7B1FA2"
-        self.data_bool = "#7FB2E5" if dark else "#1565C0"
+        self.data_temporal = "#3A80EA"
+        self.data_bool = "#C9A0DC" if dark else "#7B1FA2"
         self.data_null = "#7A7A7A" if dark else "#9E9E9E"
         self.bar = "#4C9BE8" if dark else "#42A5F5"
         self.bar_hover = "#82BDF5" if dark else "#1E88E5"
@@ -118,8 +119,8 @@ class Metrics:
         self.font_h = fm.height()
         # one height for inputs, buttons and square icon buttons ...
         self.control_h = max(24, self.font_h + 8)
-        # ... and a taller one for the main actions (Compare, Validate Data,
-        # Build pivot) and Swap
+        # ... and a taller one for Compare's action buttons (Validate Data,
+        # Compare OLD -> NEW) and Swap
         self.primary_h = max(28, self.font_h + 12)
         self.compact_h = self.control_h                 # filter cells
         self.icon = 16
@@ -175,6 +176,9 @@ def stylesheet(t, m):
         QToolButton#gtsButton::menu-indicator {{
             subcontrol-origin: padding; subcontrol-position: center right;
             right: 6px; }}
+        QToolButton#gtsButton[gtsCompact="true"] {{ padding: 0px; }}
+        QToolButton#gtsButton[gtsCompact="true"][popupMode="2"] {{
+            padding: 0px 14px 0px 0px; }}
         QToolButton#gtsPrimary {{ background: {t.accent}; color: white;
             border: 1px solid {t.accent}; border-radius: {m.radius}px;
             padding: 0px 14px; font-weight: 700; }}

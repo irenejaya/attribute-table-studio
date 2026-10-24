@@ -110,6 +110,24 @@ def operator_label(kind, op):
     return dict(operators(kind)).get(op, op)
 
 
+_HINTS = {"contains": "contains", "starts": "starts with", "in": "choose values",
+          "null": "is NULL", "notnull": "is not NULL"}
+
+
+def value_hints(kind, op):
+    """Placeholder texts of the first and second value box: the expected
+    format for dates and times, otherwise what the operator wants."""
+    if op in ("null", "notnull", "in"):
+        return _HINTS[op], ""
+    if kind in (F.DATE, F.DATETIME):
+        return "YYYY-MM-DD", "YYYY-MM-DD"
+    if kind == F.TIME:
+        return "HH:MM:SS", "HH:MM:SS"
+    if op == "between":
+        return "from", "to"
+    return _HINTS.get(op, "value"), "to"
+
+
 # ============================================================================
 # QUOTING (same rules as QgsExpression.quotedString / quotedColumnRef)
 # ============================================================================

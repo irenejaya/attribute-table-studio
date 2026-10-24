@@ -5,10 +5,13 @@ Shared widgets, so every Attribute Table Studio tool looks and behaves the same.
 - :func:`button` / :func:`square_button`: QToolButtons of one height
   (``Metrics.control_h``, the same as inputs) with 16 px icons; square
   utility buttons are control_h x control_h.
-- :func:`primary_button` / :func:`primary_square`: the main actions
-  (Compare, Validate Data, Build pivot) and Swap use ``Metrics.primary_h``.
+- :func:`action_button`: blue, bold, label-only main action at the control
+  height (Build Pivot).
+- :func:`primary_square`: Swap, at ``Metrics.primary_h`` like the Compare
+  action buttons.
 - :class:`ButtonRow`: a row of buttons that switches to icon-only (all at
-  once, so they stay uniform) when there is not enough room, e.g. docked.
+  once, so they stay uniform, icons at full size) when there is not enough
+  room, e.g. docked.
 - :class:`StatusStrip`: the bottom status line (framed, coloured accent)
   with a Cancel button while a job runs.
 - :class:`FieldChecklistDialog`: searchable field checklist used by
@@ -118,7 +121,7 @@ def button(metrics, text, icon=None, tooltip="", checkable=False, menu=None):
 
 
 def primary_button(metrics, text, theme, tooltip=""):
-    """Blue primary action with a white run arrow (Compare, Build pivot)."""
+    """Blue primary action with a white run arrow (the value list's Apply)."""
     btn = _base_button(metrics, icons.glyph("run", "#FFFFFF"), tooltip)
     btn.setFixedHeight(metrics.primary_h)
     btn.setObjectName("gtsPrimary")
@@ -128,6 +131,18 @@ def primary_button(metrics, text, theme, tooltip=""):
     # the label is bold (style sheet), so size it from bold metrics
     btn.setMinimumWidth(metrics.bold_fm.horizontalAdvance(f" {text}")
                         + metrics.icon + 2 * 14 + 12)
+    return btn
+
+
+def action_button(metrics, text, tooltip=""):
+    """Blue main action with a bold label and no icon, as tall as the buttons
+    beside it (Build Pivot).  It keeps its label when a row turns compact."""
+    btn = _base_button(metrics, None, tooltip)
+    btn.setObjectName("gtsPrimary")
+    btn.setText(text)
+    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+    btn.setProperty("gtsKeepLabel", True)
+    btn.setMinimumWidth(metrics.bold_fm.horizontalAdvance(text) + 2 * 14 + 8)
     return btn
 
 
@@ -326,6 +341,10 @@ class ButtonRow(QWidget):
         extra = 30 + self._metrics.icon + (16 if b.menu() is not None else 0)
         return b.fontMetrics().horizontalAdvance(text) + extra
 
+    def _compact_width(self, b):
+        """Icon-only width: a square, plus room for a menu arrow."""
+        return self._metrics.control_h + (14 if b.menu() is not None else 0)
+
     def _full_width(self):
         total = 0
         for b in self._buttons:
@@ -333,7 +352,7 @@ class ButtonRow(QWidget):
                 continue
             if b.toolButtonStyle() == Qt.ToolButtonStyle.ToolButtonIconOnly \
                     and not b.property("gtsLabel"):
-                total += self._metrics.control_h
+                total += self._compact_width(b)
                 continue
             total += self._text_width(b)
         visible = [b for b in self._buttons if not b.isHidden()]
@@ -356,7 +375,7 @@ class ButtonRow(QWidget):
             if b.isHidden():
                 continue
             width += (b.sizeHint().width() if b.property("gtsKeepLabel")
-                      else self._metrics.control_h + 12) + self._metrics.gap
+                      else self._compact_width(b)) + self._metrics.gap
         return QSize(width, self._height())
 
     def resizeEvent(self, event):
@@ -368,7 +387,6 @@ class ButtonRow(QWidget):
         if compact == self._compact:
             return
         self._compact = compact
-        side = self._metrics.control_h
         for b in self._buttons:
             if b.icon().isNull() or b.property("gtsKeepLabel"):
                 continue
@@ -379,13 +397,17 @@ class ButtonRow(QWidget):
                         b.setToolTip(b.text())
                 b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
                 # icon-only buttons become exact squares, like square_button
-                extra = 12 if b.menu() is not None else 0
-                b.setFixedWidth(side + extra)
+                b.setFixedWidth(self._compact_width(b))
             elif b.property("gtsLabel"):
                 b.setMinimumWidth(0)
                 b.setMaximumWidth(16777215)
                 b.setToolButtonStyle(
                     Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            # the label padding goes in compact mode, so the style sheet never
+            # shrinks the 16 px icon to fit
+            b.setProperty("gtsCompact", compact)
+            b.style().unpolish(b)
+            b.style().polish(b)
 
 
 # ============================================================================
