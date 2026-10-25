@@ -23,6 +23,7 @@ from attribute_table_studio import classFactory  # noqa: E402
 from attribute_table_studio.core import fields as F  # noqa: E402
 from attribute_table_studio.core import filters as FL  # noqa: E402
 from attribute_table_studio.core import settings  # noqa: E402
+from attribute_table_studio.core import subset as SUB  # noqa: E402
 from attribute_table_studio.ui import explorer_dialogs as D  # noqa: E402
 from attribute_table_studio.ui import explorer_edit as E  # noqa: E402
 from attribute_table_studio.ui import icons  # noqa: E402
@@ -512,20 +513,35 @@ class EditingTests(unittest.TestCase):
         p.invert_layer_selection()
         self.assertEqual(layer.selectedFeatureCount(), layer.featureCount() - 2)
         p.deselect_all()
-        shown = []
-        original = QMenu.exec
-        QMenu.exec = lambda menu, *a: shown.extend(
-            act.text() for act in menu.actions() if not act.isSeparator())
-        try:
+
+        def menu_texts():
             p.select_menu.aboutToShow.emit()
-            for act in p.select_menu.actions():
-                shown.append(act.text())
-        finally:
-            QMenu.exec = original
+            return [a.text() for a in p.select_menu.actions() if not a.isSeparator()]
+        shown = menu_texts()
         for text in ("Select all shown records", "Select all available layer records",
-                     "Invert layer selection", "Select by expression…",
+                     "Invert selection (filtered records)", "Select by expression…",
                      "Select by value / form…", "Pan to selection"):
             self.assertIn(text, shown)
+        # the whole-layer invert only differs - and only shows - while the
+        # table is filtered
+        self.assertNotIn("Invert selection (whole layer)", shown)
+        p.header.cells[self.lu].set_filter(
+            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        p.refresh()
+        settle(p)
+        self.assertIn("Invert selection (whole layer)", menu_texts())
+        filtered = sorted(p.model.fids)
+        layer.selectByIds(filtered[:2])
+        H.settle(0.1)
+        p.invert_selection()
+        self.assertEqual(set(layer.selectedFeatureIds()), set(filtered[2:]))
+        layer.selectByIds(filtered[:2])
+        H.settle(0.1)
+        p.invert_layer_selection()
+        self.assertEqual(layer.selectedFeatureCount(), layer.featureCount() - 2)
+        p.deselect_all()
+        p.clear_filters()
+        settle(p)
         # sort by expression (descending)
         p.sort_expr = ('"FL_1_PCT_MAX" * -1', False)
         p.refresh(sort_only=True)
@@ -622,6 +638,43 @@ class EditingTests(unittest.TestCase):
         self.assertIn("INDUSTRIAL", self.layer.subsetString())
         self.assertTrue(p.query_btn.isEnabled())
         p.query_btn.setChecked(False)
+
+    def test_19b_map_filter_closed_while_editing(self):
+        """QGIS refuses filter changes while editing: an explorer closed
+        then gives the layer its own filter back once editing stops, and one
+        reopened before that takes the map filter over."""
+        p, layer = self.panel, self.layer
+        p.header.cells[self.lu].set_filter(
+            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        p.refresh()
+        settle(p)
+        p.query_btn.setChecked(True)
+        settle(p)
+        frozen = layer.subsetString()
+        self.assertIn("RESIDENTIAL", frozen)
+        self.start()
+        ASK.answers = ["keep"]
+        p.model.setData(p.model.index(0, self.fl), 12.5)
+        self.plugin.explorers[layer.id()].close()            # keep the layer edits
+        H.settle(0.2)
+        self.assertTrue(layer.isEditable())
+        self.assertEqual(layer.subsetString(), frozen)       # cannot change yet
+        # reopened while still editing: the button is on (frozen) with the
+        # filters that made it, so the table matches the map
+        p = self.plugin.open_explorer(layer)
+        settle(p)
+        self.assertTrue(p.query_btn.isChecked())
+        self.assertFalse(p.query_btn.isEnabled())
+        self.assertEqual(p.header.cells[self.lu].current_filter().value, "RESIDENTIAL")
+        self.assertEqual(len(p.model.fids), layer.featureCount())
+        ASK.answers = ["keep"]
+        self.plugin.explorers[layer.id()].close()
+        H.settle(0.2)
+        self.assertEqual(layer.subsetString(), frozen)
+        layer.rollBack()                                     # editing stops
+        H.settle(0.2)
+        self.assertEqual(layer.subsetString(), "")
+        self.assertIsNone(SUB.held(layer))
 
     def test_20_more_and_header_menus(self):
         p = self.panel

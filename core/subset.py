@@ -16,17 +16,24 @@ table (e.g. case-insensitive "contains" with plain ASCII text in SQLite).
 Otherwise :func:`ids_subset` lists the matching feature ids, and the panel
 checks the resulting count against the table, so the map never differs
 from it.
+
+The map filter is temporary: it lives while its explorer is open, and the
+layer gets its own filter back when it goes off.  The layers carrying one
+are listed here (see :func:`hold`), so a project saved meanwhile is written
+with the layer's own filter, and a layer still being edited when its
+explorer closes gets its filter back as soon as editing stops (QGIS refuses
+filter changes during editing).
 """
+
+import json
 
 from . import fields as F
 from . import filters as FL
 
 ID_LIMIT = 100000            # longest id list written into a subset string
-# the layer's own filter, kept on the layer while the map filter is on, so a
-# project saved in that state gets it back when it is opened again
-PROPERTY = "attribute_table_studio/map_filter_base"   # before map filters persisted
-# A map filter left on when its explorer closes stays on the layer (like a
-# Query Builder filter); this records how to resume and undo it.
+# Layer properties written by earlier versions, which saved a map filter with
+# the project; restore_forgotten() gives such layers their own filter back.
+PROPERTY = "attribute_table_studio/map_filter_base"
 STATE = "attribute_table_studio/map_filter"
 
 
@@ -234,10 +241,176 @@ def with_base(base, ours):
 
 def restore_forgotten(layer):
     """Projects saved by earlier versions while a map filter was on: give
-    the layer its own filter back (map filters did not persist then)."""
-    base = layer.customProperty(PROPERTY)
-    if base is None or layer.isEditable() or layer.customProperty(STATE):
+    the layer its own filter back (a map filter no longer outlives its
+    explorer)."""
+    if layer.isEditable():
         return False
-    layer.setSubsetString(str(base))
-    layer.removeCustomProperty(PROPERTY)
-    return True
+    restored = False
+    text = layer.customProperty(STATE)
+    if text is not None:
+        try:
+            state = json.loads(text)
+        except (TypeError, ValueError):
+            state = None
+        if isinstance(state, dict) and state.get("applied") == layer.subsetString():
+            layer.setSubsetString(str(state.get("base") or ""))
+            restored = True
+        layer.removeCustomProperty(STATE)
+    base = layer.customProperty(PROPERTY)
+    if base is not None:
+        if not restored:
+            layer.setSubsetString(str(base))
+            restored = True
+        layer.removeCustomProperty(PROPERTY)
+    return restored
+
+
+# ----------------------------------------------------------------------------
+# Layers carrying a map filter
+# ----------------------------------------------------------------------------
+
+class Held:
+    """The map filter one layer carries."""
+
+    def __init__(self, layer, base):
+        self.base = base                      # the layer's own filter
+        self.base_source = layer.source()     # its data source with that filter
+        self.applied = None                   # the filter on the layer now
+        self.applied_source = None
+        self.state = None                     # the table filters that made it
+        self.waiting = None                   # (signal, slot) after its explorer closed
+
+
+_HELD = {}                   # layer id -> Held
+
+
+def hold(layer, base):
+    """The map filter goes on: *base* is the layer's own filter."""
+    release(layer.id())
+    entry = _HELD[layer.id()] = Held(layer, base)
+    return entry
+
+
+def note_applied(layer, text, state=None):
+    entry = _HELD.get(layer.id())
+    if entry is not None:
+        entry.applied = text
+        entry.applied_source = layer.source()
+        entry.state = state
+
+
+def held(layer):
+    return _HELD.get(layer.id()) if layer is not None else None
+
+
+def _stop_waiting(entry):
+    if entry.waiting is not None:
+        signal, slot = entry.waiting
+        entry.waiting = None
+        try:
+            signal.disconnect(slot)
+        except (TypeError, RuntimeError):
+            pass
+
+
+def release(layer_id):
+    """The layer no longer carries a map filter."""
+    entry = _HELD.pop(layer_id, None)
+    if entry is not None:
+        _stop_waiting(entry)
+    return entry
+
+
+def restore_after_editing(layer):
+    """The explorer closed while *layer* is being edited, so its map filter
+    cannot go yet: give the layer its own filter back once editing stops."""
+    entry = _HELD.get(layer.id())
+    if entry is None:
+        return
+    layer_id = layer.id()
+
+    def stopped():
+        if _HELD.get(layer_id) is not entry:
+            return
+        release(layer_id)
+        try:
+            if layer.subsetString() == entry.applied:
+                layer.setSubsetString(entry.base)
+        except RuntimeError:          # layer already deleted
+            pass
+
+    _stop_waiting(entry)
+    layer.editingStopped.connect(stopped)
+    entry.waiting = (layer.editingStopped, stopped)
+
+
+def adopt(layer):
+    """An explorer opening on *layer* takes over a map filter still waiting
+    for editing to stop.  Returns its entry, or None."""
+    entry = _HELD.get(layer.id())
+    if entry is None:
+        return None
+    if entry.waiting is None or layer.subsetString() != entry.applied:
+        release(layer.id())
+        return None
+    _stop_waiting(entry)
+    return entry
+
+
+def _written_sources(only=None):
+    """layer id -> (the data source a project would be written with, the
+    same with the layer's own filter), for the layers carrying a map filter."""
+    from qgis.core import QgsProject, QgsReadWriteContext   # (engines run without QGIS)
+    project = QgsProject.instance()
+    context = QgsReadWriteContext()
+    context.setPathResolver(project.pathResolver())
+    sources = {}
+    for layer_id, entry in _HELD.items():
+        if only is not None and layer_id != only:
+            continue
+        layer = project.mapLayer(layer_id)
+        if layer is None or not entry.applied_source or layer.source() != entry.applied_source:
+            continue
+        sources[layer_id] = (layer.encodedSource(entry.applied_source, context),
+                             layer.encodedSource(entry.base_source, context))
+    return sources
+
+
+def _own_datasource(element, document, pair):
+    node = element.firstChildElement("datasource")
+    if node.isNull() or node.text() != pair[0]:
+        return
+    while node.hasChildNodes():
+        node.removeChild(node.firstChild())
+    node.appendChild(document.createTextNode(pair[1]))
+
+
+# A saved project never keeps a map filter: layers carrying one are written
+# with their own filter, in their <maplayer> and in the layer tree.
+
+def write_layer(layer, element, document):
+    """QgsProject.writeMapLayer: the layer's <maplayer> element."""
+    if layer.id() in _HELD:
+        pair = _written_sources(layer.id()).get(layer.id())
+        if pair is not None:
+            _own_datasource(element, document, pair)
+
+
+def write_project(document):
+    """QgsProject.writeProject: the layer tree (and any <maplayer> already
+    in the document)."""
+    sources = _written_sources() if _HELD else {}
+    if not sources:
+        return
+    layers = document.elementsByTagName("maplayer")
+    for i in range(layers.count()):
+        element = layers.at(i).toElement()
+        pair = sources.get(element.firstChildElement("id").text())
+        if pair is not None:
+            _own_datasource(element, document, pair)
+    nodes = document.elementsByTagName("layer-tree-layer")
+    for i in range(nodes.count()):
+        element = nodes.at(i).toElement()
+        pair = sources.get(element.attribute("id"))
+        if pair is not None and element.attribute("source") == pair[0]:
+            element.setAttribute("source", pair[1])

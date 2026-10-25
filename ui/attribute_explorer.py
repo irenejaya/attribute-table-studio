@@ -121,10 +121,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._drag_behaviour = SELECT_SET
         self._has_result = False
         self._closing = False
-        # map filter: the layer's Query Builder filter follows the table
+        # map filter: while the explorer is open the layer's filter follows
+        # the table filters; off or closed, the layer gets its own back
         self._map_filter = False
         self._base_subset = ""           # the layer's own filter before
         self._applied_subset = None      # the filter this explorer set
+        self._written = set()            # every filter it set (stale copies are put back)
         self._subset_busy = False        # our own setSubsetString running
         self._available = 0              # records without our map filter
 
@@ -322,7 +324,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is not None:
             self.flush_editors()
             self._save_layout()
-            self._keep_map_filter()
+            self._restore_map_filter()
             self._disconnect_layer()
         self.runner.new_generation()
         self._pending_scan = None
@@ -354,7 +356,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if layer is None:
             return
         self._restore_layout()
-        self._resume_map_filter()
+        self._adopt_map_filter()
         self.model.selected = set(layer.selectedFeatureIds())
         self._connect_layer()
         self.zoom_btn.setEnabled(layer.isSpatial())
@@ -424,7 +426,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         except RuntimeError:
             pass
         try:
-            self._keep_map_filter()
+            self._restore_map_filter()
         except RuntimeError:             # layer already deleted
             pass
         self._disconnect_layer()
@@ -469,16 +471,39 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _on_subset_changed(self):
         if self._subset_busy:
             return
-        if self._map_filter:
-            # the layer filter was changed elsewhere (e.g. the Query Builder)
+        layer = self.layer
+        if self._map_filter and layer is not None:
+            text = layer.subsetString()
+            current = (self._applied_subset if self._applied_subset is not None
+                       else self._base_subset)
+            if text == current:
+                return                   # the same filter set again
+            if text in self._written and text != self._base_subset:
+                # an old copy of the map filter (e.g. Layer Properties applying
+                # what its Query Builder showed when it opened), not a filter
+                # of the layer's own: the current map filter goes back
+                QTimer.singleShot(0, self._reapply_map_filter)
+                return
+            # the layer filter was changed elsewhere (e.g. the Query Builder):
+            # that filter stays, and the map filter goes off
             self._map_filter = False
             self._applied_subset = None
+            SUB.release(layer.id())
             self._set_query_checked(False)
-            if self.layer is not None:
-                self.layer.removeCustomProperty(SUB.STATE)
-            self.status.set_status("The layer filter was changed outside the "
-                                   "explorer — map filter turned off", "warning")
+            message = ("The layer filter was changed outside the explorer — "
+                       "map filter turned off")
+            self.status.set_status(message, "warning")
+            # kept beside the record counts for a few seconds (the rescan
+            # rewrites the status bar)
+            self._status_note = (time.monotonic() + 8, message)
         self._on_features_changed()
+
+    def _reapply_map_filter(self):
+        layer = self.layer
+        if (self._map_filter and layer is not None and not layer.isEditable()
+                and self._applied_subset is not None
+                and layer.subsetString() != self._applied_subset):
+            self._set_subset(self._applied_subset)
 
     def _on_data_settled(self):
         if self.layer is None or self._closing:
@@ -885,16 +910,22 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     @contextmanager
     def _unfiltered(self):
         """Read the layer without the map filter this explorer set (the
-        table and its statistics always see every record)."""
+        table and its statistics always see every record).  The layer's
+        signals are held meanwhile, so the map, the Layers panel and other
+        tables never see the short swap."""
         layer = self.layer
         if layer is None or not self._map_on_layer() or layer.isEditable():
             yield
             return
-        self._set_subset(self._base_subset)
+        blocked = layer.blockSignals(True)
         try:
-            yield
+            self._set_subset(self._base_subset)
+            try:
+                yield
+            finally:
+                self._set_subset(self._applied_subset)
         finally:
-            self._set_subset(self._applied_subset)
+            layer.blockSignals(blocked)
 
     def _set_query_checked(self, checked):
         self.query_btn.blockSignals(True)
@@ -913,20 +944,19 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                    "can be edited.\nStop editing to change the map filter or turn "
                    "it off.")
         elif editing:
-            tip = ("Map filter (Query Builder)\nNot available while the layer "
-                   "is being edited.")
+            tip = ("Map filter\nNot available while the layer is being edited.")
         elif self._map_filter:
-            tip = ("Map filter on: the layer's Query Builder filter follows the "
-                   "table filters, so the map shows the same records.\n"
-                   "Click to turn it off and show every feature again "
-                   "(the table keeps its filters).")
+            tip = ("Map filter on: the map shows only the filtered records.\n"
+                   "Click to turn it off and show every feature again (the "
+                   "table keeps its filters). Closing the explorer turns it "
+                   "off too.")
         elif not active:
-            tip = ("Map filter (Query Builder)\nAdd a column filter first, then "
-                   "click to show only the filtered records on the map.")
+            tip = ("Map filter\nAdd a column filter first, then click to show "
+                   "only the filtered records on the map.")
         else:
-            tip = ("Map filter (Query Builder): show only the filtered records "
-                   "on the map.\nWhile on, the layer's Query Builder filter "
-                   "follows the table filters.")
+            tip = ("Map filter: show only the filtered records on the map while "
+                   "the explorer is open.\nTurning it off or closing the "
+                   "explorer shows every feature again.")
         self.query_btn.setToolTip(tip)
         if layer is not None and getattr(self, "edit", None) is not None \
                 and getattr(self, "status", None) is not None:
@@ -958,6 +988,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._map_filter = True
         self._base_subset = layer.subsetString()
         self._applied_subset = None
+        self._written = set()
+        SUB.hold(layer, self._base_subset)
         self._update_query_btn()
         self.refresh()
 
@@ -983,53 +1015,29 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             count = layer.featureCount()
             if ours == "" or count < 0 or count == len(column_fids):
                 self._applied_subset = text
-                self._store_map_state()
+                self._written.add(text)
+                SUB.note_applied(layer, text, self._map_state())
                 return
         self._restore_map_filter()
         self.status.set_status(
             "The map filter could not be applied to this layer (too many "
             "records for an id list) — it was turned off", "warning")
 
-    def _store_map_state(self):
-        """Record the map filter on the layer (saved with the project), so it
-        can be resumed - and undone - after the explorer closes."""
-        state = {"version": 1, "base": self._base_subset,
-                 "applied": self._applied_subset,
-                 "filters": [f.to_dict() for f in getattr(self, "_map_filters", [])],
-                 "expr": self.expr_filter, "case": bool(self.case_sensitive)}
-        self.layer.setCustomProperty(SUB.STATE, json.dumps(state))
+    def _map_state(self):
+        """The table filters behind the map filter (kept in memory, for an
+        explorer reopened while the layer is still being edited)."""
+        return {"filters": [f.to_dict() for f in getattr(self, "_map_filters", [])],
+                "expr": self.expr_filter, "case": bool(self.case_sensitive)}
 
-    def _keep_map_filter(self):
-        """Leaving the layer (closing the explorer, switching layers): a map
-        filter that is on stays on the layer, like a Query Builder filter,
-        until it is turned off in the explorer."""
-        if self._map_filter and self.layer is not None and self._map_on_layer():
-            self._store_map_state()
-            self._map_filter = False
-            self._applied_subset = None
-            try:
-                self._set_query_checked(False)
-            except RuntimeError:
-                pass
-            return
-        self._restore_map_filter()
-
-    def _resume_map_filter(self):
-        """Opening a layer whose map filter was left on (also after the
-        project was saved and reopened): the button is on again, with the
-        filters that made it, so turning it off gives the layer its own
-        filter back."""
+    def _adopt_map_filter(self):
+        """Opening a layer that is still being edited after its explorer
+        closed with the map filter on: QGIS kept the filter until editing
+        stops, so the button is on again with the filters that made it."""
         layer = self.layer
-        text = layer.customProperty(SUB.STATE)
-        if not text:
+        entry = SUB.adopt(layer)
+        if entry is None:
             return
-        try:
-            state = json.loads(text)
-        except (TypeError, ValueError):
-            state = None
-        if not isinstance(state, dict) or state.get("applied") != layer.subsetString():
-            layer.removeCustomProperty(SUB.STATE)    # the filter changed meanwhile
-            return
+        state = entry.state or {}
         index = {f.name(): i for i, f in enumerate(self.model.fields)}
         for data in state.get("filters") or []:
             try:
@@ -1048,24 +1056,28 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self.expr_chip.setToolTip(f"{expression}\nClick to remove the expression filter")
         self.expr_chip.setVisible(bool(expression))
         self._map_filter = True
-        self._base_subset = state.get("base") or ""
-        self._applied_subset = state["applied"]
+        self._base_subset = entry.base
+        self._applied_subset = entry.applied
+        self._written = {entry.applied}
         self._set_query_checked(True)
         # shown beside the record counts for a few seconds (scans rewrite them)
         self._status_note = (time.monotonic() + 8,
-                             "Map filter still on from last time — turn it off to "
-                             "give the layer its own filter back")
+                             "Map filter still on — the layer is being edited, so "
+                             "it can only go off once editing stops")
 
     def _restore_map_filter(self):
-        """Give the layer its own filter back (map filter off)."""
+        """Map filter off (also when the explorer closes or changes layer):
+        the layer gets its own filter back - once editing stops if it is
+        being edited, since QGIS refuses filter changes then."""
         layer = self.layer
         if self._map_filter and layer is not None:
             try:
-                if not layer.isEditable():
-                    if layer.subsetString() != self._base_subset:
+                if layer.isEditable() and self._map_on_layer():
+                    SUB.restore_after_editing(layer)
+                else:
+                    if not layer.isEditable() and layer.subsetString() != self._base_subset:
                         self._set_subset(self._base_subset)
-                    layer.removeCustomProperty(SUB.STATE)
-                    layer.removeCustomProperty(SUB.PROPERTY)
+                    SUB.release(layer.id())
             except RuntimeError:         # layer already deleted
                 pass
         self._map_filter = False
@@ -1377,7 +1389,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         menu.addAction(icons.native(icons.SELECT_ALL),
                        "Select all shown records").triggered.connect(self.select_all)
         menu.addAction(icons.native(icons.INVERT),
-                       "Invert selection (shown records)").triggered.connect(
+                       "Invert selection (filtered records)").triggered.connect(
             self.invert_selection)
         menu.addAction(icons.native(icons.DESELECT),
                        "Deselect all").triggered.connect(self.deselect_all)

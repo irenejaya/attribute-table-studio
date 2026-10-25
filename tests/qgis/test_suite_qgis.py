@@ -766,9 +766,22 @@ class SuiteTests(unittest.TestCase):
         self.assertIn(f"{shown:,} shown / {total:,} available",
                       panel.status.message.fullText())
         self.assertIn("Map filter on", panel.status.extra.fullText())
-        state = json.loads(layer.customProperty(SUB.STATE))
-        self.assertEqual(state["applied"], layer.subsetString())
-        self.assertEqual(state["base"], "")
+        held = SUB.held(layer)                     # kept in memory, not on the layer
+        self.assertEqual((held.base, held.applied), ("", layer.subsetString()))
+        self.assertIsNone(layer.customProperty(SUB.STATE))
+
+        # the table's own reads lift the map filter unseen: listeners only
+        # ever see the map filter itself
+        seen = []
+
+        def note():
+            seen.append(layer.subsetString())
+        layer.subsetStringChanged.connect(note)
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        panel._values_for(lu)
+        layer.subsetStringChanged.disconnect(note)
+        self.assertTrue(all(s == held.applied for s in seen), seen)
 
         # the table still reaches every record: loosening a filter works
         cells[fl].set_filter(None)
@@ -803,49 +816,86 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(layer.featureCount(), total)
         self.assertEqual(len(panel.model.fids), kept)
         self.assertIsNotNone(cells[lu].current_filter())
-        self.assertIsNone(layer.customProperty(SUB.STATE))
+        self.assertIsNone(SUB.held(layer))
         self.assertIn("Map filter off", panel.status.message.fullText())
         self.assertNotIn("Map filter on", panel.status.extra.fullText())
 
-        # like QGIS's Query Builder: closing the explorer keeps the map filter
-        # (the layer's own filter stays underneath)
+        # temporary: a filter the layer already has stays underneath, a
+        # project saved meanwhile keeps only that filter, and closing the
+        # explorer gives it back
         layer.setSubsetString('"ZONE_CODE" > 1')
         self.assertTrue(H.wait_for(lambda: idle(panel) and not panel._data_timer.isActive()))
         btn.setChecked(True)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         mapped = '("ZONE_CODE" > 1) AND ("LAND_USE_TYPE" LIKE \'%dent%\')'
         self.assertEqual(layer.subsetString(), mapped)
+        path = os.path.join(tempfile.mkdtemp(), "map_filter.qgs")
+        self.assertTrue(QgsProject.instance().write(path))
+        QgsProject.instance().setFileName("")
+        with open(path, encoding="utf-8") as fh:
+            saved = fh.read()
+        self.assertNotIn("%dent%", saved)
+        self.assertIn("ZONE_CODE&quot; > 1", saved.replace("&gt;", ">"))
+        self.assertEqual(layer.subsetString(), mapped)          # still on
         self.plugin.explorers[layer.id()].close()
         H.settle(0.2)
-        self.assertEqual(layer.subsetString(), mapped)
-        self.assertIsNotNone(layer.customProperty(SUB.STATE))
-        # loading the project again leaves it alone (no longer "forgotten")
-        self.plugin._restore_forgotten_filters([layer])
-        self.assertEqual(layer.subsetString(), mapped)
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
+        self.assertIsNone(SUB.held(layer))
 
-        # reopening: the button is on again with the filters that made it, and
-        # turning it off gives the layer its own filter back
+        # reopening starts with the button off and every record
         panel = self.plugin.open_explorer(layer)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         btn, cells = panel.query_btn, panel.header.cells
-        self.assertTrue(btn.isChecked())
-        self.assertEqual(cells[lu].current_filter().value, "dent")
-        self.assertEqual(layer.subsetString(), mapped)
-        self.assertIn("still on", panel.status.message.fullText())
-        btn.setChecked(False)
-        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
-        self.assertIsNone(layer.customProperty(SUB.STATE))
+        self.assertFalse(btn.isChecked())
+        self.assertIsNone(cells[lu].current_filter())
+        self.assertEqual(len(panel.model.fids), layer.featureCount())
 
-        # a filter changed elsewhere after closing is not "resumed"
+        # switching the explorer to another layer gives the filter back too
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "INDUSTRIAL"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
         btn.setChecked(True)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        self.plugin.explorers[layer.id()].close()
-        H.settle(0.2)
-        layer.setSubsetString('"ZONE_CODE" = 2')
-        panel = self.plugin.open_explorer(layer)
+        self.assertIn("INDUSTRIAL", layer.subsetString())
+        other = H.demo_layer(n=40, seed=8, name="Map filter other")
+        panel.layerChangeRequested.emit(panel, other)
+        self.assertTrue(H.wait_for(lambda: panel.layer is other and idle(panel)))
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
+        self.assertFalse(btn.isChecked())
+        self.assertEqual(other.subsetString(), "")
+        panel.layerChangeRequested.emit(panel, layer)
+        self.assertTrue(H.wait_for(lambda: panel.layer is layer and idle(panel)))
+        QgsProject.instance().removeMapLayer(other.id())
+        cells = panel.header.cells               # rebuilt for the layer
+
+        # a Query Builder change made while it is on wins ...
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "INDUSTRIAL"))
+        panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        self.assertFalse(panel.query_btn.isChecked())
-        self.assertIsNone(layer.customProperty(SUB.STATE))
+        btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        layer.setSubsetString('"ZONE_CODE" = 2')
+        self.assertTrue(H.wait_for(lambda: idle(panel) and not panel._data_timer.isActive()))
+        self.assertFalse(btn.isChecked())
+        self.assertIsNone(SUB.held(layer))
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" = 2')
+        self.assertIn("changed outside", panel.status.message.fullText())
+        # ... but an old copy of the map filter (Layer Properties applying what
+        # its Query Builder showed when it opened) is not a change: it is put back
+        btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        old = layer.subsetString()
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        current = layer.subsetString()
+        self.assertNotEqual(current, old)
+        layer.setSubsetString(old)
+        H.settle(0.2)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertTrue(btn.isChecked())
+        self.assertEqual(layer.subsetString(), current)
+        btn.setChecked(False)
         self.assertEqual(layer.subsetString(), '"ZONE_CODE" = 2')
         self.plugin.explorers[layer.id()].close()
         H.settle(0.2)
@@ -857,6 +907,13 @@ class SuiteTests(unittest.TestCase):
         self.plugin._restore_forgotten_filters([layer])
         self.assertEqual(layer.subsetString(), "")
         self.assertIsNone(layer.customProperty(SUB.PROPERTY))
+        layer.setSubsetString('"ZONE_CODE" = 7')
+        layer.setCustomProperty(SUB.STATE, json.dumps(
+            {"version": 1, "base": '"ZONE_CODE" > 1', "applied": '"ZONE_CODE" = 7'}))
+        self.plugin._restore_forgotten_filters([layer])
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
+        self.assertIsNone(layer.customProperty(SUB.STATE))
+        layer.setSubsetString("")
 
         # memory layers take the table's own QGIS expression
         from qgis.core import QgsFeature, QgsGeometry, QgsPointXY
@@ -879,10 +936,14 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: idle(panel2)))
         self.assertEqual(mem.subsetString(), '"v" > 29')
         self.assertEqual(mem.featureCount(), 10)
+        path = os.path.join(tempfile.mkdtemp(), "map_filter_memory.qgs")
+        self.assertTrue(QgsProject.instance().write(path))
+        QgsProject.instance().setFileName("")
+        with open(path, encoding="utf-8") as fh:
+            self.assertNotIn("&quot;v&quot; > 29", fh.read().replace("&gt;", ">"))
         self.plugin.explorers[mem.id()].close()
         H.settle(0.2)
-        self.assertEqual(mem.subsetString(), '"v" > 29')        # kept, like QGIS
-        mem.setSubsetString("")
+        self.assertEqual(mem.subsetString(), "")                 # gone with the explorer
 
     def test_14a_attribute_only_table(self):
         table = QgsVectorLayer("None?field=name:string&field=v:double",
