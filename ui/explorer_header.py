@@ -418,7 +418,7 @@ class FilterCell(QFrame):
             self.op_menu.addAction(act)
             self._op_actions[op_id] = act
         self.op_menu.addSeparator()
-        clear = self.op_menu.addAction(icons.native(icons.DESELECT), "Clear this filter")
+        clear = self.op_menu.addAction(icons.native(icons.DESELECT), "Clear This Filter")
         clear.triggered.connect(lambda: self.clear(emit=True))
         self.op_menu.triggered.connect(self._on_op_action)
         self.op_btn.setMenu(self.op_menu)
@@ -1244,9 +1244,9 @@ class ProfileDetails(QFrame):
         no_dist = "This column has no distribution table"
         copy_menu = QMenu(self)
         copy_menu.setToolTipsVisible(True)
-        copy_menu.addAction("Summary statistics").triggered.connect(
+        copy_menu.addAction("Summary Statistics").triggered.connect(
             lambda: self.copy_text(ST.summary_tsv(self.summary)))
-        act = copy_menu.addAction("Distribution table")
+        act = copy_menu.addAction("Distribution Table")
         act.setEnabled(has_dist)
         act.setToolTip("" if has_dist else no_dist)
         act.triggered.connect(lambda: self.copy_text(ST.distribution_tsv(self.dist)))
@@ -1254,15 +1254,15 @@ class ProfileDetails(QFrame):
             lambda: self.copy_text(ST.everything_tsv(self.meta, self.summary, self.dist)))
         export_menu = QMenu(self)
         export_menu.setToolTipsVisible(True)
-        act = export_menu.addAction(icons.native(icons.XLSX), "Excel workbook")
+        act = export_menu.addAction(icons.native(icons.XLSX), "Excel Workbook…")
         act.setEnabled(X.HAS_OPENPYXL)
         act.setToolTip("Summary and Distribution worksheets, with the layer, field, "
                        "filters and records" if X.HAS_OPENPYXL
                        else "Excel export needs the 'openpyxl' package")
         act.triggered.connect(lambda: self.exportRequested.emit("xlsx"))
-        export_menu.addAction(icons.native(icons.CSV), "Summary as CSV").triggered.connect(
+        export_menu.addAction(icons.native(icons.CSV), "Summary as CSV…").triggered.connect(
             lambda: self.exportRequested.emit("summary"))
-        act = export_menu.addAction(icons.native(icons.CSV), "Distribution as CSV")
+        act = export_menu.addAction(icons.native(icons.CSV), "Distribution as CSV…")
         act.setEnabled(has_dist)
         act.setToolTip("" if has_dist else no_dist)
         act.triggered.connect(lambda: self.exportRequested.emit("distribution"))

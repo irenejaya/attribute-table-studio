@@ -60,13 +60,13 @@ class EditBar(QWidget):
         self.redo_btn = sq(m, icons.native(icons.REDO), "Redo")
         self.add_menu = QMenu(self)
         self.add_table_action = self.add_menu.addAction(
-            icons.native(icons.NEW_ROW), "Add record in the table")
+            icons.native(icons.NEW_ROW), "Add Record in the Table")
         self.add_form_action = self.add_menu.addAction(
-            icons.native(icons.FORM_VIEW), "Add record with a form…")
+            icons.native(icons.FORM_VIEW), "Add Record with a Form…")
         self.add_btn = W.split_button(m, icons.native(icons.NEW_ROW),
                                       "Add a record", self.add_menu)
         self.delete_btn = sq(m, icons.native(icons.DELETE_SELECTED),
-                             "Delete the selected features")
+                             "Delete the selected features…")
         self.cut_btn = sq(m, icons.native(icons.CUT), "Cut the selected features")
         self.copy_btn = sq(m, icons.native(icons.COPY), "Copy the selected features")
         self.paste_btn = sq(m, icons.native(icons.PASTE), "Paste features")

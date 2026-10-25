@@ -21,6 +21,7 @@ from . import explorer_dialogs as D
 from . import explorer_edit as E
 from . import explorer_ops as OPS
 from . import icons
+from . import widgets as W
 from .explorer_bars import EditBar, QuickUpdateBar
 
 _ADD_MODE = QgsAttributeEditorContext.AddFeatureMode
@@ -577,7 +578,7 @@ class EditingMixin:
         hidden = self.edit_bar.overflow_buttons()
         if hidden:
             for btn in hidden:
-                act = menu.addAction(btn.icon(), btn.toolTip().split("\n")[0])
+                act = menu.addAction(btn.icon(), W.title_case(btn.toolTip().split("\n")[0]))
                 act.setEnabled(btn.isEnabled())
                 if btn.isCheckable():
                     act.setCheckable(True)
@@ -588,34 +589,34 @@ class EditingMixin:
         fid = self.model.fid(row) if row >= 0 else None
         if fid is None and self.model.selected:
             fid = next(iter(sorted(self.model.selected)))
-        act = menu.addAction(icons.native(icons.FORM_VIEW), "Open feature form…")
+        act = menu.addAction(icons.native(icons.FORM_VIEW), "Open Feature Form…")
         act.setEnabled(fid is not None)
         act.triggered.connect(lambda: self.open_feature_form(fid))
         self.add_actions_menu(menu, fid)
         menu.addSeparator()
-        menu.addAction(icons.native(icons.COPY), "Copy selected rows as text").triggered.connect(
+        menu.addAction(icons.native(icons.COPY), "Copy Selected Rows as Text").triggered.connect(
             self.copy_selected_rows)
-        act = menu.addAction(icons.native(icons.COPY), "Copy cell value")
+        act = menu.addAction(icons.native(icons.COPY), "Copy Cell Value")
         act.setEnabled(row >= 0 and col >= 0)
         act.triggered.connect(lambda: QGuiApplication.clipboard().setText(
             self.model.display_text(row, col)))
-        act = menu.addAction("Set cell to NULL")
+        act = menu.addAction("Set Cell to NULL")
         act.setEnabled(row >= 0 and col >= 0 and col in self.model.editable_cols)
         act.triggered.connect(lambda: self.set_cell_null(row, col))
         menu.addSeparator()
-        act = menu.addAction(icons.native(icons.HISTORY), "Review unsaved changes…")
+        act = menu.addAction(icons.native(icons.HISTORY), "Review Unsaved Changes…")
         act.setEnabled(self.edit.modified())
         act.triggered.connect(lambda: D.ReviewChangesDialog(self).exec())
-        menu.addAction(icons.native(icons.FIELD_PROPS), "Layer field properties…").triggered.connect(
+        menu.addAction(icons.native(icons.FIELD_PROPS), "Layer Field Properties…").triggered.connect(
             self.open_field_properties)
-        menu.addAction(icons.native(icons.TABLE), "Open native attribute table").triggered.connect(
+        menu.addAction(icons.native(icons.TABLE), "Open Native Attribute Table").triggered.connect(
             lambda: self.iface.showAttributeTable(self.layer))
         menu.addAction(icons.native(icons.HELP), "Help").triggered.connect(self.show_help)
 
     def add_actions_menu(self, menu, fid):
         """'Layer feature actions' submenu: the layer's QGIS actions for the
         feature (run with its expression context)."""
-        sub = menu.addMenu(icons.native(icons.ACTION), "Layer feature actions")
+        sub = menu.addMenu(icons.native(icons.ACTION), "Layer Feature Actions")
         feat = self.layer.getFeature(fid) if fid is not None else QgsFeature()
         if fid is None or not feat.isValid():
             sub.setEnabled(False)

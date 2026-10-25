@@ -206,11 +206,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             m, "Clear filters", icons.with_badge(icons.FILTER, "x", t),
             "Clear every column filter"))
         export_menu = QMenu(self)
-        self.export_xlsx = export_menu.addAction(icons.native(icons.XLSX), "Excel (.xlsx)")
-        self.export_csv = export_menu.addAction(icons.native(icons.CSV), "CSV (.csv)")
+        self.export_xlsx = export_menu.addAction(icons.native(icons.XLSX), "Excel (.xlsx)…")
+        self.export_csv = export_menu.addAction(icons.native(icons.CSV), "CSV (.csv)…")
         export_menu.addSeparator()
         self.copy_action = export_menu.addAction(
-            icons.native(icons.COPY), "Copy selected rows")
+            icons.native(icons.COPY), "Copy Selected Rows")
         self.copy_action.setShortcut(QKeySequence.StandardKey.Copy)
         if not X.HAS_OPENPYXL:
             self.export_xlsx.setEnabled(False)
@@ -1371,42 +1371,42 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         n_sel = len(self.model.selected)
         fid = self.model.fid(row) if row >= 0 else None
         if fid is not None:
-            menu.addAction(icons.native(icons.FORM_VIEW), "Open form…").triggered.connect(
+            menu.addAction(icons.native(icons.FORM_VIEW), "Open Form…").triggered.connect(
                 lambda: self.open_feature_form(fid))
         if row >= 0 and col >= 0:
             value_text = self.model.display_text(row, col)
-            act = menu.addAction(icons.native(icons.COPY), "Copy cell value")
+            act = menu.addAction(icons.native(icons.COPY), "Copy Cell Value")
             act.triggered.connect(
                 lambda: QGuiApplication.clipboard().setText(value_text))
             if col in self.model.editable_cols:
-                menu.addAction("Set cell to NULL").triggered.connect(
+                menu.addAction("Set Cell to NULL").triggered.connect(
                     lambda: self.set_cell_null(row, col))
         act = menu.addAction(icons.native(icons.COPY),
-                             f"Copy selected rows ({n_sel:,})")
+                             f"Copy Selected Rows ({n_sel:,})")
         act.setEnabled(n_sel > 0)
         act.triggered.connect(self.copy_selected_rows)
         menu.addSeparator()
         menu.addAction(icons.native(icons.SELECT_ALL),
-                       "Select all shown records").triggered.connect(self.select_all)
+                       "Select All Features").triggered.connect(self.select_all)
         menu.addAction(icons.native(icons.INVERT),
-                       "Invert selection").triggered.connect(
+                       "Invert Selection").triggered.connect(
             self.invert_selection)
         menu.addAction(icons.native(icons.DESELECT),
-                       "Deselect all").triggered.connect(self.deselect_all)
+                       "Deselect All Features").triggered.connect(self.deselect_all)
         if self.layer is not None and self.layer.isSpatial():
             menu.addSeparator()
             if row >= 0:
                 menu.addAction(icons.native(icons.ZOOM_TO),
-                               "Zoom to this feature").triggered.connect(
+                               "Zoom to Feature").triggered.connect(
                     lambda: self._zoom_to_row(row))
                 menu.addAction(icons.native(icons.PAN_SELECTED),
-                               "Pan to this feature").triggered.connect(
+                               "Pan to Feature").triggered.connect(
                     lambda: self._pan_to_row(row))
                 menu.addAction(icons.native(icons.FLASH),
-                               "Flash this feature").triggered.connect(
+                               "Flash Feature").triggered.connect(
                     lambda: self.iface.mapCanvas().flashFeatureIds(self.layer, [fid]))
             act = menu.addAction(icons.native(icons.ZOOM_SELECTED),
-                                 "Zoom to selection")
+                                 "Zoom to Selection")
             act.setEnabled(n_sel > 0)
             act.triggered.connect(self.zoom_to_selection)
         if row >= 0 and col >= 0:
@@ -1415,24 +1415,24 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             raw = self.model.raw_value(row, col)
             kind = self.model.kinds[col]
             act = menu.addAction(icons.native(icons.FILTER),
-                                 f"Filter {name} to this value")
+                                 f"Filter {name} to This Value")
             act.triggered.connect(lambda: self._filter_to_value(col, raw))
             act.setEnabled(kind != F.OTHER)
-            menu.addAction(f"Hide column {name}").triggered.connect(
+            menu.addAction(f"Hide Column {name}").triggered.connect(
                 lambda: self._hide_column(col))
             menu.addAction(icons.native(icons.SORT), f"Sort by {name}").triggered.connect(
                 lambda: self.sort_by(col, False))
             act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
             act.setEnabled(self.can_calculate(name))
             act.triggered.connect(lambda: self.open_calculator(name))
-            menu.addAction(icons.native(icons.FIELD_PROPS), "Field properties…"
+            menu.addAction(icons.native(icons.FIELD_PROPS), "Field Properties…"
                            ).triggered.connect(self.open_field_properties)
         if fid is not None:
             menu.addSeparator()
             self.add_actions_menu(menu, fid)
             if self.edit.editing and self.edit.capable(CAP_DELETE) and n_sel:
                 menu.addAction(icons.native(icons.DELETE_SELECTED),
-                               f"Delete selected features ({n_sel:,})…").triggered.connect(
+                               f"Delete Selected Features ({n_sel:,})…").triggered.connect(
                     self.delete_selected)
         menu.exec(global_pos)
 
@@ -1473,7 +1473,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             return
         if len(rows) > 100000:
             answer = QMessageBox.question(
-                self, "Copy selected rows",
+                self, "Copy Selected Rows",
                 f"Copy {len(rows):,} rows to the clipboard?")
             if answer != QMessageBox.StandardButton.Yes:
                 return

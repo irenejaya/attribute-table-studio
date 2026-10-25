@@ -56,14 +56,16 @@ on the map scrolls the table to the first of them. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
 double-click a row to zoom to one feature. The icon left of <b>Select ▾</b>
-deselects the features of this layer. <b>Select ▾</b> adds select all
-(shown or whole layer), invert selection (and invert selection for the
-whole layer while the table is filtered), deselect features from all layers,
-select by expression, select by value / form and pan to selection; its first
-line says how many selected features are outside the current view.</p>
+deselects the features of this layer. <b>Select ▾</b> adds <i>Select All
+Features</i> and <i>Invert Selection</i> (each also for the <i>Whole
+Layer</i> while the table is filtered), <i>Deselect Features from All
+Layers</i>, <i>Select Features by Expression…</i>, <i>Select Features by
+Value…</i> and pan / zoom to the selection; its first line says how many
+selected features are outside the current view. Menu entries that open a
+dialog end with "…".</p>
 <h4>View</h4>
 <ul>
-<li><b>View ▾</b> switches between <b>Table view</b> and <b>Form view</b>
+<li><b>View ▾</b> switches between <b>Table View</b> and <b>Form View</b>
 (the layer's configured form with a record list; edits in the form are
 written when you move to another record or back to the table).</li>
 <li>Scope, named as in the QGIS attribute table: <i>Show All Features</i>,
@@ -74,12 +76,12 @@ Failing Constraints</i> (hard and soft counts in the scope line) and
 always apply on top.</li>
 <li><i>Advanced Filter (Expression)</i> replaces it or combines it with AND /
 OR; <i>Stored Filter Expressions</i> reuses the layer's saved ones;
-<i>Filter by form</i> uses the layer's form in search mode. The expression shows as a
+<i>Filter by Form</i> uses the layer's form in search mode. The expression shows as a
 chip in the scope line; <b>Clear filters</b> clears it too.</li>
-<li><i>Case-sensitive text filters</i>, <i>Selected to top</i> (keeps the
-filtered records, only moves the selection up), <i>Sort by expression</i>,
-<i>Conditional formatting</i> (the layer's own rules, painted in the table)
-and <i>Autosize all columns</i>. Right-click a column name for sorting,
+<li><i>Case-Sensitive Text Filters</i>, <i>Move Selection to Top</i> (keeps
+the filtered records, only moves the selection up), <i>Sort by
+Expression</i>, <i>Conditional Formatting</i> (the layer's own rules,
+painted in the table) and <i>Autosize All Columns</i>. Right-click a column name for sorting,
 widths, hiding, the field calculator and field properties.</li>
 </ul>
 <h4>Editing</h4>
@@ -130,8 +132,8 @@ you change are written. Field calculator, Quick update and Multi edit are
 each one undo step.</li>
 <li><b>New field</b> / <b>Delete field</b> change the layer's schema (stored
 or virtual fields); <b>Reload</b> re-reads the data source. The ☰ menu holds
-the feature form, layer actions, copy as text, set NULL, <i>Review unsaved
-changes</i>, field properties and the native attribute table.</li>
+the feature form, layer actions, copy as text, set NULL, <i>Review Unsaved
+Changes</i>, field properties and the native attribute table.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
 close, close and keep the layer's edits, or cancel. Nothing is discarded
 without asking.</li>

@@ -10,6 +10,9 @@ One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
 Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
+Inspired by Microsoft's [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
+extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
+
 ![Attribute Explorer](docs/screenshots/dark_explorer.png)
 
 ## Install
@@ -84,18 +87,20 @@ proposed and only assigned when no other command uses it; change it in
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
   rows (*Ctrl+C*); *Pivot Table* hands the filtered records to the Pivot
   Table.
-- **View ▾** (before *Columns*): table or form view; the scopes with the
-  names and icons of the QGIS attribute table (*Show All Features*, *Show
+- Menus are written the way QGIS writes them (Title Case; "…" when the entry
+  opens a dialog).
+- **View ▾** (before *Columns*): *Table View* or *Form View*; the scopes with
+  the names and icons of the QGIS attribute table (*Show All Features*, *Show
   Selected Features*, *Show Features Visible on Map*, *Show Features with
   Failing Constraints*, *Show Edited and New Features*); *Advanced Filter
-  (Expression)* (replace / AND / OR), *Stored Filter Expressions*, filter by
-  form, case-sensitive text filters, selected to top, sort by expression,
-  conditional formatting, autosize. Column filters always apply on top of the
-  scope.
-- **Select ▾**: select all shown / all layer records, invert selection (plus
-  invert selection for the whole layer while the table is filtered), deselect
-  features from all layers, select by expression, select by value / form, pan
-  or zoom to the selection.
+  (Expression)…* (replace / AND / OR), *Stored Filter Expressions…*, *Filter
+  by Form…*, *Case-Sensitive Text Filters*, *Move Selection to Top*, *Sort by
+  Expression…*, *Conditional Formatting…*, *Autosize All Columns*. Column
+  filters always apply on top of the scope.
+- **Select ▾**: *Select All Features*, *Invert Selection* (each also for the
+  *Whole Layer* while the table is filtered), *Deselect Features from All
+  Layers*, *Select Features by Expression…*, *Select Features by Value…*,
+  *Pan to Selection*, *Zoom to Selection*.
 
 ### Editing
 
@@ -146,7 +151,7 @@ attribute table and every other QGIS tool.
 
 ![Quick update](docs/screenshots/dark_quick_update.png)
 
-Form view (*View ▾ › Form view*) shows the layer's configured form next to a
+Form view (*View ▾ › Form View*) shows the layer's configured form next to a
 record list labelled with the layer's display expression:
 
 ![Form view](docs/screenshots/dark_form_view.png)
@@ -256,6 +261,26 @@ python tests/qgis/test_editing_qgis.py        # Explorer editing, forms, scopes,
 ```
 
 All suites pass on QGIS 4.2 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).
+
+## Acknowledgements
+
+Special thanks to **Data Wrangler**, Microsoft's data viewing and cleaning
+extension for Visual Studio Code and VS Code Jupyter notebooks, which
+inspired this plugin and the idea of bringing that way of exploring a table
+to QGIS. Its *Quick Insights* header (each column's distribution or value
+frequencies, with missing and distinct counts, right above the data grid),
+its *Data Summary* panel and the filters and sorts in every column header
+are the model for Attribute Explorer's statistics cards, column filters and
+statistics popup, here working on map layers with their selection, editing
+and Query Builder filters.
+
+- Visual Studio Marketplace: [Data Wrangler (ms-toolsai.datawrangler)](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
+- Documentation: [Data Wrangler in VS Code](https://code.visualstudio.com/docs/datascience/data-wrangler)
+- Repository: [microsoft/vscode-data-wrangler](https://github.com/microsoft/vscode-data-wrangler)
+
+Attribute Table Studio is an independent project: it is not affiliated with or
+endorsed by Microsoft and shares no code with Data Wrangler. Visual Studio
+Code is a trademark of Microsoft Corporation.
 
 ## License
 
