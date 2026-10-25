@@ -221,12 +221,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         # ---- editing rows (row 2 always; row 3 = Quick update) ----
         self._build_edit_rows(root)
 
-        # ---- scope line ----
-        scope = QHBoxLayout()
-        scope.setSpacing(m.gap)
+        # ---- scope line: left of the edit row (no row of its own) ----
         self.scope_label = W.ElideLabel()
         self.scope_label.setObjectName("gtsDim")
-        scope.addWidget(self.scope_label, 1)
+        self.edit_bar.add_info(self.scope_label, 1)
         self.external_chip = W.button(m, "", icons.glyph("cross", t.text_dim),
                                       "Remove the records handed over from "
                                       "the Pivot Table")
@@ -234,14 +232,13 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.external_chip.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.external_chip.setVisible(False)
         self.external_chip.clicked.connect(self.clear_external_scope)
-        scope.addWidget(self.external_chip)
+        self.edit_bar.add_info(self.external_chip)
         self.expr_chip = W.button(m, "", icons.glyph("cross", t.text_dim), "")
         self.expr_chip.setFixedHeight(m.compact_h)
         self.expr_chip.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
         self.expr_chip.setVisible(False)
         self.expr_chip.clicked.connect(lambda: self.set_expression_filter(None))
-        scope.addWidget(self.expr_chip)
-        root.addLayout(scope)
+        self.edit_bar.add_info(self.expr_chip)
 
         # ---- table / form ----
         self.model = FeatureTableModel(self.theme, self)
@@ -796,7 +793,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._update_status()
 
     def _update_status(self):
-        if self.layer is None or self.runner.busy:
+        if self.layer is None:
+            return
+        self._update_edit_status()
+        if self.runner.busy:
             return
         shown = len(self.model.fids)
         available = self._available_count()
@@ -805,18 +805,19 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.status.set_status(
             f"{shown:,} shown / {available:,} available  •  {sel:,} selected"
             + (f" ({hidden:,} hidden)" if hidden else ""))
-        if self.edit.editing:
-            extra = "Editing  •  " + (self.edit.summary() if self.edit.modified()
-                                      else "no unsaved changes")
-            extra += "  •  Layer changes shared with QGIS"
-        else:
-            extra = "Read only"
+
+    def _update_edit_status(self):
+        """Edit session state on the right of the status bar (orange while
+        editing, red when a save failed)."""
+        text, level = self.edit.status()
+        parts = [text]
         if self._map_on_layer():
-            extra = ("Map filter frozen  •  " if self.edit.editing
-                     else "Map filter on  •  ") + extra
+            parts.append("Map filter frozen" if self.edit.editing else "Map filter on")
+        if self.edit.editing and level != "error":
+            parts.append("Layer changes shared with QGIS")
         if self.shortcut_text:
-            extra += f"  •  {self.shortcut_text}"
-        self.status.set_extra(extra)
+            parts.append(self.shortcut_text)
+        self.status.set_extra("  •  ".join(p for p in parts if p), level)
 
     def scope_description(self):
         return self.scope_label.fullText().replace("Statistics for: ", "")

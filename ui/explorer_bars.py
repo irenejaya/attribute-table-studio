@@ -2,15 +2,16 @@
 """
 Attribute Explorer editing rows.
 
-- :class:`EditBar` is the second permanent toolbar row: edit status on the
-  left, the editing commands right aligned (ending at the Dock button's
-  right edge).  In a narrow window the lower-priority groups move into the
-  More menu, so the row never wraps.
+- :class:`EditBar` is the second permanent toolbar row: the panel's scope
+  line ("Statistics for: ...") on the left, the editing commands right
+  aligned (ending at the Dock button's right edge).  The edit status lives
+  in the status bar.  In a narrow window the lower-priority groups move into
+  the More menu, so the row never wraps.
 - :class:`QuickUpdateBar` is the optional third row, shown only while
   editing AND its separate Quick update toggle is on.
 """
 
-from qgis.PyQt.QtCore import QSize, Qt, QTimer, pyqtSignal
+from qgis.PyQt.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import (
     QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout,
     QWidget,
@@ -22,7 +23,11 @@ from . import widgets as W
 
 
 class EditBar(QWidget):
-    """Edit status (left) and the editing commands (right)."""
+    """Scope line (left, filled by the panel) and the editing commands
+    (right)."""
+
+    LEFT = 220          # kept for the scope line before groups move into More
+    LEFT_MIN = 140
 
     def __init__(self, metrics, theme, parent=None):
         super().__init__(parent)
@@ -32,10 +37,14 @@ class EditBar(QWidget):
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(m.gap)
-        self.status_label = W.ElideLabel()
-        self.status_label.setObjectName("gtsEditStatus")
-        self.status_label.setMinimumWidth(120)
-        lay.addWidget(self.status_label, 1)
+        self.info = QWidget()
+        self.info.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.info.setMinimumWidth(120)
+        self.info_layout = QHBoxLayout(self.info)
+        self.info_layout.setContentsMargins(0, 0, 0, 0)
+        self.info_layout.setSpacing(m.gap)
+        self._chips = []
+        lay.addWidget(self.info, 1)
 
         sq = W.square_button
         self.edit_btn = W.button(m, "Edit", icons.native(icons.TOGGLE_EDIT),
@@ -99,11 +108,23 @@ class EditBar(QWidget):
         lay.addWidget(self.more_btn)
         self.hidden_groups = set()
 
-    def set_status(self, text, level):
-        self.status_label.setText(text)
-        self.status_label.setProperty("level", level)
-        self.status_label.style().unpolish(self.status_label)
-        self.status_label.style().polish(self.status_label)
+    def add_info(self, widget, stretch=0):
+        """Put *widget* on the left of the row: the scope line (stretch 1)
+        or one of its chips, which take room from the commands when shown."""
+        self.info_layout.addWidget(widget, stretch)
+        if not stretch:
+            self._chips.append(widget)
+            widget.installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.Show, QEvent.Type.Hide):
+            QTimer.singleShot(0, self._apply_overflow)
+        return False
+
+    def _left(self):
+        gap = self.metrics.gap
+        return self.LEFT + sum(w.sizeHint().width() + gap for w in self._chips
+                               if w.isVisibleTo(self))
 
     # ------------------------------------------------------------------
     def _group_width(self, i):
@@ -112,12 +133,12 @@ class EditBar(QWidget):
             + gap * len(self.groups[i]) + 9 + gap
 
     def sizeHint(self):
-        width = 140 + sum(self._group_width(i) for i in range(len(self.groups))) \
+        width = self._left() + sum(self._group_width(i) for i in range(len(self.groups))) \
             + self.metrics.control_h
         return QSize(width, self.metrics.control_h)
 
     def minimumSizeHint(self):
-        return QSize(140 + self._group_width(0) + self.metrics.control_h + 20,
+        return QSize(self.LEFT_MIN + self._group_width(0) + self.metrics.control_h + 20,
                      self.metrics.control_h)
 
     def resizeEvent(self, event):
@@ -126,7 +147,7 @@ class EditBar(QWidget):
 
     def _apply_overflow(self):
         """Move the lowest-priority groups into More until the row fits."""
-        available = self.width() - 140 - self.metrics.control_h - 12
+        available = self.width() - self._left() - self.metrics.control_h - 12
         hidden = set()
         needed = sum(self._group_width(i) for i in range(len(self.groups)))
         for i in self.overflow_order:

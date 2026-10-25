@@ -78,8 +78,8 @@ proposed and only assigned when no other command uses it; change it in
 
 ### Editing
 
-The explorer opens read-only. **Edit** on the edit row (under the top row)
-starts the layer's own edit session — shared with the map, the native
+The explorer opens read-only. **Edit** on the second row (the *Statistics
+for* line is on its left) starts the layer's own edit session — shared with the map, the native
 attribute table and every other QGIS tool.
 
 ![Editing](docs/screenshots/dark_editing.png)
@@ -99,8 +99,9 @@ attribute table and every other QGIS tool.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
   changes, field properties, native attribute table.
-- The status on the left of the edit row shows the session state and the
-  unsaved counts; disabled buttons say why in their tooltip.
+- The right of the status bar shows the session state and the unsaved counts
+  (orange while editing, red when a save failed); disabled buttons say why in
+  their tooltip.
 - Closing with unsaved edits asks *Save and close* / *Close and keep layer
   edits* / *Cancel*; stopping asks *Save* / *Discard* / *Cancel*.
 - While editing, the **map filter is frozen**: the table works on exactly the

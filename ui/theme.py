@@ -173,11 +173,11 @@ def stylesheet(t, m):
         QToolButton#gtsSquare::menu-button {{ width: 13px;
             border-left: 1px solid {t.border}; }}
         QFrame#gtsVSep {{ color: {t.border}; }}
-        QLabel#gtsEditStatus {{ color: {t.text_dim}; }}
-        QLabel#gtsEditStatus[level="editing"] {{ color: {t.warning}; }}
-        QLabel#gtsEditStatus[level="editing-clean"] {{ color: {t.warning}; }}
-        QLabel#gtsEditStatus[level="busy"] {{ color: {t.accent_text}; }}
-        QLabel#gtsEditStatus[level="error"] {{ color: {t.danger}; font-weight: 700; }}
+        QLabel#gtsStatusExtra {{ color: {t.text_dim}; }}
+        QLabel#gtsStatusExtra[level="editing"] {{ color: {t.warning}; }}
+        QLabel#gtsStatusExtra[level="editing-clean"] {{ color: {t.warning}; }}
+        QLabel#gtsStatusExtra[level="busy"] {{ color: {t.accent_text}; }}
+        QLabel#gtsStatusExtra[level="error"] {{ color: {t.danger}; font-weight: 700; }}
         QLabel#gtsQuickTitle {{ font-weight: 700; color: {t.text_strong}; }}
         QToolButton#gtsButton:hover, QToolButton#gtsSquare:hover {{
             background: {t.card_hover}; }}

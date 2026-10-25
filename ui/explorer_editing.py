@@ -98,8 +98,6 @@ class EditingMixin:
             return
         e, b = self.edit, self.edit_bar
         editing = e.editing
-        text, level = e.status()
-        b.set_status(text, level)
         b.edit_btn.blockSignals(True)
         b.edit_btn.setChecked(editing)
         b.edit_btn.blockSignals(False)

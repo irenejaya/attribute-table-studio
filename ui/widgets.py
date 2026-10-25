@@ -607,8 +607,9 @@ class StatusStrip(QFrame):
         self.action_btn.clicked.connect(self._run_action)
         self._action = None
         lay.addWidget(self.action_btn)
-        self.extra = QLabel("")
-        self.extra.setObjectName("gtsDim")
+        self.extra = ElideLabel()
+        self.extra.setObjectName("gtsStatusExtra")
+        self.extra.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         lay.addWidget(self.extra)
         self.cancel_btn = QToolButton()
         self.cancel_btn.setIcon(icons.native(icons.CANCEL))
@@ -638,8 +639,13 @@ class StatusStrip(QFrame):
         if fn is not None:
             fn()
 
-    def set_extra(self, text):
+    def set_extra(self, text, level=None):
+        """*level* colours it: "editing" orange, "error" red, else dim."""
         self.extra.setText(text)
+        if self.extra.property("level") != level:
+            self.extra.setProperty("level", level)
+            self.extra.style().unpolish(self.extra)
+            self.extra.style().polish(self.extra)
 
     def set_busy(self, busy, cancellable=True):
         self.cancel_btn.setVisible(busy and cancellable)

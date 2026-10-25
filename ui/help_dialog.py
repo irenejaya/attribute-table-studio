@@ -72,12 +72,13 @@ and <i>Autosize all columns</i>. Right-click a column name for sorting,
 widths, hiding, the field calculator and field properties.</li>
 </ul>
 <h4>Editing</h4>
-<p>The second row is the edit row. <b>Edit</b> starts or stops editing the
+<p>The second row holds the <i>Statistics for</i> line on the left and the
+editing commands on the right. <b>Edit</b> starts or stops editing the
 layer. The edit session is the layer's own: the map, the native attribute
 table and every other QGIS tool share it, and edits made there show up here.
-The status on the left says whether the layer is read only, being edited and
-how many unsaved changes it has. Buttons that cannot be used say why in
-their tooltip.</p>
+The right of the status bar says whether the layer is read only or being
+edited (orange) and how many unsaved changes it has (red when a save
+failed). Buttons that cannot be used say why in their tooltip.</p>
 <ul>
 <li>While editing, a click only focuses a cell (it does not change the
 selection); double-click, F2 or typing opens the field's configured QGIS

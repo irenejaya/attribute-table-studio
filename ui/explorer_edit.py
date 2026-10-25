@@ -234,15 +234,14 @@ class EditController(QObject):
         return "  •  ".join(parts)
 
     def status(self):
-        """(text, level) for the edit status on the left of the edit row."""
+        """(text, level) for the edit status in the status bar."""
         if self._note is not None:
             return self._note
         if self.layer is None:
             return "", "info"
         if not self.editing:
             blocker = self.edit_blocker()
-            return (f"Read only  •  {blocker}" if blocker
-                    else "Read only  •  Ready to edit"), "info"
+            return (f"Read only  •  {blocker}" if blocker else "Read only"), "info"
         if self.modified():
             return f"Editing layer  •  {self.summary()}", "editing"
         return "Editing layer  •  No unsaved changes", "editing-clean"

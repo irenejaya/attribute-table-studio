@@ -108,7 +108,17 @@ class EditingTests(unittest.TestCase):
         self.assertLessEqual(abs(right(p.dock_btn) - right(b.more_btn)), 2)
         self.assertNotEqual(icons.CALCULATE, icons.QUICK_UPDATE)
         self.assertEqual(icons.QUICK_UPDATE, "/mActionProcessSelected.svg")
-        self.assertTrue(b.status_label.fullText().startswith("Read only"))
+        # the scope line sits on the left of the edit row (no row of its own);
+        # the edit status is in the status bar, dim while read only
+        y = lambda w: w.mapTo(p, QPoint(0, w.height() // 2)).y()
+        self.assertLessEqual(abs(y(p.scope_label) - y(b.edit_btn)), 2)
+        self.assertLess(x(p.scope_label), x(b.edit_btn))
+        self.assertTrue(p.scope_label.fullText().startswith("Statistics for:"))
+        self.assertLess(p.edit_bar.mapTo(p, QPoint(0, b.height())).y(),
+                        p.view.mapTo(p, QPoint(0, 0)).y())
+        extra = p.status.extra
+        self.assertEqual(extra.fullText(), "Read only")
+        self.assertEqual(extra.property("level"), "info")                # dim
         for btn in (b.save_btn, b.discard_btn, b.undo_btn, b.add_btn, b.calc_btn,
                     b.quick_btn, b.multi_btn, b.new_field_btn):
             self.assertFalse(btn.isEnabled(), btn.toolTip())
@@ -117,6 +127,8 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(b.reload_btn.isEnabled())
         self.assertFalse(p.quick_bar.isVisibleTo(p))
         self.start()
+        self.assertTrue(extra.fullText().startswith("Editing layer  •  No unsaved changes"))
+        self.assertEqual(extra.property("level"), "editing-clean")      # orange
         self.assertTrue(b.quick_btn.isEnabled())
         self.assertFalse(b.quick_btn.isChecked())
         self.assertFalse(p.quick_bar.isVisibleTo(p))     # editing alone: hidden
@@ -135,11 +147,12 @@ class EditingTests(unittest.TestCase):
         self.layer.startEditing()                         # elsewhere in QGIS
         H.settle(0.2)
         self.assertTrue(b.edit_btn.isChecked())
-        self.assertIn("Editing layer", b.status_label.fullText())
+        self.assertIn("Editing layer", p.status.extra.fullText())
         fid = p.model.fid(0)
         self.layer.changeAttributeValue(fid, self.lu, "OTHER")   # e.g. the map
         settle(p)
-        self.assertIn("1 unsaved cell", b.status_label.fullText())
+        self.assertIn("1 unsaved cell", p.status.extra.fullText())
+        self.assertEqual(p.status.extra.property("level"), "editing")
         ASK.answers = ["cancel"]
         b.edit_btn.click()
         self.assertTrue(self.layer.isEditable())
@@ -216,7 +229,8 @@ class EditingTests(unittest.TestCase):
             del layer.commitErrors
         self.assertTrue(layer.isEditable())
         self.assertTrue(layer.isModified())
-        self.assertIn("Save failed", p.edit_bar.status_label.fullText())
+        self.assertIn("Save failed", p.status.extra.fullText())
+        self.assertEqual(p.status.extra.property("level"), "error")
         self.assertIn("simulated provider failure", ASK.asked[-1][1])
 
     def test_06_add_delete_and_edited_scope(self):
