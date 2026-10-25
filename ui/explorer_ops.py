@@ -13,14 +13,15 @@ import datetime
 from qgis.PyQt.QtCore import QDate, QDateTime, QTime, Qt
 from qgis.PyQt.QtWidgets import QApplication, QProgressDialog
 from qgis.core import (
-    Qgis, QgsExpression, QgsFeatureRequest, QgsGeometry, QgsProject,
-    QgsVectorLayer, QgsVectorLayerUtils,
+    Qgis, QgsDistanceArea, QgsExpression, QgsFeatureRequest, QgsGeometry,
+    QgsProject, QgsVectorLayer, QgsVectorLayerUtils,
 )
 
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY
 
 BATCH_PROGRESS = 2000            # show a cancellable progress dialog above this
+RECENT = "fieldcalc"             # QGIS's own field calculator history (shared)
 
 
 class OperationError(Exception):
@@ -86,22 +87,72 @@ def coerce(field, value):
     return value
 
 
-def evaluate_preview(layer, idx, expression, fids, limit=6):
-    """[(fid, old, new)] for the first *limit* target features, without
-    writing anything.  Raises OperationError for a bad expression."""
+# ----------------------------------------------------------------------------
+# the QGIS field calculator's evaluation set-up
+# ----------------------------------------------------------------------------
+
+def geometry_calculator(layer):
+    """Measures like the QGIS field calculator: on the project's ellipsoid
+    (planar when the project has none)."""
+    project = QgsProject.instance()
+    da = QgsDistanceArea()
+    da.setSourceCrs(layer.crs(), project.transformContext())
+    da.setEllipsoid(project.ellipsoid())
+    return da
+
+
+def calculator_context(layer):
+    """Global, project and layer scopes plus @row_number (as in QGIS), for
+    the expression builder."""
+    ctx = layer.createExpressionContext()
+    ctx.lastScope().setVariable("row_number", 1, True)
+    ctx.setHighlightedVariables(["row_number"])
+    return ctx
+
+
+def calculator_expression(layer, expression):
+    """(expression, context) prepared the way the QGIS field calculator
+    prepares them: $area / $length / $perimeter use the project's ellipsoid
+    and distance / area units.  Raises OperationError for a bad expression."""
     exp = QgsExpression(expression)
     if not expression.strip() or exp.hasParserError():
         raise OperationError(exp.parserErrorString() or "Enter an expression")
+    project = QgsProject.instance()
+    exp.setGeomCalculator(geometry_calculator(layer))
+    exp.setDistanceUnits(project.distanceUnits())
+    exp.setAreaUnits(project.areaUnits())
     ctx = layer.createExpressionContext()
+    # prepared before @row_number exists, so it is not folded into a constant
     exp.prepare(ctx)
+    return exp, ctx
+
+
+def _evaluate(exp, ctx, feat, row_number):
+    ctx.setFeature(feat)
+    ctx.lastScope().setVariable("row_number", row_number)
+    return exp.evaluate(ctx)
+
+
+def sample_value(layer, expression, fid):
+    """The expression's value for one feature (as the first row)."""
+    exp, ctx = calculator_expression(layer, expression)
+    value = _evaluate(exp, ctx, layer.getFeature(fid), 1)
+    if exp.hasEvalError():
+        raise OperationError(exp.evalErrorString())
+    return value
+
+
+def evaluate_preview(layer, idx, expression, fids, limit=6):
+    """[(fid, old, new)] for the first *limit* target features, without
+    writing anything.  Raises OperationError for a bad expression."""
+    exp, ctx = calculator_expression(layer, expression)
     field = layer.fields().at(idx)
     out = []
     req = QgsFeatureRequest().setFilterFids(sorted(fids)[:limit])
     if not exp.needsGeometry():
         req.setFlags(NO_GEOMETRY)
-    for feat in layer.getFeatures(req):
-        ctx.setFeature(feat)
-        value = exp.evaluate(ctx)
+    for n, feat in enumerate(layer.getFeatures(req), 1):
+        value = _evaluate(exp, ctx, feat, n)
         if exp.hasEvalError():
             raise OperationError(exp.evalErrorString())
         out.append((feat.id(), feat.attribute(idx), coerce(field, value)))
@@ -115,13 +166,9 @@ def apply_expression(layer, idx, expression, fids, title, parent=None,
     OperationError (nothing is written) or returns None when cancelled.
     With *own_command* False the caller holds the undo command (and
     destroys it on an error or a cancel)."""
-    exp = QgsExpression(expression)
-    if not expression.strip() or exp.hasParserError():
-        raise OperationError(exp.parserErrorString() or "Enter an expression")
+    exp, ctx = calculator_expression(layer, expression)
     if not layer.isEditable():
         raise OperationError("Start editing first")
-    ctx = layer.createExpressionContext()
-    exp.prepare(ctx)
     field = layer.fields().at(idx)
     ids = sorted(fids)
     req = QgsFeatureRequest().setFilterFids(ids)
@@ -137,8 +184,7 @@ def apply_expression(layer, idx, expression, fids, title, parent=None,
     changed = 0
     try:
         for n, feat in enumerate(layer.getFeatures(req)):
-            ctx.setFeature(feat)
-            value = exp.evaluate(ctx)
+            value = _evaluate(exp, ctx, feat, n + 1)      # @row_number from 1
             if exp.hasEvalError():
                 raise OperationError(f"Feature {feat.id()}: {exp.evalErrorString()}")
             value = coerce(field, value)

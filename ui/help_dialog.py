@@ -102,11 +102,20 @@ field, for the whole layer, the filtered records or the selection (shown or
 all). <b>Quick update</b> shows a row under the edit row: pick a field, an
 expression and a target, <b>Preview</b> a few values, then <b>Apply</b>.
 <b>Multi edit</b> opens the form for the selected features: only fields you
-change are written. Each of these is one undo step.</li>
+change are written. Each of these is one undo step. Expressions evaluate
+exactly as in the QGIS Field Calculator: the same functions (including
+<i>regexp_replace</i>, <i>regexp_match</i> and the other regex functions),
+<i>$area</i>, <i>$length</i> and <i>$perimeter</i> measured on the project's
+ellipsoid in the project's units, <i>@row_number</i> counting the calculated
+features from 1, and a <i>Recent</i> list shared with QGIS's own
+calculator.</li>
 <li><b>New field</b> / <b>Delete field</b> change the layer's schema (stored
 or virtual fields); <b>Reload</b> re-reads the data source. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review unsaved
-changes</i>, field properties and the native attribute table.</li>
+changes</i>, field properties, the native attribute table and <i>Open QGIS
+field calculator</i> (QGIS's own dialog: it calculates the whole layer or the
+selected features and ignores the Explorer's filters unless the map filter
+is on).</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
 close, close and keep the layer's edits, or cancel. Nothing is discarded
 without asking.</li>

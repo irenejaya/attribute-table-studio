@@ -558,6 +558,14 @@ class EditingMixin:
         act.triggered.connect(lambda: D.ReviewChangesDialog(self).exec())
         menu.addAction(icons.native(icons.FIELD_PROPS), "Layer field properties…").triggered.connect(
             self.open_field_properties)
+        act = menu.addAction(icons.native(icons.CALCULATE), "Open QGIS field calculator…")
+        act.setToolTip("QGIS's own Field Calculator for this layer. It calculates the whole "
+                       "layer, or only the selected features when you tick that option.\n"
+                       "It ignores the Explorer's filters unless the map filter is on "
+                       "(then only the records shown on the map are calculated).\n"
+                       "Use the Explorer's Field calculator to target the filtered records.")
+        act.setEnabled(self._qgis_calculator_action() is not None)
+        act.triggered.connect(self.open_qgis_calculator)
         menu.addAction(icons.native(icons.TABLE), "Open native attribute table").triggered.connect(
             lambda: self.iface.showAttributeTable(self.layer))
         menu.addAction(icons.native(icons.HELP), "Help").triggered.connect(self.show_help)
@@ -591,6 +599,20 @@ class EditingMixin:
         if row < 0 or col < 0:
             return
         self.model.setData(self.model.index(row, col), None)
+
+    def _qgis_calculator_action(self):
+        getter = getattr(self.iface, "actionOpenFieldCalculator", None)
+        return getter() if getter is not None else None
+
+    def open_qgis_calculator(self):
+        """QGIS's Field Calculator works on the active layer: make it this
+        one, write any open cell editor first, then open it."""
+        action = self._qgis_calculator_action()
+        if action is None:
+            return
+        self.flush_editors()
+        self.iface.setActiveLayer(self.layer)
+        action.trigger()
 
     def open_field_properties(self):
         try:

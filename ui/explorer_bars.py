@@ -20,6 +20,7 @@ from qgis.gui import QgsFieldComboBox, QgsFieldExpressionWidget
 
 from . import icons
 from . import widgets as W
+from .explorer_ops import geometry_calculator
 
 
 class EditBar(QWidget):
@@ -77,6 +78,7 @@ class EditBar(QWidget):
         self.delete_field_btn = sq(m, icons.native(icons.DELETE_FIELD), "Delete field…")
         self.reload_btn = sq(m, icons.native(icons.RELOAD), "Reload the layer")
         self.more_menu = QMenu(self)
+        self.more_menu.setToolTipsVisible(True)
         self.more_btn = sq(m, icons.native(icons.MORE), "More")
         self.more_btn.setMenu(self.more_menu)
         self.more_btn.setPopupMode(W.QToolButton.ToolButtonPopupMode.InstantPopup)
@@ -252,6 +254,8 @@ class QuickUpdateBar(QFrame):
     def set_layer(self, layer):
         self.field_combo.setLayer(layer)
         self.expression.setLayer(layer)
+        if layer is not None:     # its builder previews measures like QGIS
+            self.expression.setGeomCalculator(geometry_calculator(layer))
         self.preview.setVisible(False)
 
     def target(self):

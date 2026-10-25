@@ -13,7 +13,7 @@ APP = H.start_qgis()
 H.plugin_package()
 
 from qgis.PyQt import sip  # noqa: E402
-from qgis.PyQt.QtCore import QEvent, QPoint, Qt  # noqa: E402
+from qgis.PyQt.QtCore import QEvent, QModelIndex, QPoint, Qt  # noqa: E402
 from qgis.PyQt.QtGui import QColor, QKeyEvent, QKeySequence  # noqa: E402
 from qgis.PyQt.QtWidgets import QMenu, QMessageBox  # noqa: E402
 from qgis.core import (Qgis, QgsConditionalStyle, QgsFeatureRequest, QgsField,  # noqa: E402
@@ -643,6 +643,128 @@ class EditingTests(unittest.TestCase):
         H.settle(0.05)
         self.assertNotEqual(layer.getFeature(p.model.fid(2))["LAND_USE_TYPE"], "CANCELLED")
         self.assertEqual(layer.getFeature(fid)["LAND_USE_TYPE"], "TYPED")
+
+    # ---- the Field calculator evaluates like QGIS's own -------------------
+    @staticmethod
+    def _pick_type(dlg, names):
+        for i in range(dlg.type_combo.count()):
+            if dlg.type_combo.itemData(i)[1].upper() in names:
+                dlg.type_combo.setCurrentIndex(i)
+                return
+        raise AssertionError(f"no {names} type")
+
+    def test_23_calculator_measures_like_qgis(self):
+        from qgis.core import QgsDistanceArea, QgsProject
+        from attribute_table_studio.ui import explorer_ops as OPS
+        project = QgsProject.instance()
+        saved = (project.crs(), project.ellipsoid(), project.areaUnits(),
+                 project.distanceUnits())
+        project.setCrs(self.layer.crs())     # QGIS has no ellipsoid without a project CRS
+        project.setEllipsoid("EPSG:7030")
+        project.setAreaUnits(Qgis.AreaUnit.Hectares)
+        project.setDistanceUnits(Qgis.DistanceUnit.Kilometers)
+        try:
+            p, layer = self.panel, self.layer
+            self.start()
+            ids = sorted(p.model.fids[:2])
+            layer.selectByIds(ids)
+            dlg = D.FieldCalculatorDialog(p)
+            dlg.mode_new.setChecked(True)
+            dlg._on_mode()
+            dlg.name_edit.setText("AREA_HA")
+            self._pick_type(dlg, ("REAL", "DOUBLE"))
+            dlg.builder.setExpressionText("$area")
+            dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
+            dlg._update_preview()
+            dlg._apply()
+            da = QgsDistanceArea()
+            da.setSourceCrs(layer.crs(), project.transformContext())
+            da.setEllipsoid("EPSG:7030")
+            for fid in ids:
+                geom = layer.getFeature(fid).geometry()
+                got = layer.getFeature(fid)["AREA_HA"]
+                expected = da.convertAreaMeasurement(da.measureArea(geom),
+                                                     Qgis.AreaUnit.Hectares)
+                self.assertAlmostEqual(got, expected, places=9)
+                self.assertNotAlmostEqual(got, geom.area() / 10000, places=7)  # not planar
+            # the Quick update preview uses the same set-up ($perimeter in km)
+            idx = layer.fields().indexFromName("AREA_HA")
+            for fid, _old, new in OPS.evaluate_preview(layer, idx, "$perimeter", ids):
+                geom = layer.getFeature(fid).geometry()
+                expected = da.convertLengthMeasurement(da.measurePerimeter(geom),
+                                                       Qgis.DistanceUnit.Kilometers)
+                self.assertAlmostEqual(new, expected, places=9)
+        finally:
+            project.setCrs(saved[0])
+            project.setEllipsoid(saved[1])
+            project.setAreaUnits(saved[2])
+            project.setDistanceUnits(saved[3])
+
+    def test_24_calculator_row_number(self):
+        from attribute_table_studio.ui import explorer_ops as OPS
+        p, layer = self.panel, self.layer
+        self.start()
+        ids = sorted(p.model.fids[:3])
+        layer.selectByIds(ids)
+        dlg = D.FieldCalculatorDialog(p, "ZONE_CODE")
+        self.assertIn("row_number", dlg.builder.expressionContext().highlightedVariables())
+        dlg.builder.setExpressionText("@row_number * 10")
+        dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
+        dlg._update_preview()
+        self.assertIn("Output preview: 10", dlg.preview.text())
+        dlg._apply()
+        self.assertEqual([layer.getFeature(f)["ZONE_CODE"] for f in ids], [10, 20, 30])
+        zone = layer.fields().indexFromName("ZONE_CODE")
+        preview = OPS.evaluate_preview(layer, zone, "@row_number", ids)
+        self.assertEqual([new for _f, _o, new in preview], [1, 2, 3])
+
+    def test_25_calculator_recent_shared_with_qgis(self):
+        from qgis.core import QgsSettings
+        key = "expressions/recent/fieldcalc"       # read by QGIS's own calculator
+        settings_ = QgsSettings()
+        saved = settings_.value(key)
+        try:
+            settings_.remove(key)
+            p, layer = self.panel, self.layer
+            self.start()
+            layer.selectByIds(p.model.fids[:1])
+            dlg = D.FieldCalculatorDialog(p, "FL_1_PCT_MAX")
+            dlg.builder.setExpressionText('"FL_1_PCT_MAX" * 3')
+            dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
+            dlg._apply()
+            recent = QgsSettings().value(key) or []
+            recent = [recent] if isinstance(recent, str) else list(recent)
+            self.assertEqual(recent[0], '"FL_1_PCT_MAX" * 3')
+            # and the next calculator lists it under Recent
+            texts = []
+            model = D.FieldCalculatorDialog(p).builder.expressionTree().model()
+
+            def walk(parent):
+                for r in range(model.rowCount(parent)):
+                    i = model.index(r, 0, parent)
+                    texts.append(model.data(i))
+                    walk(i)
+            walk(QModelIndex())
+            self.assertIn('"FL_1_PCT_MAX" * 3', texts)
+        finally:
+            if saved is None:
+                QgsSettings().remove(key)
+            else:
+                QgsSettings().setValue(key, saved)
+
+    def test_26_open_qgis_field_calculator(self):
+        p = self.panel
+        self.iface.setActiveLayer(None)
+        p._fill_more_menu()
+        act = next(a for a in p.edit_bar.more_menu.actions()
+                   if a.text() == "Open QGIS field calculator…")
+        self.assertTrue(act.isEnabled())
+        self.assertIn("ignores the Explorer's filters unless the map filter is on",
+                      act.toolTip())
+        self.assertTrue(p.edit_bar.more_menu.toolTipsVisible())
+        act.trigger()
+        self.assertIs(self.iface.activeLayer(), self.layer)    # QGIS uses the active layer
+        self.assertEqual(self.iface.calls[-1], ("field_calculator", self.layer.id()))
 
     def test_21_replacement_keys(self):
         from qgis.gui import QgsGui

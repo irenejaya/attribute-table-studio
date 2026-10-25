@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import (
     QSpinBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
 from qgis.core import (
-    Qgis, QgsExpression, QgsFeature, QgsFeatureRequest, QgsField,
+    Qgis, QgsFeature, QgsFeatureRequest, QgsField,
     QgsStoredExpression,
 )
 from qgis.gui import (
@@ -89,11 +89,17 @@ class _Dialog(QDialog):
         return lbl
 
 
-def _expression_builder(layer, text=""):
+def _expression_builder(layer, text="", calculator=False):
+    """*calculator*: set up like the QGIS field calculator's builder
+    (@row_number, ellipsoidal measures in the preview, its Recent list)."""
     builder = QgsExpressionBuilderWidget()
     builder.setLayer(layer)
-    builder.setExpressionContext(layer.createExpressionContext())
+    builder.setExpressionContext(OPS.calculator_context(layer) if calculator
+                                 else layer.createExpressionContext())
     builder.loadFieldNames()
+    if calculator:
+        builder.setGeomCalculator(OPS.geometry_calculator(layer))
+        builder.loadRecent(OPS.RECENT)
     if text:
         builder.setExpressionText(text)
     return builder
@@ -170,7 +176,7 @@ class FieldCalculatorDialog(_Dialog):
         grid.addWidget(self.target_combo, 2, 1, 1, 5)
         self.lay.addLayout(grid)
 
-        self.builder = _expression_builder(layer)
+        self.builder = _expression_builder(layer, calculator=True)
         self.lay.addWidget(self.builder, 1)
         self.preview = QLabel("")
         self.preview.setObjectName("gtsDim")
@@ -241,14 +247,12 @@ class FieldCalculatorDialog(_Dialog):
         ids = self.target_ids() if mode != "virtual" else list(layer.allFeatureIds())[:1]
         sample = ""
         if ids:
-            exp = QgsExpression(text)
-            ctx = layer.createExpressionContext()
-            feat = layer.getFeature(sorted(ids)[0])
-            ctx.setFeature(feat)
-            value = exp.evaluate(ctx)
-            sample = f"Output preview: {F.display_value(value) if not F.is_null(value) else 'NULL'}"
-            if exp.hasEvalError():
-                sample = f"Evaluation error: {exp.evalErrorString()}"
+            try:
+                value = OPS.sample_value(layer, text, sorted(ids)[0])
+                sample = ("Output preview: "
+                          f"{F.display_value(value) if not F.is_null(value) else 'NULL'}")
+            except OPS.OperationError as exc:
+                sample = f"Evaluation error: {exc}"
         if mode == "virtual":
             self.preview.setText(f"{sample}  •  A virtual field is calculated for every "
                                  "record and stored in the project (save the project to keep it).")
@@ -276,6 +280,7 @@ class FieldCalculatorDialog(_Dialog):
             if mode == "virtual":
                 fld = self._new_field()
                 layer.addExpressionField(text, fld)
+                self._remember(text)
                 self.panel.status.set_status(
                     f"Virtual field {fld.name()} added — it is stored in the project, "
                     "so save the project to keep it", "success")
@@ -315,10 +320,15 @@ class FieldCalculatorDialog(_Dialog):
             self.panel.status.set_status("Calculation cancelled — nothing was changed",
                                          "warning")
         else:
+            self._remember(text)
             self.panel.status.set_status(
                 f"Calculated {name} for {len(ids):,} feature(s) ({n:,} value(s) changed, "
                 "unsaved — Save edits writes them)", "success")
         self.accept()
+
+    def _remember(self, text):
+        """Into the Recent list shared with QGIS's own field calculator."""
+        self.builder.expressionTree().saveToRecent(text, OPS.RECENT)
 
 
 # ============================================================================

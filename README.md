@@ -95,10 +95,15 @@ attribute table and every other QGIS tool.
   are hidden), **Cut / Copy / Paste** through the QGIS feature clipboard.
 - **Field calculator** (update, new or virtual field; whole layer, filtered or
   selected records), **Quick update** row with preview and apply, **Multi
-  edit** with the layer's form — each is one undo step.
+  edit** with the layer's form — each is one undo step. Expressions evaluate
+  as in the QGIS Field Calculator: same functions (regex included),
+  `$area` / `$length` / `$perimeter` on the project's ellipsoid in the
+  project's units, `@row_number`, and a Recent list shared with QGIS.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
-  changes, field properties, native attribute table.
+  changes, field properties, native attribute table, and *Open QGIS field
+  calculator* (QGIS's own dialog — whole layer or selection; it ignores the
+  Explorer's filters unless the map filter is on).
 - The right of the status bar shows the session state and the unsaved counts
   (orange while editing, red when a save failed); disabled buttons say why in
   their tooltip.
