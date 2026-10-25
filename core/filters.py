@@ -269,9 +269,11 @@ class ColumnFilter:
         return f"{self.field} {label} {self.value}"
 
     # ------------------------------------------------------------------
-    def build(self):
+    def build(self, case_sensitive=False):
         """QGIS expression for this filter, or None when inactive.
 
+        *case_sensitive* makes "contains" / "starts with" match letter case
+        exactly (View > Case-sensitive text filters).
         Raises :class:`FilterError` for invalid input.
         """
         if not self.is_active():
@@ -292,7 +294,7 @@ class ColumnFilter:
             return self._build_time(col)
         if self.kind == F.BOOL:
             return f"{col} = {'TRUE' if op == 'true' else 'FALSE'}"
-        return self._build_text(col)
+        return self._build_text(col, case_sensitive)
 
     def _build_in(self, col):
         has_null = any(v is None for v in self.values)
@@ -356,12 +358,20 @@ class ColumnFilter:
             return self._range(col, lo, hi, _time_sql)
         return f"{col} {_SQL_CMP[self.op]} {_time_sql(parse_time(self.value))}"
 
-    def _build_text(self, col):
+    def _build_text(self, col, case_sensitive=False):
         text = str(self.value)
         if self.op == "eq":
             return f"{col} = {quote_string(text)}"
         literal_safe = not any(ch in text for ch in "%_\\")
         target = col if self.kind == F.TEXT else f"to_string({col})"
+        if case_sensitive:
+            if self.op == "starts":
+                if literal_safe:
+                    return f"{target} LIKE {quote_string(text + '%')}"
+                return f"left({target}, {len(text)}) = {quote_string(text)}"
+            if literal_safe and self.kind == F.TEXT:
+                return f"{target} LIKE {quote_string('%' + text + '%')}"
+            return f"strpos({target}, {quote_string(text)}) > 0"
         if self.op == "starts":
             if literal_safe:
                 return f"{target} ILIKE {quote_string(text + '%')}"
@@ -373,14 +383,14 @@ class ColumnFilter:
         return f"strpos(lower({target}), {quote_string(text.lower())}) > 0"
 
 
-def combine(filters):
+def combine(filters, case_sensitive=False):
     """AND of every active filter.  Returns (expression or None, errors)
     where errors maps field name -> message for invalid filters (those are
     left out so the last valid result can stay on screen)."""
     parts, errors = [], {}
     for flt in filters:
         try:
-            expr = flt.build()
+            expr = flt.build(case_sensitive)
         except FilterError as exc:
             errors[flt.field] = str(exc)
             continue

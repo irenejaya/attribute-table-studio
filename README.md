@@ -4,7 +4,7 @@ One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
 | | Tool | What it does |
 |---|---|---|
-| <img src="icons/attribute_explorer.svg" width="24"> | **Attribute Explorer** | A fast, read-only attribute table with exact statistics attached above every column and a typed filter under every heading. |
+| <img src="icons/attribute_explorer.svg" width="24"> | **Attribute Explorer** | A fast attribute table with exact statistics attached above every column, a typed filter under every heading and a full editing mode. |
 | <img src="icons/pivot_table.svg" width="24"> | **Pivot Table** | Grouped summaries and cross tabs with correct totals, an explicit input scope and drill-through to the contributing records. |
 | <img src="icons/geometry_compare.svg" width="24"> | **Geometry and Table Compare** | OLD → NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level changes, geometry review points. |
 
@@ -66,6 +66,56 @@ proposed and only assigned when no other command uses it; change it in
   reorder; layouts are saved with the layer in the project.
 - *Export* to Excel or CSV with the scope recorded; *Ctrl+C* copies rows;
   *Open Pivot* hands the filtered records to the Pivot Table.
+- **View ▾** (before *Columns*): table or form view; scopes *All records*,
+  *Selected records*, *Visible on map*, *Edited and new*, *Failing
+  constraints*; advanced expression filter (replace / AND / OR), stored
+  expressions, filter by form, case-sensitive text filters, selected to top,
+  sort by expression, conditional formatting, autosize. Column filters always
+  apply on top of the scope.
+- **Select ▾**: select all shown / all layer records, invert (shown or
+  layer), deselect, select by expression, select by value / form, pan or zoom
+  to the selection.
+
+### Editing
+
+The explorer opens read-only. **Edit** on the edit row (under the top row)
+starts the layer's own edit session — shared with the map, the native
+attribute table and every other QGIS tool.
+
+![Editing](docs/screenshots/dark_editing.png)
+
+- Cells open the field's configured QGIS editor widget (double-click, F2 or
+  typing; a click only focuses while editing). Hard constraints keep the value
+  in the editor with the reason, soft ones warn. Virtual, joined and read-only
+  fields are locked. Unsaved cells get an amber corner.
+- **Save edits** / *Ctrl+S* saves every unsaved change of the layer and keeps
+  editing on (a failed save keeps the edits and shows the provider's message);
+  **Discard**, **Undo** / **Redo** use the layer's own buffer and undo stack.
+- **Add** (table or form), **Delete** (tells you how many selected features
+  are hidden), **Cut / Copy / Paste** through the QGIS feature clipboard.
+- **Field calculator** (update, new or virtual field; whole layer, filtered or
+  selected records), **Quick update** row with preview and apply, **Multi
+  edit** with the layer's form — each is one undo step.
+- **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
+  layer actions, copy rows as text, copy cell, set NULL, review unsaved
+  changes, field properties, native attribute table.
+- The status on the left of the edit row shows the session state and the
+  unsaved counts; disabled buttons say why in their tooltip.
+- Closing with unsaved edits asks *Save and close* / *Close and keep layer
+  edits* / *Cancel*; stopping asks *Save* / *Discard* / *Cancel*.
+- While editing, the **map filter is frozen**: the table works on exactly the
+  records the map shows, and the map filter can be changed or turned off again
+  after editing stops.
+- Optional (*Settings*): **F6**, **Shift+F6** and **Ctrl+F6** open the explorer
+  for all, selected or map-visible records instead of the native attribute
+  table; turning the option off gives the keys back.
+
+![Quick update](docs/screenshots/dark_quick_update.png)
+
+Form view (*View ▾ › Form view*) shows the layer's configured form next to a
+record list labelled with the layer's display expression:
+
+![Form view](docs/screenshots/dark_form_view.png)
 
 Statistics are exact and calculated in background tasks (visible columns
 first, cancellable). Large layers show their records immediately and fill in
@@ -137,7 +187,9 @@ core/                  UI-free engines (pure Python where possible)
   stats.py             column profiles
   filters.py           column filters → QGIS expressions
   pivot.py             pivot engine
-  scan.py              background feature scans (no geometry)
+  scan.py              background feature scans (geometry only when needed)
+  constraints.py       field constraint checks (failing records scope)
+  subset.py            map filter (table filters → layer subset)
   jobs.py              QgsTask wrapper with stale-result protection
   export.py            CSV / Excel writers with scope records
 ui/
@@ -146,6 +198,11 @@ ui/
   icons.py             native QGIS icons + tool icons
   tool_host.py         window ↔ dock host
   attribute_explorer.py, explorer_header.py, explorer_table.py
+  explorer_edit.py     edit session controller (save / discard / prompts)
+  explorer_editing.py  edit row commands; explorer_bars.py edit and Quick update rows
+  explorer_browse.py   View / Select menus, scopes, expression filters
+  explorer_ops.py, explorer_dialogs.py, explorer_form.py
+                       calculator, field and form dialogs, form view
   pivot_table.py
   geotable_compare.py
   settings_dialog.py, help_dialog.py
@@ -161,6 +218,7 @@ python -m unittest discover -s tests          # engines, no QGIS needed
 python tests/qgis/test_filters_qgis.py        # expressions on memory + GeoPackage layers
 python tests/qgis/test_suite_qgis.py          # end-to-end: all three tools
 python tests/qgis/test_compare_regression.py  # Compare exports == v1.1
+python tests/qgis/test_editing_qgis.py        # Explorer editing, forms, scopes, menus
 ```
 
 All suites pass on QGIS 4.2 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).

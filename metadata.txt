@@ -6,7 +6,7 @@ supportsQt6=True
 
 description=Explore, summarise and compare vector attribute tables: Attribute Explorer, Pivot Table, and Geometry and Table Compare in one toolbar.
 about=Attribute Table Studio adds three tools to one QGIS toolbar.
-    Attribute Explorer - a fast, read-only attribute table with exact column statistics attached above every column (missing and distinct counts, top categories, histograms, date ranges), an always-visible typed filter under every heading, map selection sync, column layouts saved per layer, and CSV / Excel export with the scope recorded.
+    Attribute Explorer - a fast attribute table with exact column statistics attached above every column (missing and distinct counts, top categories, histograms, date ranges), an always-visible typed filter under every heading, an editing mode sharing the layer's edit session (QGIS cell editors and forms, constraints, field calculator, quick update, multi edit, add / delete / clipboard, new and virtual fields), table and form views, scopes, expression filters, map selection sync, column layouts saved per layer, and CSV / Excel export with the scope recorded.
     Pivot Table - grouped summaries and cross tabs with multiple measures (count, count distinct, sum, mean, median, min, max, standard deviation), correct totals calculated from records, an explicit input scope (all, Explorer filtered or selected records) with stale detection, drill-through to the contributing records, saved layouts, and CSV / Excel / GeoPackage export.
     Geometry and Table Compare - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
     Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
@@ -20,7 +20,7 @@ repository=https://github.com/irenejaya/attribute-table-studio
 tracker=https://github.com/irenejaya/attribute-table-studio/issues
 
 category=Vector
-tags=attribute table,attributes,statistics,profile,filter,pivot,pivot table,cross tab,summary,compare,diff,change detection,data quality,QA,geometry,geopackage
+tags=attribute table,attributes,editing,field calculator,statistics,profile,filter,pivot,pivot table,cross tab,summary,compare,diff,change detection,data quality,QA,geometry,geopackage
 
 icon=icon.svg
 
@@ -33,6 +33,7 @@ changelog=
     1.0.0 - Attribute Table Studio
         * One plugin, one toolbar with three tools: Attribute Explorer, Pivot Table, Geometry and Table Compare
         * New: Attribute Explorer - column profiles attached above the table, permanent typed filters (AND across columns, OR within a value list), map selection sync, Selected only, layouts saved per layer, exact background statistics, CSV / Excel export with scope
+        * Attribute Explorer editing mode: shared layer edit session, edit row with status, save / discard / undo / redo, QGIS cell editors with constraint checks, add / delete / cut / copy / paste, field calculator, Quick update row with preview, multi edit, new / delete / virtual fields, form view, View and Select menus (scopes, expression and form filters, stored expressions, sort by expression, selected to top, conditional formatting), close prompts that never discard edits, optional F6 / Shift+F6 / Ctrl+F6
         * New: Pivot Table - rows, optional columns, multiple measures, totals from records, input scope with stale detection, drill-through to Attribute Explorer, layouts, CSV / Excel / GeoPackage export
         * Geometry and Table Compare (from standalone v1.1) - comparison logic unchanged; interface restyled to the shared suite look
         * Every tool opens as its own window and can be docked (Dock button); Settings to open docked by default

@@ -1,12 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-Attribute Explorer - read-only table with attached column statistics.
+Attribute Explorer - the attribute table with attached column statistics,
+editing (shared with the layer's QGIS edit session), forms, calculations
+and browsing tools.
 
 Population rules (plan, "Column statistics and scope rules"):
 
-    scope = records available through the layer (provider subset included)
+    scope = records available through the layer (provider subset and
+            unsaved edits included)
+            AND the View scope (All / Selected / Visible on map /
+                Edited and new / Failing constraints)
             AND every column filter (AND across columns, OR inside a list)
-            AND the QGIS selection          (when "Selected only" is on)
+            AND the expression filter
             AND records handed over from a pivot cell (drill-through)
 
 Every profile describes exactly the rows in that scope - including rows
@@ -17,20 +22,24 @@ Work runs in background tasks: one scan finds the scope (and computes the
 visible columns' profiles in the same pass when it fits the memory
 budget), then the remaining profiles follow in chunks, visible columns
 first.  Every edit, filter or selection change starts a new generation, so
-a stale result can never overwrite a newer one.
+a stale result can never overwrite a newer one; an accepted edit marks the
+statistics as updating at once and rescans after a short pause.
+
+Editing commands live in :mod:`.explorer_editing`, browsing tools in
+:mod:`.explorer_browse`.
 """
 
 import json
 from contextlib import contextmanager
 
-from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
+from qgis.PyQt.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QGuiApplication, QKeySequence
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QFileDialog, QHBoxLayout, QMenu, QMessageBox,
-    QVBoxLayout, QWidget,
+    QStackedWidget, QVBoxLayout, QWidget,
 )
 from qgis.core import (
-    QgsFeatureRequest, QgsMessageLog, QgsVectorLayer,
+    QgsExpression, QgsFeatureRequest, QgsMessageLog, QgsVectorLayer,
     QgsVectorLayerFeatureSource,
 )
 
@@ -38,6 +47,7 @@ from ..core import export as X
 from ..core import fields as F
 from ..core import filters as FL
 from ..core import settings
+from ..core import constraints as CON
 from ..core import stats as S
 from ..core import subset as SUB
 from ..core.compat import (
@@ -46,8 +56,13 @@ from ..core.compat import (
 )
 from ..core.jobs import JobRunner
 from ..core.scan import ScanSpec, scan
+from . import explorer_ops as OPS
 from . import icons
 from . import widgets as W
+from .explorer_browse import BrowseMixin
+from .explorer_edit import CAP_DELETE
+from .explorer_editing import EditingMixin
+from .explorer_form import FormView
 from .explorer_header import ExplorerHeader, ProfileDetails
 from .explorer_table import ExplorerTableView, FeatureTableModel
 from .theme import Metrics, Theme, stylesheet
@@ -59,7 +74,7 @@ VALUE_LIST_LIMIT = 5000         # entries offered by the "is one of" picker
 QUICK_ROWS_LIMIT = 50000        # above this, records show before profiles
 
 
-class ExplorerPanel(QWidget):
+class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     """Attribute Explorer for one layer."""
 
     openPivotRequested = pyqtSignal(object, object)     # layer, scope dict
@@ -92,7 +107,13 @@ class ExplorerPanel(QWidget):
         self._per_scan = 1
         self.scope_version = 0           # bumps when the scope result changes
         self.external = None             # {"fids": set, "label": str}
-        self.selected_only = False
+        self.view_scope = "all"          # see explorer_browse.SCOPES
+        self.expr_filter = None          # expression component of the scope
+        self.case_sensitive = False
+        self.selected_top = False
+        self.sort_expr = None            # (expression, descending)
+        self._failing_counts = None
+        self._pending_focus = None       # fid to focus after the next scan
         self.sort = None                 # (logical, descending)
         self._anchor = None
         self._drag_behaviour = SELECT_SET
@@ -152,6 +173,7 @@ class ExplorerPanel(QWidget):
 
         row = W.ButtonRow(m)
         row.add_stretch()
+        self._build_view_select(row)
         self.columns_btn = row.add(W.button(
             m, "Columns", icons.native(icons.COLUMNS),
             "Show, hide and reorder columns"))
@@ -196,6 +218,9 @@ class ExplorerPanel(QWidget):
         top.addWidget(self.dock_btn)
         root.addLayout(top)
 
+        # ---- editing rows (row 2 always; row 3 = Quick update) ----
+        self._build_edit_rows(root)
+
         # ---- scope line ----
         scope = QHBoxLayout()
         scope.setSpacing(m.gap)
@@ -210,15 +235,27 @@ class ExplorerPanel(QWidget):
         self.external_chip.setVisible(False)
         self.external_chip.clicked.connect(self.clear_external_scope)
         scope.addWidget(self.external_chip)
+        self.expr_chip = W.button(m, "", icons.glyph("cross", t.text_dim), "")
+        self.expr_chip.setFixedHeight(m.compact_h)
+        self.expr_chip.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        self.expr_chip.setVisible(False)
+        self.expr_chip.clicked.connect(lambda: self.set_expression_filter(None))
+        scope.addWidget(self.expr_chip)
         root.addLayout(scope)
 
-        # ---- table ----
+        # ---- table / form ----
         self.model = FeatureTableModel(self.theme, self)
         self.header = ExplorerHeader(self.theme, self.metrics)
         self.view = ExplorerTableView(self.theme, self.metrics, self.header, self)
         self.view.setModel(self.model)
         self.header.values_provider = self._values_for
-        root.addWidget(self.view, 1)
+        self.header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.header.customContextMenuRequested.connect(self._header_menu)
+        self.form_view = FormView(self)
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self.view)
+        self.pages.addWidget(self.form_view)
+        root.addWidget(self.pages, 1)
 
         # ---- status ----
         self.status = W.StatusStrip(m)
@@ -253,6 +290,11 @@ class ExplorerPanel(QWidget):
         self.view.contextRequested.connect(self._context_menu)
         self.view.row_header.rowPressed.disconnect()
         self.view.row_header.rowPressed.connect(self._on_tick_pressed)
+        self._wire_editing()
+        try:
+            self.iface.mapCanvas().extentsChanged.connect(self._on_canvas_extent)
+        except Exception:
+            pass
 
         visible = settings.value("explorer/summaryVisible")
         self.summary_btn.blockSignals(True)
@@ -273,13 +315,18 @@ class ExplorerPanel(QWidget):
         if layer is self.layer:
             return
         if self.layer is not None:
+            self.flush_editors()
             self._save_layout()
             self._restore_map_filter()
             self._disconnect_layer()
         self.runner.new_generation()
+        self._pending_scan = None
         self.layer = layer
         self.external = None
         self.external_chip.setVisible(False)
+        if self.is_form_view():
+            self.pages.setCurrentIndex(0)
+            W.set_button_text(self.view_btn, "View")
         self.profiles = {}
         self._scope_key = None
         self._spec = None
@@ -294,6 +341,11 @@ class ExplorerPanel(QWidget):
         self.layer_combo.blockSignals(True)
         self.layer_combo.setLayer(layer)
         self.layer_combo.blockSignals(False)
+        self._browse_layer_changed(layer)
+        self._edit_layer_changed(layer)
+        self.selected_btn.blockSignals(True)
+        self.selected_btn.setChecked(False)
+        self.selected_btn.blockSignals(False)
         if layer is None:
             return
         self._restore_layout()
@@ -311,6 +363,7 @@ class ExplorerPanel(QWidget):
         pairs = [
             (lyr.selectionChanged, self._on_layer_selection),
             (lyr.attributeValueChanged, self._on_attribute_changed),
+            (lyr.geometryChanged, self._on_geometry_changed),
             (lyr.featureAdded, self._on_features_changed),
             (lyr.featuresDeleted, self._on_features_changed),
             (lyr.dataChanged, self._on_features_changed),
@@ -351,6 +404,8 @@ class ExplorerPanel(QWidget):
         self._refresh_timer.stop()
         self._data_timer.stop()
         self._profile_timer.stop()
+        self._dirty_timer.stop()
+        self._mutation_timer.stop()
         if self._layout_timer.isActive():
             self._layout_timer.stop()
         try:
@@ -358,8 +413,17 @@ class ExplorerPanel(QWidget):
         except RuntimeError:
             pass
         self.runner.new_generation()
+        try:
+            self.flush_editors()
+        except RuntimeError:
+            pass
         self._restore_map_filter()
         self._disconnect_layer()
+        self.edit.set_layer(None)
+        try:
+            self.iface.mapCanvas().extentsChanged.disconnect(self._on_canvas_extent)
+        except (TypeError, RuntimeError, AttributeError):
+            pass
 
     # ====================================================================
     # LAYER CHANGES
@@ -368,24 +432,30 @@ class ExplorerPanel(QWidget):
     def _on_layer_selection(self, *_args):
         previous = self.model.selected
         self.model.selected = set(self.layer.selectedFeatureIds())
+        if self.selected_top and not self.selected_only:
+            self.model.set_fids(self._ordered(list(self.model.fids)))
         if not self._table_selecting and not self.selected_only:
             # selected on the map (or elsewhere): bring the row into view
             self._scroll_to_features(self.model.selected - previous)
         self._selection_version += 1
         self.view.viewport().update()
         self.view.verticalHeader().viewport().update()
+        self._update_selection_commands()
         self._update_status()
         if self.selected_only:
             self._schedule_refresh(250)
 
     def _on_attribute_changed(self, fid, _idx, _value):
-        self.model.invalidate([fid])
-        self._data_timer.start()
+        self._note_mutation([fid])
+
+    def _on_geometry_changed(self, fid, *_args):
+        if self.view_scope in ("map", "edited", "failing"):
+            self._note_mutation([fid])
 
     def _on_features_changed(self, *_args):
         if self._subset_busy:            # our own map filter, not new data
             return
-        self._data_timer.start()
+        self._note_mutation()
 
     def _on_subset_changed(self):
         if self._subset_busy:
@@ -468,7 +538,7 @@ class ExplorerPanel(QWidget):
             return
         self._refresh_timer.stop()
         filters = self._active_filters()
-        expr, errors = FL.combine(filters)
+        expr, errors = FL.combine(filters, self.case_sensitive)
         for cell in self.header.cells.values():
             cell.set_error(errors.get(cell.name, ""))
         if errors:
@@ -476,12 +546,30 @@ class ExplorerPanel(QWidget):
             self.status.set_status(
                 f"{field}: {msg} — showing the last valid result", "warning")
             return
+        if self.expr_filter:
+            parsed = QgsExpression(self.expr_filter)
+            if parsed.hasParserError():
+                self.status.set_status(
+                    f"Expression filter: {parsed.parserErrorString()} — showing the "
+                    "last valid result", "error")
+                return
+            expr = f"({expr}) AND ({self.expr_filter})" if expr else self.expr_filter
 
         restrict = None
         restrict_key = None
-        if self.selected_only:
+        rect = None
+        scope = self.view_scope
+        if scope == "selected":
             restrict = set(self.model.selected)
             restrict_key = ("sel", self._selection_version)
+        elif scope == "edited":
+            restrict = OPS.edited_fids(self.layer)
+            restrict_key = ("edited", self._revision)
+        elif scope == "map" and self.layer.isSpatial():
+            rect = self._map_rect()
+            restrict_key = ("map", rect.toString(6))
+        elif scope == "failing":
+            restrict_key = ("failing", self._revision)
         if self.external is not None:
             ext = self.external["fids"]
             restrict = set(ext) if restrict is None else (restrict & ext)
@@ -489,6 +577,8 @@ class ExplorerPanel(QWidget):
         self._expr = expr
         self._restrict = restrict
         self._filters_text = [f.describe() for f in filters]
+        if self.expr_filter:
+            self._filters_text.append(f"Expression: {self.expr_filter}")
 
         scope_key = (self._revision, expr, restrict_key)
         new_scope = scope_key != self._scope_key
@@ -498,12 +588,14 @@ class ExplorerPanel(QWidget):
         self.runner.new_generation()
         self._profile_queue = []
         with self._unfiltered():
-            spec = ScanSpec(self.layer, expr, restrict)
+            spec = ScanSpec(self.layer, expr, restrict, rect)
             self._available = max(self.layer.featureCount(), 0)
-            # the map filter follows the column filters only, so with a
-            # restricted table their records are counted separately
+            # the map filter follows the filters only, so with a restricted
+            # table (scope, drill-through) their records are counted apart
+            restricted = restrict is not None or rect is not None or scope == "failing"
             map_spec = (ScanSpec(self.layer, expr, None)
-                        if self._map_filter and restrict is not None else None)
+                        if self._map_filter and restricted else None)
+        fail_spec = CON.ConstraintSpec(self.layer) if scope == "failing" else None
         self._map_filters = filters
         self._spec = spec
         order = self._profile_order() if self.header.profiles_visible else []
@@ -519,16 +611,22 @@ class ExplorerPanel(QWidget):
             self.header.cards[logical].set_state("pending", message="Calculating…")
         kinds = list(self.model.kinds)
         sort = self.sort
+        sort_expr = self.sort_expr
 
         def work(job, spec=spec, first=first, kinds=kinds, sort=sort,
-                 map_spec=map_spec):
-            fids, cols = scan(spec, job, first, True, sort)
+                 sort_expr=sort_expr, map_spec=map_spec, fail_spec=fail_spec):
+            failing = None
+            if fail_spec is not None:
+                failing = CON.failing(fail_spec, spec.source, job)
+                ids = set(failing)
+                spec.restrict = ids if spec.restrict is None else spec.restrict & ids
+            fids, cols = scan(spec, job, first, True, sort, sort_expr)
             profs = {}
             for idx, col in zip(first, cols):
                 job.check()
                 profs[idx] = S.compute_profile(kinds[idx], col)
             map_fids = scan(map_spec, job)[0] if map_spec is not None else None
-            return fids, profs, map_fids
+            return fids, profs, map_fids, failing
 
         self.status.set_status(
             "Sorting…" if sort_only else f"Filtering {self.layer.name()}…", "busy")
@@ -548,10 +646,28 @@ class ExplorerPanel(QWidget):
             self._finish_busy("Cancelled — the previous result is still shown",
                               "warning")
             return
-        fids, profs, map_fids = job.result
+        if self.view.state() == QAbstractItemView.State.EditingState:
+            # a cell is being edited: apply when its editor closes
+            self._pending_scan = job
+            return
+        fids, profs, map_fids, failing = job.result
+        if failing is not None:
+            hard = sum(1 for v in failing.values() if v == "hard")
+            self._failing_counts = (hard, len(failing) - hard)
         if self._map_filter:             # before the rows are read
             self._sync_map_filter(fids if map_fids is None else map_fids)
-        self.model.set_fids(fids)
+        # keep the focused cell on the same feature
+        current = self.view.currentIndex()
+        focus_fid = self._pending_focus if self._pending_focus is not None \
+            else (self.model.fid(current.row()) if current.isValid() else None)
+        focus_col = current.column() if current.isValid() else max(self.view.columnAt(0), 0)
+        self._pending_focus = None
+        self.model.set_fids(self._ordered(fids))
+        if focus_fid is not None:
+            row = self.model.row_of(focus_fid)
+            if row is not None:
+                self.view.setCurrentIndex(self.model.index(row, focus_col))
+                self._scroll_to_features([focus_fid])
         self._anchor = None
         self.view.verticalHeader().updateGeometry()
         self._has_result = True
@@ -559,7 +675,10 @@ class ExplorerPanel(QWidget):
         self.profiles.update(profs)
         for logical, prof in profs.items():
             self.header.cards[logical].set_state("ready", prof)
+        if self.is_form_view():
+            self.form_view.set_fids(self.model.fids)
         self._update_labels()
+        self._update_selection_commands()
         self.scopeChanged.emit()
         self._next_profile_chunk()
 
@@ -657,19 +776,18 @@ class ExplorerPanel(QWidget):
         shown = len(self.model.fids)
         available = self._available_count()
         self.count_label.setText(f"{available:,} records" if available >= 0 else "")
-        if self.external is not None:
-            scope = "Pivot records"
-        elif self.selected_only:
-            scope = "Selected records"
-        else:
-            scope = "Filtered records"
-        filters = getattr(self, "_filters_text", [])
+        scope = self.scope_name()
+        filters = list(getattr(self, "_filters_text", []))
         if filters:
             names = ", ".join(sorted({f.split(" ")[0] for f in filters}))
             ftext = (f"{len(filters)} active filter{'s' if len(filters) > 1 else ''}"
                      f": {names}")
         else:
             ftext = "No active filters"
+        if self.sort_expr:
+            ftext += f"  •  Sorted by {self.sort_expr[0]}"
+        if self.edit.modified():
+            ftext += "  •  Unsaved layer values"
         self.scope_label.setText(
             f"Statistics for: {scope}  •  Exact  •  {shown:,} of "
             f"{max(available, 0):,}  •  {ftext}")
@@ -683,9 +801,19 @@ class ExplorerPanel(QWidget):
         shown = len(self.model.fids)
         available = self._available_count()
         sel = len(self.model.selected)
+        hidden = self._selection_counts()[1] if sel else 0
         self.status.set_status(
-            f"{shown:,} shown / {available:,} available  •  {sel:,} selected")
-        extra = "Map filter on  •  Read only" if self._map_on_layer() else "Read only"
+            f"{shown:,} shown / {available:,} available  •  {sel:,} selected"
+            + (f" ({hidden:,} hidden)" if hidden else ""))
+        if self.edit.editing:
+            extra = "Editing  •  " + (self.edit.summary() if self.edit.modified()
+                                      else "no unsaved changes")
+            extra += "  •  Layer changes shared with QGIS"
+        else:
+            extra = "Read only"
+        if self._map_on_layer():
+            extra = ("Map filter frozen  •  " if self.edit.editing
+                     else "Map filter on  •  ") + extra
         if self.shortcut_text:
             extra += f"  •  {self.shortcut_text}"
         self.status.set_extra(extra)
@@ -697,10 +825,6 @@ class ExplorerPanel(QWidget):
     # TOGGLES
     # ====================================================================
 
-    def _on_selected_only(self, checked):
-        self.selected_only = checked
-        self.refresh()
-
     def _on_summary_toggled(self, checked):
         W.set_button_text(self.summary_btn, "Summary: On" if checked else "Summary: Off")
         settings.set_value("explorer/summaryVisible", checked)
@@ -710,11 +834,15 @@ class ExplorerPanel(QWidget):
         self._layout_timer.start()
 
     def clear_filters(self):
+        """Column filters, the expression filter and the drill-through go;
+        the View scope and the map selection stay."""
         for cell in self.header.cells.values():
             cell.set_filter(None)
             cell.set_error("")
         self.external = None
         self.external_chip.setVisible(False)
+        self.expr_filter = None
+        self.expr_chip.setVisible(False)
         self.refresh()
 
     # ====================================================================
@@ -762,7 +890,11 @@ class ExplorerPanel(QWidget):
         active = bool(self._active_filters())
         self.query_btn.setEnabled(layer is not None and not editing
                                   and (active or self._map_filter))
-        if editing:
+        if editing and self._map_filter:
+            tip = ("Map filter frozen while editing: only the records on the map "
+                   "can be edited.\nStop editing to change the map filter or turn "
+                   "it off.")
+        elif editing:
             tip = ("Map filter (Query Builder)\nNot available while the layer "
                    "is being edited.")
         elif self._map_filter:
@@ -815,11 +947,12 @@ class ExplorerPanel(QWidget):
         the list of their feature ids (checked by count either way)."""
         layer = self.layer
         if layer.isEditable():
-            self.status.set_status("The map filter stays as it is while the "
-                                   "layer is being edited", "warning")
+            self.status.set_status("Map filter frozen while editing — only the records "
+                                   "on the map can be edited", "warning")
             return
         filters = getattr(self, "_map_filters", [])
-        candidates = [SUB.filters_sql(layer, filters),
+        candidates = [SUB.filters_sql(layer, filters, self.case_sensitive,
+                                      self.expr_filter),
                       SUB.ids_subset(layer, column_fids)]
         for ours in candidates:
             if ours is None:
@@ -882,6 +1015,7 @@ class ExplorerPanel(QWidget):
     # ====================================================================
 
     def _on_sort_clicked(self, logical):
+        self.sort_expr = None
         if self.sort is not None and self.sort[0] == logical:
             self.sort = (logical, True) if not self.sort[1] else None
         else:
@@ -910,7 +1044,9 @@ class ExplorerPanel(QWidget):
         sort = None
         if self.sort is not None:
             sort = [self.model.fields[self.sort[0]].name(), self.sort[1]]
-        return {"version": 1, "columns": cols, "sort": sort}
+        return {"version": 1, "columns": cols, "sort": sort,
+                "sort_expr": list(self.sort_expr) if self.sort_expr else None,
+                "selected_top": self.selected_top}
 
     def _save_layout(self):
         if self.layer is None or not self.model.fields:
@@ -947,6 +1083,10 @@ class ExplorerPanel(QWidget):
             if width >= h.minimumSectionSize():
                 h.resizeSection(logical, width)
             h.setSectionHidden(logical, bool(col.get("hidden")))
+        self.selected_top = bool(state.get("selected_top"))
+        sort_expr = state.get("sort_expr")
+        if sort_expr and sort_expr[0]:
+            self.sort_expr = (sort_expr[0], bool(sort_expr[1]))
         sort = state.get("sort")
         if sort and sort[0] in index:
             self.sort = (index[sort[0]], bool(sort[1]))
@@ -1091,6 +1231,14 @@ class ExplorerPanel(QWidget):
         canvas.zoomToSelected(layer)
         canvas.flashFeatureIds(layer, ids[:500])
 
+    def _pan_to_row(self, row):
+        fid = self.model.fid(row)
+        if self.layer is None or fid is None or not self.layer.isSpatial():
+            return
+        canvas = self.iface.mapCanvas()
+        canvas.panToFeatureIds(self.layer, [fid])
+        canvas.flashFeatureIds(self.layer, [fid])
+
     def _zoom_to_row(self, row):
         layer = self.layer
         fid = self.model.fid(row)
@@ -1104,14 +1252,36 @@ class ExplorerPanel(QWidget):
     # CONTEXT MENU / COPY
     # ====================================================================
 
+    def event(self, event):
+        # Ctrl+S saves this layer's edits while the Explorer has focus and
+        # the layer is being edited (never the project)
+        if event.type() == QEvent.Type.ShortcutOverride and self.edit.editing \
+                and event.matches(QKeySequence.StandardKey.Save):
+            event.accept()
+            return True
+        return super().event(event)
+
+    def keyPressEvent(self, event):
+        if self.edit.editing and event.matches(QKeySequence.StandardKey.Save):
+            self.save_edits()
+            return
+        super().keyPressEvent(event)
+
     def _context_menu(self, global_pos, row, col):
         menu = QMenu(self)
         n_sel = len(self.model.selected)
+        fid = self.model.fid(row) if row >= 0 else None
+        if fid is not None:
+            menu.addAction(icons.native(icons.FORM_VIEW), "Open form…").triggered.connect(
+                lambda: self.open_feature_form(fid))
         if row >= 0 and col >= 0:
             value_text = self.model.display_text(row, col)
             act = menu.addAction(icons.native(icons.COPY), "Copy cell value")
             act.triggered.connect(
                 lambda: QGuiApplication.clipboard().setText(value_text))
+            if col in self.model.editable_cols:
+                menu.addAction("Set cell to NULL").triggered.connect(
+                    lambda: self.set_cell_null(row, col))
         act = menu.addAction(icons.native(icons.COPY),
                              f"Copy selected rows ({n_sel:,})")
         act.setEnabled(n_sel > 0)
@@ -1130,6 +1300,12 @@ class ExplorerPanel(QWidget):
                 menu.addAction(icons.native(icons.ZOOM_TO),
                                "Zoom to this feature").triggered.connect(
                     lambda: self._zoom_to_row(row))
+                menu.addAction(icons.native(icons.PAN_SELECTED),
+                               "Pan to this feature").triggered.connect(
+                    lambda: self._pan_to_row(row))
+                menu.addAction(icons.native(icons.FLASH),
+                               "Flash this feature").triggered.connect(
+                    lambda: self.iface.mapCanvas().flashFeatureIds(self.layer, [fid]))
             act = menu.addAction(icons.native(icons.ZOOM_SELECTED),
                                  "Zoom to selection")
             act.setEnabled(n_sel > 0)
@@ -1145,6 +1321,20 @@ class ExplorerPanel(QWidget):
             act.setEnabled(kind != F.OTHER)
             menu.addAction(f"Hide column {name}").triggered.connect(
                 lambda: self._hide_column(col))
+            menu.addAction(icons.native(icons.SORT), f"Sort by {name}").triggered.connect(
+                lambda: self.sort_by(col, False))
+            act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
+            act.setEnabled(col in self.model.editable_cols)
+            act.triggered.connect(lambda: self.open_calculator(name))
+            menu.addAction(icons.native(icons.FIELD_PROPS), "Field properties…"
+                           ).triggered.connect(self.open_field_properties)
+        if fid is not None:
+            menu.addSeparator()
+            self.add_actions_menu(menu, fid)
+            if self.edit.editing and self.edit.capable(CAP_DELETE) and n_sel:
+                menu.addAction(icons.native(icons.DELETE_SELECTED),
+                               f"Delete selected features ({n_sel:,})…").triggered.connect(
+                    self.delete_selected)
         menu.exec(global_pos)
 
     def _filter_to_value(self, logical, raw):

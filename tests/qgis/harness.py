@@ -29,6 +29,9 @@ def start_qgis(theme=None):
     from qgis.core import QgsApplication
     app = QgsApplication([], True)
     app.initQgis()
+    # QGIS itself registers the editor widgets at startup (forms, cell editors)
+    from qgis.gui import QgsGui
+    QgsGui.editorWidgetRegistry().initEditors()
     if theme:
         QgsApplication.setUITheme(theme)
     return app
@@ -106,6 +109,47 @@ class FakeIface:
 
     def pushMessage(self, *args, **kwargs):
         self.messages.append(args)
+
+    # feature clipboard and windows (like QGIS: attributes copied by name)
+    clipboard = []
+    calls = []
+
+    def copySelectionToClipboard(self, layer):
+        FakeIface.clipboard = [(f.attributes(), [x.name() for x in layer.fields()])
+                               for f in layer.getSelectedFeatures()]
+        self.calls.append(("copy", layer.selectedFeatureCount()))
+
+    def cutSelectionToClipboard(self, layer):
+        self.copySelectionToClipboard(layer)
+        layer.beginEditCommand("Cut features")
+        layer.deleteSelectedFeatures()
+        layer.endEditCommand()
+        self.calls.append(("cut", len(FakeIface.clipboard)))
+
+    def pasteFromClipboard(self, layer):
+        from qgis.core import QgsFeature
+        feats = []
+        for attrs, names in FakeIface.clipboard:
+            f = QgsFeature(layer.fields())
+            for name, value in zip(names, attrs):
+                idx = layer.fields().indexFromName(name)
+                if idx >= 0 and idx not in layer.dataProvider().pkAttributeIndexes():
+                    f.setAttribute(idx, value)
+            feats.append(f)
+        layer.beginEditCommand("Paste features")
+        layer.addFeatures(feats)
+        layer.endEditCommand()
+        self.calls.append(("paste", len(feats)))
+
+    def openFeatureForm(self, layer, feature, update=False, modal=True):
+        self.calls.append(("form", feature.id()))
+        return True
+
+    def showAttributeTable(self, layer, filter=""):
+        self.calls.append(("native_table", layer.id()))
+
+    def showLayerProperties(self, layer, page=""):
+        self.calls.append(("properties", page))
 
 
 LAND_USES = (["RESIDENTIAL"] * 93 + ["INDUSTRIAL"] * 4 + ["COMMERCIAL"] * 2

@@ -10,11 +10,14 @@ themselves live in ``ui/``; each is shown by a ``ToolHost`` as a window or
 a dock.
 """
 
+import json
+
 from qgis.PyQt.QtCore import QSize, Qt
 from qgis.PyQt.QtGui import QKeySequence
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.core import QgsMessageLog, QgsProject, QgsVectorLayer
 
+from .core import settings
 from .core import subset as SUB
 from .core.compat import LAYER_TYPE_VECTOR, MSG_INFO, MSG_WARNING, QAction
 from .ui import icons
@@ -38,6 +41,7 @@ class AttributeTableStudioPlugin:
         self.pivot_host = None
         self.compare_host = None
         self._signals = []
+        self.table_keys = []         # F6 / Shift+F6 / Ctrl+F6 when opted in
 
     # ====================================================================
     # GUI
@@ -98,6 +102,7 @@ class AttributeTableStudioPlugin:
         self._connect(project.layersAdded, self._restore_forgotten_filters)
         self._connect(QApplication.instance().aboutToQuit, self._close_all)
         self._restore_forgotten_filters(list(project.mapLayers().values()))
+        self.apply_table_keys()
         self._warn_standalone_compare()
 
     def _connect(self, signal, slot):
@@ -145,6 +150,7 @@ class AttributeTableStudioPlugin:
 
     def unload(self):
         self._close_all()
+        self._release_table_keys()
         for signal, slot in self._signals:
             try:
                 signal.disconnect(slot)
@@ -191,8 +197,74 @@ class AttributeTableStudioPlugin:
             return ""
         return action.shortcut().toString(QKeySequence.SequenceFormat.NativeText)
 
-    def open_explorer(self, layer=None):
-        """Open (or raise) the explorer of *layer* (default: active layer)."""
+    # opt-in replacement keys: (key, starting scope, action text)
+    TABLE_KEYS = (("F6", "all", "Attribute Explorer (all records)"),
+                  ("Shift+F6", "selected", "Attribute Explorer (selected records)"),
+                  ("Ctrl+F6", "map", "Attribute Explorer (records visible on the map)"))
+
+    def apply_table_keys(self):
+        """Take or give back F6 / Shift+F6 / Ctrl+F6 to match the setting."""
+        wanted = settings.value("explorer/replaceTableKeys")
+        if wanted and not self.table_keys:
+            self._take_table_keys()
+        elif not wanted and self.table_keys:
+            self._release_table_keys()
+
+    def _shortcuts_manager(self):
+        try:
+            from qgis.gui import QgsGui
+            return QgsGui.shortcutsManager()
+        except Exception:
+            return None
+
+    def _take_table_keys(self):
+        """Clear the keys from their current owners (remembered, so only
+        those bindings are restored later) and give them to Explorer."""
+        mgr = self._shortcuts_manager()
+        try:
+            taken = json.loads(settings.raw("explorer/takenKeys", "{}") or "{}")
+        except (TypeError, ValueError):
+            taken = {}
+        main = self.iface.mainWindow()
+        for seq, scope, text in self.TABLE_KEYS:
+            owner = mgr.actionForSequence(QKeySequence(seq)) if mgr is not None else None
+            if owner is not None and owner.objectName() and owner not in self.table_keys:
+                taken[seq] = owner.objectName()
+                mgr.setKeySequence(owner, "")
+            act = QAction(icons.tool(icons.EXPLORER), text, main)
+            act.setObjectName(f"mActionAttributeTableStudio_table_{scope}")
+            act.setShortcut(QKeySequence(seq))
+            act.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            act.triggered.connect(lambda _c=False, s=scope: self.open_explorer(None, s))
+            main.addAction(act)
+            self.table_keys.append(act)
+        settings.set_raw("explorer/takenKeys", json.dumps(taken))
+
+    def _release_table_keys(self):
+        """Remove Explorer's keys and give back only the bindings it took
+        (and only when their owner has not been given another key)."""
+        main = self.iface.mainWindow()
+        for act in self.table_keys:
+            try:
+                main.removeAction(act)
+                act.deleteLater()
+            except RuntimeError:
+                pass
+        self.table_keys = []
+        mgr = self._shortcuts_manager()
+        try:
+            taken = json.loads(settings.raw("explorer/takenKeys", "{}") or "{}")
+        except (TypeError, ValueError):
+            taken = {}
+        for seq, name in taken.items():
+            owner = mgr.actionByName(name) if mgr is not None else None
+            if owner is not None and owner.shortcut().isEmpty():
+                mgr.setKeySequence(owner, seq)
+        settings.set_raw("explorer/takenKeys", "{}")
+
+    def open_explorer(self, layer=None, scope=None):
+        """Open (or raise) the explorer of *layer* (default: active layer);
+        *scope* ('all', 'selected', 'map') sets its starting View scope."""
         if layer is None:
             layer = self.iface.activeLayer()
         if not isinstance(layer, QgsVectorLayer):
@@ -208,13 +280,17 @@ class AttributeTableStudioPlugin:
         host = self.explorers.get(layer.id())
         if host is not None:
             host.show_and_raise()
+            if scope:
+                host.panel.set_view_scope(scope)
             return host.panel
 
         from .ui.attribute_explorer import ExplorerPanel
         from .ui.tool_host import ToolHost
         panel = ExplorerPanel(self.iface, layer, self._shortcut_text())
+        if scope and scope != "all":
+            panel.set_view_scope(scope)
         host = ToolHost(self.iface, panel, "explorer", icons.tool(icons.EXPLORER),
-                        QSize(1440, 780))
+                        QSize(1600, 820))
         panel.openPivotRequested.connect(self.open_pivot)
         panel.layerChangeRequested.connect(self._switch_explorer_layer)
         panel.titleChanged.connect(host.refresh_title)
@@ -229,6 +305,9 @@ class AttributeTableStudioPlugin:
         if other is not None and other.panel is not panel:
             panel.revert_combo()
             other.show_and_raise()
+            return
+        if not panel.confirm_close("switch"):
+            panel.revert_combo()
             return
         for lid, host in list(self.explorers.items()):
             if host.panel is panel:
@@ -342,7 +421,8 @@ class AttributeTableStudioPlugin:
 
     def show_settings(self):
         from .ui.settings_dialog import SettingsDialog
-        SettingsDialog(self.iface.mainWindow()).exec()
+        if SettingsDialog(self.iface.mainWindow()).exec():
+            self.apply_table_keys()
 
     def show_help(self):
         from .ui.help_dialog import HelpDialog

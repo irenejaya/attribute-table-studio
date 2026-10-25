@@ -11,6 +11,9 @@ closes the tool.
 
 Panel contract: attribute ``dock_btn`` (checkable QToolButton) and methods
 ``shutdown()`` (cancel work, disconnect signals) and ``window_title()``.
+An optional ``confirm_close()`` can veto a close by the user (unsaved
+layer edits: Save and close / Close and keep layer edits / Cancel);
+programmatic closes (plugin unload, layer removed) never ask.
 """
 
 from qgis.PyQt.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
@@ -29,12 +32,16 @@ class _ToolWindow(QWidget):
         super().__init__(None)            # top level -> own taskbar entry
         self.setWindowFlags(Qt.WindowType.Window)
         self.suppress_close_signal = False
+        self.can_close = None
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
     def closeEvent(self, event):
         if not self.suppress_close_signal:
+            if self.can_close is not None and not self.can_close():
+                event.ignore()
+                return
             self.closing.emit()
         super().closeEvent(event)
 
@@ -45,9 +52,13 @@ class _ToolDock(QgsDockWidget):
     def __init__(self, title, parent):
         super().__init__(title, parent)
         self.suppress_close_signal = False
+        self.can_close = None
 
     def closeEvent(self, event):
         if not self.suppress_close_signal:
+            if self.can_close is not None and not self.can_close():
+                event.ignore()
+                return
             self.closing.emit()
         super().closeEvent(event)
 
@@ -161,6 +172,7 @@ class ToolHost(QObject):
         win.layout().addWidget(self.panel)
         self.panel.show()
         win.closing.connect(self._on_user_close)
+        win.can_close = getattr(self.panel, "confirm_close", None)
         self._window = win
         self.refresh_title()
         geometry = settings.raw(f"{self.key}/geometry")
@@ -184,6 +196,7 @@ class ToolHost(QObject):
         dock.setWidget(self.panel)
         self.panel.show()
         dock.closing.connect(self._on_user_close)
+        dock.can_close = getattr(self.panel, "confirm_close", None)
         siblings = [d.objectName() for d in main.findChildren(QgsDockWidget)
                     if d is not dock and d.objectName().startswith(
                         f"AttributeTableStudio_{self.key}_") and d.isVisible()]

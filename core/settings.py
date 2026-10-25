@@ -11,6 +11,8 @@ DEFAULTS = {
     "compare/openDocked": False,
     "explorer/summaryVisible": True,
     "explorer/filterDelayMs": 350,
+    # opt in: F6 / Shift+F6 / Ctrl+F6 open Attribute Explorer
+    "explorer/replaceTableKeys": False,
     "pivot/cellLimit": 100000,
     "pivot/decimals": 2,
 }
