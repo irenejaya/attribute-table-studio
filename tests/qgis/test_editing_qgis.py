@@ -389,7 +389,11 @@ class EditingTests(unittest.TestCase):
         H.settle(0.1)
         self.assertTrue(q.selected_btn.isEnabled())
         before = {f: f_["FL_1_PCT_MAX"] for f_ in layer.getFeatures() for f in [f_.id()]}
-        p.quick_preview()
+        q.preview_btn.click()                                   # a toggle
+        self.assertTrue(q.preview.isVisibleTo(p))
+        q.preview_btn.click()
+        self.assertFalse(q.preview.isVisibleTo(p))
+        q.preview_btn.click()
         self.assertTrue(q.preview.isVisibleTo(p))
         self.assertIn(f"Update All: {layer.featureCount():,} records", q.preview_title.text())
         self.assertIn("Update Selected: 4", q.preview_title.text())
@@ -840,6 +844,195 @@ class EditingTests(unittest.TestCase):
             project.setEllipsoid(saved[1])
             project.setAreaUnits(saved[2])
             project.setDistanceUnits(saved[3])
+
+    # ---- review round 8 ------------------------------------------------
+    def test_27_tick_boxes_select_like_rows(self):
+        """Browsing and editing: a tick click selects only that row, Ctrl adds
+        or removes, Shift selects a range."""
+        from qgis.PyQt.QtTest import QTest
+        p, layer = self.panel, self.layer
+        header = p.view.row_header
+        ctrl = Qt.KeyboardModifier.ControlModifier
+        shift = Qt.KeyboardModifier.ShiftModifier
+        none = Qt.KeyboardModifier.NoModifier
+
+        def tick(row, mods=none):
+            y = header.sectionViewportPosition(row) + header.sectionSize(row) // 2
+            QTest.mouseClick(header.viewport(), Qt.MouseButton.LeftButton, mods, QPoint(8, y))
+            H.settle(0.05)
+            return set(layer.selectedFeatureIds())
+
+        fid = p.model.fid
+        for editing in (False, True):
+            if editing:
+                self.start()
+            layer.removeSelection()
+            self.assertEqual(tick(1), {fid(1)})
+            self.assertEqual(tick(3), {fid(3)})                 # replaces, not adds
+            self.assertEqual(tick(5, ctrl), {fid(3), fid(5)})
+            self.assertEqual(tick(3, ctrl), {fid(5)})           # Ctrl removes again
+            # Shift: from the last clicked row (3) to this one
+            self.assertEqual(tick(8, shift), {fid(r) for r in range(3, 9)})
+
+    def test_28_card_tooltips_bars_and_brief_stats(self):
+        from qgis.PyQt.QtGui import QHelpEvent
+        from qgis.PyQt.QtWidgets import QApplication, QToolTip
+        p = self.panel
+        cards = p.header.cards
+        self.assertTrue(H.wait_for(lambda: cards[self.fl].state == "ready"
+                                   and cards[self.lu].state == "ready", 30))
+        H.settle(0.2)
+
+        def tip(card, pos):
+            QToolTip.hideText()
+            ev = QHelpEvent(QEvent.Type.ToolTip, pos, card.mapToGlobal(pos))
+            QApplication.sendEvent(card, ev)
+            return QToolTip.text()
+
+        card = p.header.cards[self.fl]
+        card.grab()                          # paints it (lays out the bars)
+        rect, _i = card._bars[0]
+        # anywhere in the bar's column - also above a short bar - shows its count
+        for pos in (QPoint(int(rect.center().x()), int(rect.top()) + 1),
+                    QPoint(int(rect.center().x()), int(rect.bottom()) - 1)):
+            text = tip(card, pos)
+            self.assertIn("records", text)
+            self.assertNotIn("Click for full statistics", text)
+        self.assertIn("Click for full statistics", tip(card, QPoint(6, 6)))   # title
+        text_card = p.header.cards[self.lu]
+        text_card.grab()
+        row_rect, row_tip = text_card._rows[0]
+        self.assertIn("records", tip(text_card, row_rect.center().toPoint()))
+        self.assertIn("RESIDENTIAL", row_tip)
+        self.assertIn("Click for full statistics", tip(text_card, QPoint(6, 6)))
+
+    @staticmethod
+    def _visible_details():
+        from attribute_table_studio.ui.explorer_header import ProfileDetails
+        from qgis.PyQt.QtWidgets import QApplication
+        return [w for w in QApplication.topLevelWidgets()
+                if isinstance(w, ProfileDetails) and w.isVisible()]
+
+    def _open_details(self, logical):
+        p = self.panel
+        self.assertTrue(H.wait_for(lambda: logical in p.profiles, 30))
+        p._show_profile_details(logical)
+        H.settle(0.1)
+        pops = self._visible_details()
+        self.assertEqual(len(pops), 1)
+        return pops[0]
+
+    def _reopened_details(self):
+        """The popup the explorer opens again after a save dialog."""
+        pops = self._visible_details()
+        self.assertEqual(len(pops), 1)
+        return pops[0]
+
+    def test_29_statistics_popup_copy(self):
+        from qgis.PyQt.QtGui import QGuiApplication
+        from qgis.PyQt.QtTest import QTest
+        pop = self._open_details(self.fl)
+        clip = QGuiApplication.clipboard()
+        # selectable summary: Ctrl+C copies the raw values of the selection
+        from qgis.PyQt.QtCore import QItemSelectionModel
+        view = pop.summary_view
+        view.setFocus()
+        flags = QItemSelectionModel.SelectionFlag
+        view.selectionModel().select(view.model().index(0, 0),
+                                     flags.ClearAndSelect | flags.Rows)
+        QTest.keyClick(view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(clip.text(), f"Records in scope\t{self.panel.profiles[self.fl].count}")
+        self.assertTrue(pop.copied_label.isVisible())
+        # distribution: selected cells, shares as fractions
+        dist = pop.dist_view
+        dist.setFocus()
+        dist.selectAll()
+        QTest.keyClick(dist, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        lines = clip.text().splitlines()
+        self.assertEqual(len(lines), dist.topLevelItemCount())
+        label, count, share = lines[0].split("\t")
+        self.assertTrue(label.startswith("["))
+        self.assertAlmostEqual(float(share), int(count) / self.panel.profiles[self.fl].valid)
+        # the Copy menu
+        acts = {a.text(): a for a in pop.copy_menu.actions()}
+        self.assertEqual(list(acts), ["Summary statistics", "Distribution table", "Everything"])
+        acts["Summary statistics"].trigger()
+        self.assertTrue(clip.text().startswith("Statistic\tValue\tShare\nRecords in scope"))
+        self.assertIn("\nNon-NULL\t", clip.text())
+        acts["Distribution table"].trigger()
+        self.assertTrue(clip.text().startswith("Bin\tRecords\tShare\n"))
+        acts["Everything"].trigger()
+        text = clip.text()
+        for part in (f"Layer\t{self.layer.name()}", "Field\tFL_1_PCT_MAX (Decimal)",
+                     "Active filters\tNone", "Statistic\tValue\tShare", "Bin\tRecords\tShare"):
+            self.assertIn(part, text)
+        pop.close()
+        # a true/false column has no distribution table
+        bool_idx = self.layer.fields().indexOf("IN_FLOOD_ZONE")
+        pop = self._open_details(bool_idx)
+        acts = {a.text(): a for a in pop.copy_menu.actions()}
+        self.assertFalse(acts["Distribution table"].isEnabled())
+        self.assertIn("\ntrue\t", (acts["Summary statistics"].trigger(),
+                                      QGuiApplication.clipboard().text())[1])
+        pop.close()
+
+    def test_30_statistics_popup_export(self):
+        import csv
+        import tempfile
+        from openpyxl import load_workbook
+        from qgis.PyQt.QtWidgets import QFileDialog
+        folder = tempfile.mkdtemp(prefix="gts_stats_")
+        target = {}
+        original = QFileDialog.getSaveFileName
+        QFileDialog.getSaveFileName = staticmethod(
+            lambda *a, **k: (os.path.join(folder, target["name"]), ""))
+        p = self.panel
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+                                                           "RESIDENTIAL"))
+        p.refresh()
+        settle(p)
+        try:
+            pop = self._open_details(self.fl)
+            acts = {a.text(): a for a in pop.export_menu.actions()}
+            self.assertEqual(list(acts), ["Excel workbook", "Summary as CSV",
+                                          "Distribution as CSV"])
+            target["name"] = "stats.xlsx"
+            acts["Excel workbook"].trigger()
+            H.settle(0.3)
+            wb = load_workbook(os.path.join(folder, "stats.xlsx"))
+            self.assertEqual(wb.sheetnames, ["Summary", "Distribution"])
+            summary = {r[0]: r[1:] for r in wb["Summary"].iter_rows(values_only=True) if r[0]}
+            self.assertEqual(summary["Layer"][0], self.layer.name())
+            self.assertIn("LAND_USE_TYPE", summary["Active filters"][0])
+            prof = p.profiles[self.fl]
+            self.assertEqual(summary["Records in scope"][0], prof.count)
+            self.assertAlmostEqual(summary["Non-NULL"][1], prof.non_null / prof.count)
+            ws = wb["Distribution"]
+            self.assertEqual([c.value for c in ws[1]], ["Bin", "Records", "Share"])
+            share = ws.cell(2, 3)
+            self.assertIsInstance(share.value, float)                # a number, not "<1%"
+            self.assertEqual(share.number_format, "0.0%")
+            # the popup opens again after the save dialog
+            pop = self._reopened_details()
+            target["name"] = "summary.csv"
+            {a.text(): a for a in pop.export_menu.actions()}["Summary as CSV"].trigger()
+            H.settle(0.3)
+            with open(os.path.join(folder, "summary.csv"), encoding="utf-8-sig") as fh:
+                rows = list(csv.reader(fh))
+            self.assertEqual(rows[0], ["Statistic", "Value", "Share"])
+            self.assertEqual(rows[1], ["Records in scope", str(prof.count), ""])
+            self.assertFalse(os.path.exists(os.path.join(folder, "summary_scope.txt")))
+            pop = self._reopened_details()
+            target["name"] = "dist.csv"
+            {a.text(): a for a in pop.export_menu.actions()}["Distribution as CSV"].trigger()
+            H.settle(0.3)
+            with open(os.path.join(folder, "dist.csv"), encoding="utf-8-sig") as fh:
+                rows = list(csv.reader(fh))
+            self.assertEqual(rows[0], ["Bin", "Records", "Share"])
+            self.assertLessEqual(float(rows[1][2]), 1.0)
+            self._reopened_details().close()
+        finally:
+            QFileDialog.getSaveFileName = original
 
     def test_21_replacement_keys(self):
         from qgis.gui import QgsGui

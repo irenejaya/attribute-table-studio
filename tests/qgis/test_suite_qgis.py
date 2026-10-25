@@ -7,6 +7,7 @@ Run with QGIS' Python (QGIS 3.40+ / 4.x):
 
 import csv
 import math
+import json
 import os
 import sys
 import tempfile
@@ -663,8 +664,19 @@ class SuiteTests(unittest.TestCase):
 
         def x(widget):
             return widget.mapTo(panel, QPoint(0, 0)).x()
-        self.assertLess(x(panel.clear_btn), x(btn))
-        self.assertLess(x(btn), x(panel.dock_btn))
+        # top row, right aligned: Zoom | Selected only | View | Select | Columns |
+        # Summary | Pivot Table | Clear filters | Export | query | dock
+        order = [panel.zoom_btn, panel.selected_btn, panel.view_btn, panel.select_btn,
+                 panel.columns_btn, panel.summary_btn, panel.pivot_btn, panel.clear_btn,
+                 panel.export_btn, btn, panel.dock_btn]
+        xs = [x(w) for w in order]
+        self.assertEqual(xs, sorted(xs))
+        for icon_only in (panel.zoom_btn, panel.selected_btn, panel.export_btn):
+            self.assertEqual(icon_only.text().strip(), "")
+        self.assertEqual(panel.pivot_btn.text().strip(), "Pivot Table")
+        self.assertEqual([a.text() for a in panel.export_btn.menu().actions()
+                          if not a.isSeparator()],
+                         ["Excel (.xlsx)", "CSV (.csv)", "Copy selected rows"])
         self.assertFalse(btn.isEnabled())            # no filter yet
         total = layer.featureCount()
         lu = layer.fields().indexOf("LAND_USE_TYPE")
@@ -686,7 +698,10 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(len(panel.model.fids), shown)
         self.assertIn(f"{shown:,} shown / {total:,} available",
                       panel.status.message.fullText())
-        self.assertEqual(layer.customProperty(SUB.PROPERTY), "")
+        self.assertIn("Map filter on", panel.status.extra.fullText())
+        state = json.loads(layer.customProperty(SUB.STATE))
+        self.assertEqual(state["applied"], layer.subsetString())
+        self.assertEqual(state["base"], "")
 
         # the table still reaches every record: loosening a filter works
         cells[fl].set_filter(None)
@@ -714,27 +729,62 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         kept = len(panel.model.fids)
 
-        # off: the layer is back, the table keeps its filters
+        # off: the layer is back, the table keeps its filters - and the status
+        # bar says so on both sides
         btn.setChecked(False)
         self.assertEqual(layer.subsetString(), "")
         self.assertEqual(layer.featureCount(), total)
         self.assertEqual(len(panel.model.fids), kept)
         self.assertIsNotNone(cells[lu].current_filter())
-        self.assertIsNone(layer.customProperty(SUB.PROPERTY))
+        self.assertIsNone(layer.customProperty(SUB.STATE))
+        self.assertIn("Map filter off", panel.status.message.fullText())
+        self.assertNotIn("Map filter on", panel.status.extra.fullText())
 
-        # the layer's own filter stays underneath and comes back on close
+        # like QGIS's Query Builder: closing the explorer keeps the map filter
+        # (the layer's own filter stays underneath)
         layer.setSubsetString('"ZONE_CODE" > 1')
         self.assertTrue(H.wait_for(lambda: idle(panel) and not panel._data_timer.isActive()))
         btn.setChecked(True)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        self.assertEqual(layer.subsetString(),
-                         '("ZONE_CODE" > 1) AND ("LAND_USE_TYPE" LIKE \'%dent%\')')
+        mapped = '("ZONE_CODE" > 1) AND ("LAND_USE_TYPE" LIKE \'%dent%\')'
+        self.assertEqual(layer.subsetString(), mapped)
         self.plugin.explorers[layer.id()].close()
         H.settle(0.2)
-        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
-        self.assertIsNone(layer.customProperty(SUB.PROPERTY))
+        self.assertEqual(layer.subsetString(), mapped)
+        self.assertIsNotNone(layer.customProperty(SUB.STATE))
+        # loading the project again leaves it alone (no longer "forgotten")
+        self.plugin._restore_forgotten_filters([layer])
+        self.assertEqual(layer.subsetString(), mapped)
 
-        # a project saved with the map filter on gets the layer filter back
+        # reopening: the button is on again with the filters that made it, and
+        # turning it off gives the layer its own filter back
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        btn, cells = panel.query_btn, panel.header.cells
+        self.assertTrue(btn.isChecked())
+        self.assertEqual(cells[lu].current_filter().value, "dent")
+        self.assertEqual(layer.subsetString(), mapped)
+        self.assertIn("still on", panel.status.message.fullText())
+        btn.setChecked(False)
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
+        self.assertIsNone(layer.customProperty(SUB.STATE))
+
+        # a filter changed elsewhere after closing is not "resumed"
+        btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.plugin.explorers[layer.id()].close()
+        H.settle(0.2)
+        layer.setSubsetString('"ZONE_CODE" = 2')
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertFalse(panel.query_btn.isChecked())
+        self.assertIsNone(layer.customProperty(SUB.STATE))
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" = 2')
+        self.plugin.explorers[layer.id()].close()
+        H.settle(0.2)
+
+        # projects saved by earlier versions with the map filter on get the
+        # layer filter back
         layer.setCustomProperty(SUB.PROPERTY, "")
         layer.setSubsetString('"ZONE_CODE" = 3')
         self.plugin._restore_forgotten_filters([layer])
@@ -764,7 +814,8 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(mem.featureCount(), 10)
         self.plugin.explorers[mem.id()].close()
         H.settle(0.2)
-        self.assertEqual(mem.subsetString(), "")
+        self.assertEqual(mem.subsetString(), '"v" > 29')        # kept, like QGIS
+        mem.setSubsetString("")
 
     def test_14a_attribute_only_table(self):
         table = QgsVectorLayer("None?field=name:string&field=v:double",

@@ -510,7 +510,8 @@ class RowDelegate(QStyledItemDelegate):
 
 class RowHeader(QHeaderView):
     """Left gutter: a tick box showing whether the feature is selected,
-    then the row number.  Clicking toggles that feature."""
+    then the row number.  Clicking selects that feature (Ctrl+click adds
+    or removes it, Shift+click selects a range)."""
 
     rowPressed = pyqtSignal(int, object)       # row, keyboard modifiers
 

@@ -187,6 +187,15 @@ def split_button(metrics, icon, tooltip, menu):
     return btn
 
 
+def menu_square(metrics, icon, tooltip, menu):
+    """Icon button whose click opens *menu* (small arrow beside the icon)."""
+    btn = square_button(metrics, icon, tooltip)
+    btn.setMenu(menu)
+    btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+    btn.setFixedSize(metrics.control_h + 12, metrics.control_h)
+    return btn
+
+
 def vseparator(metrics):
     """Thin vertical divider between groups of icon buttons."""
     line = QFrame()
@@ -356,6 +365,8 @@ class ButtonRow(QWidget):
                            QSizePolicy.Policy.Fixed)
 
     def add(self, btn):
+        if btn.objectName() == "gtsSquare":
+            btn.setProperty("gtsKeepLabel", True)     # already icon-only
         self._buttons.append(btn)
         self._lay.addWidget(btn)
         return btn

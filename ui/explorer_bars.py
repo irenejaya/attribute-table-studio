@@ -211,7 +211,8 @@ class QuickUpdateBar(QFrame):
         self.expression.setToolTip("QGIS expression giving the new value")
         row.addWidget(self.expression, 1)
         self.preview_btn = W.button(m, "Preview", icons.native(icons.QUICK_UPDATE),
-                                    "Show the first values; nothing is written")
+                                    "Show or hide the first values; nothing is written",
+                                    checkable=True)
         row.addWidget(self.preview_btn)
         self.run_btn = W.button(m, "Update All")
         self.selected_btn = W.button(m, "Update Selected")
@@ -250,16 +251,20 @@ class QuickUpdateBar(QFrame):
         self.close_btn.clicked.connect(self.closeRequested.emit)
         self.expression.fieldChanged[str, bool].connect(lambda *_: self._sync())
         for sig in (self.field_combo.fieldChanged, self.expression.fieldChanged):
-            sig.connect(lambda *_: self.preview.setVisible(False))
+            sig.connect(lambda *_: self.hide_preview())
         self._counts = (0, 0)
         self._sync()
+
+    def hide_preview(self):
+        self.preview.setVisible(False)
+        self.preview_btn.setChecked(False)
 
     def set_layer(self, layer):
         self.field_combo.setLayer(layer)
         self.expression.setLayer(layer)
         if layer is not None:     # its builder previews measures like QGIS
             self.expression.setGeomCalculator(geometry_calculator(layer))
-        self.preview.setVisible(False)
+        self.hide_preview()
 
     def set_state(self, filtered, n_main, n_selected):
         """*filtered*: the table shows a filtered list (QGIS: any filter

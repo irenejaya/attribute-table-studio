@@ -30,6 +30,7 @@ Editing commands live in :mod:`.explorer_editing`, browsing tools in
 """
 
 import json
+import time
 from contextlib import contextmanager
 
 from qgis.PyQt.QtCore import QEvent, Qt, QTimer, pyqtSignal
@@ -49,6 +50,7 @@ from ..core import filters as FL
 from ..core import settings
 from ..core import constraints as CON
 from ..core import stats as S
+from ..core import stats_tables as ST
 from ..core import subset as SUB
 from ..core.compat import (
     NO_GEOMETRY, SELECT_ADD, SELECT_REMOVE, SELECT_SET, TASK_VISIBLE,
@@ -171,30 +173,33 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         top.addWidget(self.count_label)
         top.addSpacing(m.group_gap)
 
+        # right aligned: Zoom | Selected only | View | Select | Columns |
+        # Summary | Pivot Table | Clear filters | Export, then query and dock
         row = W.ButtonRow(m)
         row.add_stretch()
+        self.zoom_btn = row.add(W.square_button(
+            m, icons.native(icons.ZOOM_SELECTED), "Zoom to selection\n"
+            "Zoom the map to the selected features"))
+        self.selected_btn = row.add(W.square_button(
+            m, icons.native(icons.SELECTED_ONLY), "Selected only\n"
+            "Show only the features selected on the map (statistics follow "
+            "the same records)", checkable=True))
         self._build_view_select(row)
         self.columns_btn = row.add(W.button(
             m, "Columns", icons.native(icons.COLUMNS),
             "Show, hide and reorder columns"))
-        self.zoom_btn = row.add(W.button(
-            m, "Zoom to selection", icons.native(icons.ZOOM_SELECTED),
-            "Zoom the map to the selected features"))
-        self.selected_btn = row.add(W.button(
-            m, "Selected only", icons.native(icons.SELECTED_ONLY),
-            "Show only the features selected on the map\n"
-            "(statistics follow the same records)", checkable=True))
         self.summary_btn = row.add(W.button(
             m, "Summary: On", icons.native(icons.SUMMARY),
             "Show or hide the column statistics strip", checkable=True))
         self.pivot_btn = row.add(W.button(
-            m, "Open Pivot", icons.tool(icons.PIVOT),
+            m, "Pivot Table", icons.tool(icons.PIVOT),
             "Summarise the filtered records in a Pivot Table"))
+        self.clear_btn = row.add(W.button(
+            m, "Clear filters", icons.with_badge(icons.FILTER, "x", t),
+            "Clear every column filter"))
         export_menu = QMenu(self)
-        self.export_xlsx = export_menu.addAction(
-            icons.native(icons.XLSX), "Excel (.xlsx) — filtered records")
-        self.export_csv = export_menu.addAction(
-            icons.native(icons.CSV), "CSV (.csv) — filtered records")
+        self.export_xlsx = export_menu.addAction(icons.native(icons.XLSX), "Excel (.xlsx)")
+        self.export_csv = export_menu.addAction(icons.native(icons.CSV), "CSV (.csv)")
         export_menu.addSeparator()
         self.copy_action = export_menu.addAction(
             icons.native(icons.COPY), "Copy selected rows")
@@ -202,13 +207,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if not X.HAS_OPENPYXL:
             self.export_xlsx.setEnabled(False)
             self.export_xlsx.setToolTip("Excel export needs the 'openpyxl' package")
-        self.export_btn = row.add(W.button(
-            m, "Export", icons.native(icons.EXPORT),
-            "Export the filtered records (with their scope recorded)",
-            menu=export_menu))
-        self.clear_btn = row.add(W.button(
-            m, "Clear filters", icons.with_badge(icons.FILTER, "x", t),
-            "Clear every column filter"))
+        self.export_btn = row.add(W.menu_square(
+            m, icons.native(icons.EXPORT), "Export\nThe filtered records to Excel or "
+            "CSV (with their scope recorded), or copy the selected rows", export_menu))
         top.addWidget(row, 1)
         top.addSpacing(m.gap)
         self.query_btn = W.square_button(m, icons.native_for(icons.QUERY, t), "",
@@ -314,7 +315,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is not None:
             self.flush_editors()
             self._save_layout()
-            self._restore_map_filter()
+            self._keep_map_filter()
             self._disconnect_layer()
         self.runner.new_generation()
         self._pending_scan = None
@@ -346,6 +347,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if layer is None:
             return
         self._restore_layout()
+        self._resume_map_filter()
         self.model.selected = set(layer.selectedFeatureIds())
         self._connect_layer()
         self.zoom_btn.setEnabled(layer.isSpatial())
@@ -414,7 +416,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self.flush_editors()
         except RuntimeError:
             pass
-        self._restore_map_filter()
+        try:
+            self._keep_map_filter()
+        except RuntimeError:             # layer already deleted
+            pass
         self._disconnect_layer()
         self.edit.set_layer(None)
         try:
@@ -463,7 +468,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._applied_subset = None
             self._set_query_checked(False)
             if self.layer is not None:
-                self.layer.removeCustomProperty(SUB.PROPERTY)
+                self.layer.removeCustomProperty(SUB.STATE)
             self.status.set_status("The layer filter was changed outside the "
                                    "explorer — map filter turned off", "warning")
         self._on_features_changed()
@@ -803,16 +808,20 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         available = self._available_count()
         sel = len(self.model.selected)
         hidden = self._selection_counts()[1] if sel else 0
+        note = getattr(self, "_status_note", None)
+        if note and time.monotonic() > note[0]:
+            note = self._status_note = None
+        note = note[1] if note else None
         self.status.set_status(
             f"{shown:,} shown / {available:,} available  •  {sel:,} selected"
-            + (f" ({hidden:,} hidden)" if hidden else ""))
+            + (f" ({hidden:,} hidden)" if hidden else "") + (f"  •  {note}" if note else ""))
 
     def _update_edit_status(self):
         """Edit session state on the right of the status bar (orange while
         editing, red when a save failed)."""
         text, level = self.edit.status()
         parts = [text]
-        if self._map_on_layer():
+        if self._map_filter:
             parts.append("Map filter frozen" if self.edit.editing else "Map filter on")
         if self.edit.editing and level != "error":
             parts.append("Layer changes shared with QGIS")
@@ -912,6 +921,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                    "on the map.\nWhile on, the layer's Query Builder filter "
                    "follows the table filters.")
         self.query_btn.setToolTip(tip)
+        if layer is not None and getattr(self, "edit", None) is not None \
+                and getattr(self, "status", None) is not None:
+            self._update_edit_status()       # "Map filter on" follows the button
 
     def _toggle_map_filter(self, on):
         layer = self.layer
@@ -939,7 +951,6 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._map_filter = True
         self._base_subset = layer.subsetString()
         self._applied_subset = None
-        layer.setCustomProperty(SUB.PROPERTY, self._base_subset)
         self._update_query_btn()
         self.refresh()
 
@@ -965,11 +976,78 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             count = layer.featureCount()
             if ours == "" or count < 0 or count == len(column_fids):
                 self._applied_subset = text
+                self._store_map_state()
                 return
         self._restore_map_filter()
         self.status.set_status(
             "The map filter could not be applied to this layer (too many "
             "records for an id list) — it was turned off", "warning")
+
+    def _store_map_state(self):
+        """Record the map filter on the layer (saved with the project), so it
+        can be resumed - and undone - after the explorer closes."""
+        state = {"version": 1, "base": self._base_subset,
+                 "applied": self._applied_subset,
+                 "filters": [f.to_dict() for f in getattr(self, "_map_filters", [])],
+                 "expr": self.expr_filter, "case": bool(self.case_sensitive)}
+        self.layer.setCustomProperty(SUB.STATE, json.dumps(state))
+
+    def _keep_map_filter(self):
+        """Leaving the layer (closing the explorer, switching layers): a map
+        filter that is on stays on the layer, like a Query Builder filter,
+        until it is turned off in the explorer."""
+        if self._map_filter and self.layer is not None and self._map_on_layer():
+            self._store_map_state()
+            self._map_filter = False
+            self._applied_subset = None
+            try:
+                self._set_query_checked(False)
+            except RuntimeError:
+                pass
+            return
+        self._restore_map_filter()
+
+    def _resume_map_filter(self):
+        """Opening a layer whose map filter was left on (also after the
+        project was saved and reopened): the button is on again, with the
+        filters that made it, so turning it off gives the layer its own
+        filter back."""
+        layer = self.layer
+        text = layer.customProperty(SUB.STATE)
+        if not text:
+            return
+        try:
+            state = json.loads(text)
+        except (TypeError, ValueError):
+            state = None
+        if not isinstance(state, dict) or state.get("applied") != layer.subsetString():
+            layer.removeCustomProperty(SUB.STATE)    # the filter changed meanwhile
+            return
+        index = {f.name(): i for i, f in enumerate(self.model.fields)}
+        for data in state.get("filters") or []:
+            try:
+                flt = FL.ColumnFilter.from_dict(data)
+            except (KeyError, TypeError):
+                continue
+            logical = index.get(flt.field)
+            if logical is not None and logical in self.header.cells:
+                self.header.cells[logical].set_filter(flt)
+        self.case_sensitive = bool(state.get("case"))
+        expression = state.get("expr") or None
+        self.expr_filter = expression
+        if expression:
+            short = expression if len(expression) < 60 else expression[:57] + "…"
+            self.expr_chip.setText(f"  Expression: {short}")
+            self.expr_chip.setToolTip(f"{expression}\nClick to remove the expression filter")
+        self.expr_chip.setVisible(bool(expression))
+        self._map_filter = True
+        self._base_subset = state.get("base") or ""
+        self._applied_subset = state["applied"]
+        self._set_query_checked(True)
+        # shown beside the record counts for a few seconds (scans rewrite them)
+        self._status_note = (time.monotonic() + 8,
+                             "Map filter still on from last time — turn it off to "
+                             "give the layer its own filter back")
 
     def _restore_map_filter(self):
         """Give the layer its own filter back (map filter off)."""
@@ -979,6 +1057,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                 if not layer.isEditable():
                     if layer.subsetString() != self._base_subset:
                         self._set_subset(self._base_subset)
+                    layer.removeCustomProperty(SUB.STATE)
                     layer.removeCustomProperty(SUB.PROPERTY)
             except RuntimeError:         # layer already deleted
                 pass
@@ -1179,11 +1258,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._select([fid], SELECT_SET)
 
     def _on_tick_pressed(self, row, mods):
-        """The tick box toggles one feature (Shift extends a range)."""
-        if mods & Qt.KeyboardModifier.ShiftModifier:
-            self._on_row_pressed(row, mods | Qt.KeyboardModifier.ControlModifier)
-        else:
-            self._on_row_pressed(row, Qt.KeyboardModifier.ControlModifier)
+        """A tick box selects like the row numbers of QGIS's attribute table,
+        browsing or editing: a click selects only that feature, Ctrl+click
+        adds or removes it, Shift+click selects a range."""
+        self._on_row_pressed(row, mods)
 
     def _on_row_dragged(self, row):
         if self._anchor is None:
@@ -1483,11 +1561,22 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._compute_missing_profiles()
             return
         fld = self.model.fields[logical]
-        pop = ProfileDetails(logical, fld.name(), self.model.kinds[logical], prof,
+        kind = self.model.kinds[logical]
+        meta = {"Layer": self.layer.name(),
+                "Field": f"{fld.name()} ({F.KIND_LABELS.get(kind, fld.typeName())})",
+                "Statistics for": self.scope_name(),
+                "Active filters": "; ".join(getattr(self, "_filters_text", [])) or "None"}
+        if self.expr_filter:
+            meta["Expression filter"] = self.expr_filter
+        meta["Records in scope"] = prof.count
+        pop = ProfileDetails(logical, fld.name(), kind, prof,
                              self.scope_description(), self.theme, self.metrics,
-                             self)
+                             self, meta)
         pop.setStyleSheet(pop.styleSheet() + stylesheet(self.theme, self.metrics))
+        pop.fit()
         pop.filterRequested.connect(self._on_details_filter)
+        pop.exportRequested.connect(
+            lambda fmt, p=pop: self._start_stats_export(logical, fmt, p))
         card = self.header.cards[logical]
         pos = card.mapToGlobal(card.rect().bottomLeft())
         pop.adjustSize()
@@ -1498,6 +1587,46 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             pos.setY(max(avail.top(), min(pos.y(), avail.bottom() - pop.height())))
         pop.move(pos)
         pop.show()
+
+    def _start_stats_export(self, logical, fmt, pop):
+        """The popup closes while the save dialog is open; it opens again
+        afterwards, so the other file can be saved too."""
+        data = pop.data()
+        pop.close()
+        QTimer.singleShot(0, lambda: self._export_stats(logical, fmt, data))
+
+    def _export_stats(self, logical, fmt, data):
+        if self._closing or self.layer is None:
+            return
+        safe = "".join(ch if ch.isalnum() or ch in "-_" else "_"
+                       for ch in f"{self.layer.name()}_{data['name']}") or "statistics"
+        name, flt, title = {
+            "xlsx": (f"{safe}_statistics.xlsx", "Excel workbook (*.xlsx)", "Excel workbook"),
+            "summary": (f"{safe}_summary.csv", "CSV (*.csv)", "summary"),
+            "distribution": (f"{safe}_distribution.csv", "CSV (*.csv)", "distribution"),
+        }[fmt]
+        path, _sel = QFileDialog.getSaveFileName(
+            self, f"Export statistics of {data['name']}", name, flt)
+        if path:
+            ext = ".xlsx" if fmt == "xlsx" else ".csv"
+            if not path.lower().endswith(ext):
+                path += ext
+            try:
+                if fmt == "xlsx":
+                    X.write_stats_xlsx(path, data["meta"], data["summary"], data["dist"])
+                elif fmt == "summary":
+                    X.write_csv(path, ST.SUMMARY_HEADER,
+                                [(k, v, s) for k, v, s, _t in data["summary"]])
+                else:
+                    X.write_csv(path, data["dist"].header, data["dist"].rows)
+            except Exception as exc:        # disk full, file open in Excel ...
+                self.status.set_status(f"Statistics export failed: {exc}", "error")
+                QMessageBox.critical(self, "Export failed", str(exc))
+            else:
+                self.status.set_status(
+                    f"Statistics of {data['name']} ({title}) exported to {path}", "success")
+        if logical in self.profiles and logical in self.header.cards:
+            self._show_profile_details(logical)
 
     def _on_details_filter(self, logical, text):
         cell = self.header.cells[logical]

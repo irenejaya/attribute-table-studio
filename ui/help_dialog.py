@@ -36,14 +36,22 @@ operator menu or the ✕ in a filter box clears one column. In the value list
 <p>Profiles describe exactly the records in scope (all filtered rows, not
 only the visible screen): missing (NULL) and distinct counts, top
 categories with shares of non-NULL values, histograms with min / max,
-earliest / latest dates and true / false counts. Click a profile for the
-full statistics (sum, mean, median, standard deviation, frequency list).
+earliest / latest dates and true / false counts. Hover a bar (histogram,
+category or true / false) for its count; hover elsewhere on the card for a
+brief summary. Click a profile for the full statistics (sum, mean, median,
+standard deviation, frequency list): select values or rows and press
+<b>Ctrl+C</b>, or use <b>Copy ▾</b> (summary, distribution or everything, as
+tab-separated text that pastes into Excel) and <b>Export ▾</b> (an Excel
+workbook with Summary and Distribution sheets, or either as CSV). Shares are
+exported as numbers; the workbook and <i>Everything</i> also record the
+layer, field, active filters and record count.
 NULL is missing; zero and empty text are values. <b>Summary: On / Off</b>
 collapses the strip. Statistics are exact and calculated in the
 background - visible columns first.</p>
 <h4>Selection and map</h4>
-<p>Click, Ctrl+click, Shift+click or drag rows (or tick the boxes) to select
-features; the table and the map selection stay in sync. Selecting features
+<p>Click, Ctrl+click, Shift+click or drag rows, or use the tick boxes (a
+click selects only that feature, Ctrl+click adds or removes it, Shift+click
+selects a range - also while editing), to select features; the table and the map selection stay in sync. Selecting features
 on the map scrolls the table to the first of them. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
@@ -136,17 +144,19 @@ native attribute table; turning it off gives the keys back.</p>
 the layer's own Query Builder filter then follows the table filters, so the
 map (and every other tool) shows the same records as the table. Change a
 filter and the map follows. Any filter the layer already had is kept
-underneath. Click again - or close the explorer - to give the layer its own
-filter back; the table keeps its filters until <b>Clear filters</b>. While
-the layer is being edited the map filter is frozen as it is; stop editing to
-change it or turn it off.</p>
+underneath. Like a Query Builder filter it stays when you close the
+explorer (and is saved with the project); opening the explorer again turns
+the button back on with the filters that made it. Click the button to give
+the layer its own filter back; the table keeps its filters until <b>Clear
+filters</b>. While the layer is being edited the map filter is frozen as it
+is; stop editing to change it or turn it off.</p>
 <h4>Columns, sorting, export</h4>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use
 <b>Columns</b> to show, hide and reorder; the layout is saved with the
 layer in the project. <b>Export</b> writes the filtered records to Excel
 or CSV with the scope recorded; <b>Ctrl+C</b> copies the selected rows.
-<b>Open Pivot</b> passes the filtered records to the Pivot Table.</p>
+<b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>
 """
 
 PIVOT_HELP = """

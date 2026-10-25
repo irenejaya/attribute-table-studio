@@ -492,7 +492,12 @@ class EditingMixin:
         return name, idx, q.expression.asExpression()
 
     def quick_preview(self):
+        """Show the preview (the Preview button is a toggle: a second click
+        hides it again)."""
         q = self.quick_bar
+        if not q.preview_btn.isChecked():
+            q.preview.setVisible(False)
+            return
         self._update_quick_state()
         target = "filtered" if q.filtered else "all"
         label = "Update Filtered" if q.filtered else "Update All"
@@ -537,7 +542,7 @@ class EditingMixin:
                   f"calculation string:\n{exc}", [("ok", "OK", "accept")], icon="warning")
             self.status.set_status("Quick update not applied — nothing was changed", "error")
             return
-        q.preview.setVisible(False)
+        q.hide_preview()
         if result is None:
             self.status.set_status("Quick update cancelled — nothing was changed", "warning")
             return

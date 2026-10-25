@@ -144,6 +144,53 @@ def write_xlsx(path, sheet_title, header, rows, meta=None, header_groups=None):
     return count
 
 
+def write_stats_xlsx(path, meta, summary_rows, dist):
+    """Statistics popup export: a Summary sheet (scope rows, then
+    Statistic / Value / Share) and a Distribution sheet when the column has
+    one.  Shares are numbers formatted as percentages."""
+    if not HAS_OPENPYXL:
+        raise RuntimeError("Excel export needs the 'openpyxl' Python package")
+    wb = Workbook()
+    bold = XlFont(bold=True)
+    fill = PatternFill(start_color="E4E4E4", end_color="E4E4E4", fill_type="solid")
+
+    def heading(ws, values):
+        ws.append(list(values))
+        for cell in ws[ws.max_row]:
+            cell.font = bold
+            cell.fill = fill
+
+    def table(ws, rows, share_col):
+        for row in rows:
+            ws.append([excel_value(v) for v in row])
+            ws.cell(ws.max_row, share_col).number_format = "0.0%"
+
+    ws = wb.active
+    ws.title = "Summary"
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    for key, value in list(meta.items()) + [("Exported", stamp)]:
+        ws.append([key, excel_value(value)])
+        ws.cell(ws.max_row, 1).font = bold
+    if dist is not None and dist.note:
+        ws.append(["Distribution", dist.note])
+        ws.cell(ws.max_row, 1).font = bold
+    ws.append([])
+    heading(ws, ["Statistic", "Value", "Share"])
+    table(ws, [(label, value, share) for label, value, share, _s in summary_rows], 3)
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["B"].width = 40
+    ws.column_dimensions["C"].width = 10
+    if dist is not None:
+        wd = wb.create_sheet("Distribution")
+        heading(wd, dist.header)
+        table(wd, dist.rows, 3)
+        wd.column_dimensions["A"].width = 30
+        wd.column_dimensions["B"].width = 12
+        wd.column_dimensions["C"].width = 18
+        wd.freeze_panes = "A2"
+    wb.save(path)
+
+
 def _cell(ws, value):
     from openpyxl.cell import WriteOnlyCell
     return WriteOnlyCell(ws, value=value)

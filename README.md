@@ -36,9 +36,15 @@ proposed and only assigned when no other command uses it; change it in
 
 - **Column profiles** above every column: missing (NULL) and distinct counts,
   top categories with shares of non-NULL values, histograms with min / max,
-  earliest / latest dates, true / false counts. Click a profile for full
+  earliest / latest dates, true / false counts. Hover a bar for its count,
+  the rest of the card for a brief summary. Click a profile for full
   statistics (sum, mean, median, population standard deviation, searchable
-  frequency list, blank and whitespace values, histogram bins).
+  frequency list, blank and whitespace values, histogram bins); both tables
+  are selectable (Ctrl+C), and **Copy ▾** / **Export ▾** copy or save the
+  summary, the distribution or everything (Excel workbook with Summary and
+  Distribution sheets, or CSV; shares as numbers, scope recorded).
+
+  ![Statistics](docs/screenshots/dark_statistics.png)
 - **Filters** under every heading — text: contains, equals, starts with, is
   one of, is NULL, is not NULL; numbers: =, ≠, <, ≤, >, ≥, between, is one of;
   dates: on, before, after, between (calendar, YYYY-MM-DD hints); booleans:
@@ -50,7 +56,8 @@ proposed and only assigned when no other command uses it; change it in
   the visible screen). NULL is missing; zero and empty text are values.
   Sorting and hiding columns never change the population.
 - **Selection** stays in sync with the map (click, Ctrl, Shift, drag or the
-  tick boxes). A feature selected on the map scrolls its row into view.
+  tick boxes — a tick click selects only that row, Ctrl adds, Shift extends,
+  also while editing). A feature selected on the map scrolls its row into view.
   *Selected only* limits table and statistics to the selection. Filtering
   never changes the map selection.
 - **Map filter** (the ε-funnel button next to *Dock*): while it is on, the
@@ -58,14 +65,20 @@ proposed and only assigned when no other command uses it; change it in
   the same records as the table. It is written as readable SQL where the
   layer's format answers exactly like the table (otherwise as a list of
   feature ids), and it is combined with any filter the layer already has.
-  Turning it off — or closing the explorer — gives the layer its own filter
-  back; the table keeps its filters until *Clear filters*.
+  Like a Query Builder filter it stays when the explorer closes (and is saved
+  with the project); reopening the explorer turns the button back on with the
+  same filters. Turning it off gives the layer its own filter back; the table
+  keeps its filters until *Clear filters*.
 
   ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
   reorder; layouts are saved with the layer in the project.
-- *Export* to Excel or CSV with the scope recorded; *Ctrl+C* copies rows;
-  *Open Pivot* hands the filtered records to the Pivot Table.
+- The top row, right aligned: *Zoom to selection* and *Selected only* (icons),
+  *View ▾*, *Select ▾*, *Columns*, *Summary*, *Pivot Table*, *Clear filters*,
+  *Export ▾* (icon), the map filter and *Dock*.
+- *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
+  rows (*Ctrl+C*); *Pivot Table* hands the filtered records to the Pivot
+  Table.
 - **View ▾** (before *Columns*): table or form view; scopes *All records*,
   *Selected records*, *Visible on map*, *Edited and new*, *Failing
   constraints*; advanced expression filter (replace / AND / OR), stored

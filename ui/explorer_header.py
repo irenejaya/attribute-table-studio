@@ -20,41 +20,29 @@ filter together.
 
 import datetime
 
-from qgis.PyQt.QtCore import QDate, QPoint, QRect, QRectF, QSize, Qt, pyqtSignal
-from qgis.PyQt.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from qgis.PyQt.QtCore import (
+    QDate, QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal,
+)
+from qgis.PyQt.QtGui import (
+    QColor, QFont, QFontMetrics, QGuiApplication, QKeySequence, QPainter, QPen,
+)
 from qgis.PyQt.QtWidgets import (
-    QAbstractItemView, QCalendarWidget, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMenu, QToolButton, QToolTip,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QAbstractItemView, QCalendarWidget, QFrame, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMenu, QTableWidget, QTableWidgetItem,
+    QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..core import export as X
 from ..core import fields as F
 from ..core import filters as FL
 from ..core import stats as S
+from ..core import stats_tables as ST
 from ..core.compat import QAction, QActionGroup
+from ..core.stats_tables import fmt_pct, fmt_value
 from . import icons
 from . import widgets as W
 
 
-def fmt_pct(n, base):
-    """'0%', '<1%', '93%', '>99%', '100%' (never rounds up to a false 100%)."""
-    if not base or not n:
-        return "0%"
-    p = 100.0 * n / base
-    if p < 1:
-        return "<1%"
-    if n < base and p >= 99.5:
-        return ">99%"
-    return f"{p:.0f}%"
-
-
-def fmt_value(value, kind):
-    """Short display of a statistic (min / max / earliest ...)."""
-    if value is None:
-        return F.NULL_TEXT
-    if kind in F.NUMERIC:
-        return F.format_number(value)
-    return F.display_value(value)
 
 
 # ============================================================================
@@ -107,7 +95,6 @@ class ProfileCard(QWidget):
         self.profile = profile
         self.message = message
         self._hover = -1
-        self.setToolTip(self._tooltip())
         self.update()
 
     def _tooltip(self):
@@ -174,6 +161,7 @@ class ProfileCard(QWidget):
         y += 6
         body = QRect(pad, y, w - 2 * pad, self.height() - y - pad)
         self._bars = []
+        self._rows = []                  # (rect, tooltip) of category / boolean rows
         if not ready:
             self._paint_message(p, body, self.message or "Calculating…")
         elif prof.count == 0:
@@ -230,6 +218,8 @@ class ProfileCard(QWidget):
                        sfm.elidedText(text, Qt.TextElideMode.ElideRight, r.width() - pw))
             p.setPen(self._c["text_dim"])
             p.drawText(r, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, pct)
+            self._rows.append((QRectF(r), f"<b>{text}</b><br><b>{_count:,}</b> records "
+                                          f"({pct} of non-NULL)"))
             y += row_h
 
     def _paint_hist(self, p, rect, bins):
@@ -246,7 +236,8 @@ class ProfileCard(QWidget):
                 h = 2
             x = rect.left() + i * (bw + gap)
             bar = QRectF(x, rect.bottom() - h + 1, bw, h)
-            full = QRectF(x, rect.top(), bw + gap, rect.height())
+            # the whole column (and the axis line) counts as the bar
+            full = QRectF(x, rect.top(), bw + gap, rect.height() + 3)
             self._bars.append((full, i))
             p.setBrush(self._c["bar_hover"] if i == self._hover else self._c["bar"])
             p.drawRect(bar)
@@ -316,37 +307,63 @@ class ProfileCard(QWidget):
             p.drawRoundedRect(bar, 2, 2)
             p.setPen(self._c["text_dim"])
             p.drawText(r, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, pct)
+            self._rows.append((QRectF(r), f"<b>{text}</b><br><b>{n:,}</b> records ({pct})"))
             y += row_h
 
     # ------------------------------------------------------------------
-    def mouseMoveEvent(self, event):
-        pos = event.position() if hasattr(event, "position") else event.pos()
-        hit = -1
-        for rect, i in self._bars:
+    # tooltips: a bar shows its own count, the rest of the card the brief
+    # statistics
+    # ------------------------------------------------------------------
+    def _bin_tip(self, i):
+        lo, hi, count = self.profile.bins[i]
+        last = i == len(self.profile.bins) - 1
+        if self.kind in F.TEMPORAL:
+            fmt = (lambda v: F.key_to_text(v, self.kind))
+        else:
+            fmt = F.format_number
+        label = S.bin_label(lo, hi, last, self.profile.integer_bins, fmt)
+        return f"{label}<br><b>{count:,}</b> records ({fmt_pct(count, self.profile.valid)})"
+
+    def _hit(self, pos):
+        """(tooltip, histogram bin or -1) under *pos*; no tooltip off the bars."""
+        if self.profile is None or self.state != "ready":
+            return None, -1
+        for rect, i in getattr(self, "_bars", []):
             if rect.contains(pos):
-                hit = i
-                break
+                return self._bin_tip(i), i
+        for rect, tip in getattr(self, "_rows", []):
+            if rect.contains(pos):
+                return tip, -1
+        return None, -1
+
+    def event(self, event):
+        if event.type() == QEvent.Type.ToolTip:
+            pos = QPointF(event.pos())
+            tip, _bin = self._hit(pos)
+            QToolTip.showText(event.globalPos(), tip or self._tooltip(), self)
+            return True
+        return super().event(event)
+
+    def mouseMoveEvent(self, event):
+        pos = event.position() if hasattr(event, "position") else QPointF(event.pos())
+        tip, hit = self._hit(pos)
         if hit != self._hover:
             self._hover = hit
             self.update()
-        if hit >= 0 and self.profile is not None:
-            lo, hi, count = self.profile.bins[hit]
-            last = hit == len(self.profile.bins) - 1
-            if self.kind in F.TEMPORAL:
-                fmt = (lambda v: F.key_to_text(v, self.kind))
-            else:
-                fmt = F.format_number
-            label = S.bin_label(lo, hi, last, self.profile.integer_bins, fmt)
-            share = fmt_pct(count, self.profile.valid)
+        if tip:
             gp = event.globalPosition().toPoint() if hasattr(event, "globalPosition") \
                 else event.globalPos()
-            QToolTip.showText(gp, f"{label}<br><b>{count:,}</b> records ({share})", self)
+            QToolTip.showText(gp, tip, self)
+        elif getattr(self, "_bar_tip", False):
+            QToolTip.hideText()          # the brief statistics follow after the delay
+        self._bar_tip = bool(tip)
         super().mouseMoveEvent(event)
 
     def leaveEvent(self, event):
         if self._hover != -1:
             self._hover = -1
             self.update()
+        self._bar_tip = False
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
@@ -1033,22 +1050,39 @@ class ExplorerHeader(QHeaderView):
 # EXPANDED STATISTICS
 # ============================================================================
 
+RAW = Qt.ItemDataRole.UserRole + 1          # raw value a copy uses
+
+
 class ProfileDetails(QFrame):
-    """Full statistics of one column (opened by clicking its profile)."""
+    """Full statistics of one column (opened by clicking its profile).
+
+    Both tables are selectable (Ctrl+C copies the selected cells as raw
+    values); the Copy and Export footer menus copy or save the summary,
+    the distribution or everything, with the scope in *meta*."""
 
     filterRequested = pyqtSignal(int, object)      # logical, raw value
+    exportRequested = pyqtSignal(str)              # "xlsx", "summary", "distribution"
 
     def __init__(self, logical, name, kind, profile, scope_text, theme,
-                 metrics, parent=None):
+                 metrics, parent=None, meta=None):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("gtsPopup")
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.logical = logical
+        self.name = name
+        self.kind = kind
+        self.theme = theme
+        self.meta = dict(meta or {})
         self.setMinimumWidth(360)
         self.setStyleSheet(
             f"QFrame#gtsPopup {{ background: {theme.card}; border: 1px solid "
             f"{theme.border}; border-radius: 4px; }}"
-            f"QLabel#gtsDim {{ color: {theme.text_dim}; }}")
+            f"QLabel#gtsDim {{ color: {theme.text_dim}; }}"
+            f"QLabel#gtsCopied {{ color: {theme.success}; }}"
+            f"QTableWidget#gtsStatsTable {{ background: transparent; border: none; }}"
+            f"QTableWidget#gtsStatsTable::item {{ padding: 0px; }}"
+            f"QTableWidget#gtsStatsTable::item:selected {{ background: {theme.selected};"
+            f" color: {theme.selected_text}; }}")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(12, 10, 12, 12)
         lay.setSpacing(8)
@@ -1067,69 +1101,85 @@ class ProfileDetails(QFrame):
         scope.setWordWrap(True)
         lay.addWidget(scope)
 
-        p = profile
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(3)
-        rows = [("Records in scope", f"{p.count:,}"),
-                ("Non-NULL", f"{p.non_null:,}  ({fmt_pct(p.non_null, p.count)})"),
-                ("Missing (NULL)", f"{p.missing:,}  ({fmt_pct(p.missing, p.count)})"),
-                ("Distinct (non-NULL)",
-                 f"{p.distinct:,}  ({fmt_pct(p.distinct, p.count)})")]
-        if kind in F.NUMERIC:
-            rows += [("Valid numbers", f"{p.valid:,}")]
-            if p.valid:
-                rows += [("Sum", F.format_number(p.total)),
-                         ("Mean", F.format_number(p.mean)),
-                         ("Median", F.format_number(p.median)),
-                         ("Minimum", F.format_number(p.minimum)),
-                         ("Maximum", F.format_number(p.maximum)),
-                         ("Std dev (population)", F.format_number(p.std))]
-            if p.invalid:
-                rows += [("Invalid (NaN / infinite)", f"{p.invalid:,}")]
-        elif kind in F.TEMPORAL:
-            if p.valid:
-                rows += [("Earliest", fmt_value(p.earliest, kind)),
-                         ("Latest", fmt_value(p.latest, kind))]
-            if p.invalid:
-                rows += [("Invalid", f"{p.invalid:,}")]
-        elif kind == F.BOOL:
-            rows += [("true", f"{p.true_count:,}  ({fmt_pct(p.true_count, p.count)})"),
-                     ("false", f"{p.false_count:,}  ({fmt_pct(p.false_count, p.count)})"),
-                     ("Denominator", f"{p.count:,} records in scope")]
-        else:
-            rows += [("Empty strings", f"{p.blank:,}"),
-                     ("Whitespace only", f"{p.whitespace:,}")]
-        for r, (k, v) in enumerate(rows):
-            kl = QLabel(k)
-            kl.setObjectName("gtsDim")
-            vl = QLabel(v)
-            vl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            grid.addWidget(kl, r, 0)
-            grid.addWidget(vl, r, 1, Qt.AlignmentFlag.AlignRight)
-        lay.addLayout(grid)
+        self.summary = ST.summary(profile, kind)
+        self.dist = ST.distribution(profile, kind)
+        self.summary_view = self._summary_table(metrics)
+        lay.addWidget(self.summary_view)
+        self.dist_view = None
+        if self.dist is not None:
+            if kind in F.NUMERIC or kind in F.TEMPORAL:
+                self.dist_view = self._bins_table()
+                lay.addWidget(self.dist_view)
+            else:
+                lay.addWidget(self._freq_table(profile, theme, metrics))
+        for view in (self.summary_view, self.dist_view):
+            if view is not None:
+                view.installEventFilter(self)
+        lay.addLayout(self._footer(metrics))
+        self.fit()
 
-        if kind in F.NUMERIC or kind in F.TEMPORAL:
-            if p.bins and len(p.bins) > 1:
-                lay.addWidget(self._bins_table(p, kind, theme))
-        elif kind not in (F.BOOL,) and p.frequencies:
-            lay.addWidget(self._freq_table(p, theme, metrics))
+    def fit(self):
+        """Show every summary row (call again after a style sheet change)."""
+        table = self.summary_view
+        table.ensurePolished()
+        row_h = table.fontMetrics().height() + 4
+        for r in range(table.rowCount()):
+            table.setRowHeight(r, row_h)
+        table.setFixedHeight(row_h * table.rowCount() + 2 * table.frameWidth() + 2)
 
-    def _bins_table(self, p, kind, theme):
+    # ------------------------------------------------------------------
+    # tables
+    # ------------------------------------------------------------------
+    def _summary_table(self, metrics):
+        """Statistic / value pairs looking like a plain list, but selectable."""
+        table = QTableWidget(len(self.summary), 2)
+        table.setObjectName("gtsStatsTable")
+        table.horizontalHeader().setVisible(False)
+        table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)
+        table.setFrameShape(QFrame.Shape.NoFrame)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        table.setWordWrap(False)
+        table.verticalHeader().setMinimumSectionSize(1)
+        dim, text = QColor(self.theme.text_dim), QColor(self.theme.text)
+        for r, (label, value, _share, shown) in enumerate(self.summary):
+            key = QTableWidgetItem(label)
+            key.setForeground(dim)
+            key.setData(RAW, label)
+            val = QTableWidgetItem(shown)
+            val.setForeground(text)
+            val.setData(RAW, value)
+            val.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(r, 0, key)
+            table.setItem(r, 1, val)
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        table.setToolTip("Select values and press Ctrl+C to copy them")
+        return table
+
+    def _bins_table(self):
         tree = QTreeWidget()
         tree.setRootIsDecorated(False)
-        tree.setHeaderLabels(["Bin", "Records", "Share"])
+        tree.setHeaderLabels(self.dist.shown_header)
         tree.setMaximumHeight(220)
-        fmt = (lambda v: F.key_to_text(v, kind)) if kind in F.TEMPORAL \
-            else F.format_number
-        for i, (lo, hi, count) in enumerate(p.bins):
-            label = S.bin_label(lo, hi, i == len(p.bins) - 1, p.integer_bins, fmt)
-            item = QTreeWidgetItem([label, f"{count:,}", fmt_pct(count, p.valid)])
+        self._fill_dist(tree)
+        tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        return tree
+
+    def _fill_dist(self, tree):
+        tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        for raw, shown in zip(self.dist.rows, self.dist.shown):
+            item = QTreeWidgetItem(list(shown))
+            for col, value in enumerate(raw):
+                item.setData(col, RAW, value)
+            item.setData(0, Qt.ItemDataRole.UserRole, raw[0])
             item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
             item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight)
             tree.addTopLevelItem(item)
-        tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        return tree
 
     def _freq_table(self, p, theme, metrics):
         box = QWidget()
@@ -1144,20 +1194,14 @@ class ProfileDetails(QFrame):
         tree = QTreeWidget()
         tree.setRootIsDecorated(False)
         tree.setUniformRowHeights(True)
-        tree.setHeaderLabels(["Value", "Records", "% of non-NULL"])
+        tree.setHeaderLabels(self.dist.shown_header)
         tree.setMinimumHeight(220)
+        self._fill_dist(tree)
         dim = QColor(theme.text_dim)
-        for text, count in p.frequencies:
-            label = text if text != "" else "(empty string)"
-            if text and not text.strip():
-                label = f"(whitespace ×{len(text)})"
-            item = QTreeWidgetItem([label, f"{count:,}", fmt_pct(count, p.non_null)])
-            item.setData(0, Qt.ItemDataRole.UserRole, text)
-            item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
-            item.setTextAlignment(2, Qt.AlignmentFlag.AlignRight)
-            if label != text:
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
+            if item.text(0) != item.data(0, Qt.ItemDataRole.UserRole):
                 item.setForeground(0, dim)
-            tree.addTopLevelItem(item)
         tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         tree.setToolTip("Double-click a value to filter the column to it")
         tree.itemDoubleClicked.connect(self._on_value)
@@ -1177,8 +1221,95 @@ class ProfileDetails(QFrame):
         hint = QLabel("Double-click a value to filter the column to it.")
         hint.setObjectName("gtsDim")
         lay.addWidget(hint)
+        self.dist_view = tree
         return box
 
     def _on_value(self, item, _col):
         self.filterRequested.emit(self.logical, item.data(0, Qt.ItemDataRole.UserRole))
         self.close()
+
+    # ------------------------------------------------------------------
+    # copy and export
+    # ------------------------------------------------------------------
+    def _footer(self, metrics):
+        row = QHBoxLayout()
+        row.setSpacing(metrics.gap)
+        row.addStretch(1)
+        self.copied_label = QLabel("Copied")
+        self.copied_label.setObjectName("gtsCopied")
+        self.copied_label.setVisible(False)
+        row.addWidget(self.copied_label)
+        has_dist = self.dist is not None
+        no_dist = "This column has no distribution table"
+        copy_menu = QMenu(self)
+        copy_menu.setToolTipsVisible(True)
+        copy_menu.addAction("Summary statistics").triggered.connect(
+            lambda: self.copy_text(ST.summary_tsv(self.summary)))
+        act = copy_menu.addAction("Distribution table")
+        act.setEnabled(has_dist)
+        act.setToolTip("" if has_dist else no_dist)
+        act.triggered.connect(lambda: self.copy_text(ST.distribution_tsv(self.dist)))
+        copy_menu.addAction("Everything").triggered.connect(
+            lambda: self.copy_text(ST.everything_tsv(self.meta, self.summary, self.dist)))
+        export_menu = QMenu(self)
+        export_menu.setToolTipsVisible(True)
+        act = export_menu.addAction(icons.native(icons.XLSX), "Excel workbook")
+        act.setEnabled(X.HAS_OPENPYXL)
+        act.setToolTip("Summary and Distribution worksheets, with the layer, field, "
+                       "filters and records" if X.HAS_OPENPYXL
+                       else "Excel export needs the 'openpyxl' package")
+        act.triggered.connect(lambda: self.exportRequested.emit("xlsx"))
+        export_menu.addAction(icons.native(icons.CSV), "Summary as CSV").triggered.connect(
+            lambda: self.exportRequested.emit("summary"))
+        act = export_menu.addAction(icons.native(icons.CSV), "Distribution as CSV")
+        act.setEnabled(has_dist)
+        act.setToolTip("" if has_dist else no_dist)
+        act.triggered.connect(lambda: self.exportRequested.emit("distribution"))
+        self.copy_btn = W.button(metrics, "Copy", icons.native(icons.COPY),
+                                 "Copy as a table that pastes into Excel", menu=copy_menu)
+        self.export_btn = W.button(metrics, "Export", icons.native(icons.EXPORT),
+                                   "Save the statistics to Excel or CSV", menu=export_menu)
+        for btn in (self.copy_btn, self.export_btn):
+            btn.setFixedHeight(metrics.compact_h)
+            row.addWidget(btn)
+        self.copy_menu, self.export_menu = copy_menu, export_menu
+        return row
+
+    def copy_text(self, text):
+        if not text:
+            return
+        QGuiApplication.clipboard().setText(text)
+        self.copied_label.setVisible(True)
+        QTimer.singleShot(1500, self._hide_copied)
+
+    def _hide_copied(self):
+        try:
+            self.copied_label.setVisible(False)
+        except RuntimeError:             # the popup closed meanwhile
+            pass
+
+    def selection_tsv(self, view):
+        """The selected cells of *view* as raw values (a grid, gaps empty)."""
+        indexes = [i for i in view.selectionModel().selectedIndexes()]
+        if not indexes:
+            return ""
+        rows = sorted({i.row() for i in indexes})
+        cols = sorted({i.column() for i in indexes})
+        cells = {(i.row(), i.column()): i.data(RAW) for i in indexes}
+        return "\n".join("\t".join(ST.tsv_cell(cells.get((r, c))) if (r, c) in cells else ""
+                                    for c in cols) for r in rows)
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress) \
+                and event.matches(QKeySequence.StandardKey.Copy):
+            if event.type() == QEvent.Type.ShortcutOverride:
+                event.accept()           # ours, not the explorer's "Copy selected rows"
+            else:
+                self.copy_text(self.selection_tsv(obj))
+            return True
+        return super().eventFilter(obj, event)
+
+    def data(self):
+        """Everything an export needs (taken before the popup closes)."""
+        return {"name": self.name, "meta": dict(self.meta), "summary": list(self.summary),
+                "dist": self.dist}

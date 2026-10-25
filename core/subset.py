@@ -24,7 +24,10 @@ from . import filters as FL
 ID_LIMIT = 100000            # longest id list written into a subset string
 # the layer's own filter, kept on the layer while the map filter is on, so a
 # project saved in that state gets it back when it is opened again
-PROPERTY = "attribute_table_studio/map_filter_base"
+PROPERTY = "attribute_table_studio/map_filter_base"   # before map filters persisted
+# A map filter left on when its explorer closes stays on the layer (like a
+# Query Builder filter); this records how to resume and undo it.
+STATE = "attribute_table_studio/map_filter"
 
 
 def dialect(layer):
@@ -230,9 +233,10 @@ def with_base(base, ours):
 
 
 def restore_forgotten(layer):
-    """Give a layer saved while its map filter was on its own filter back."""
+    """Projects saved by earlier versions while a map filter was on: give
+    the layer its own filter back (map filters did not persist then)."""
     base = layer.customProperty(PROPERTY)
-    if base is None or layer.isEditable():
+    if base is None or layer.isEditable() or layer.customProperty(STATE):
         return False
     layer.setSubsetString(str(base))
     layer.removeCustomProperty(PROPERTY)

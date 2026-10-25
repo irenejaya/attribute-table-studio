@@ -172,6 +172,10 @@ def stylesheet(t, m):
         QToolButton#gtsSquare[popupMode="1"] {{ padding-right: 13px; }}
         QToolButton#gtsSquare::menu-button {{ width: 13px;
             border-left: 1px solid {t.border}; }}
+        QToolButton#gtsSquare[popupMode="2"] {{ padding-right: 12px; }}
+        QToolButton#gtsSquare::menu-indicator {{
+            subcontrol-origin: padding; subcontrol-position: center right;
+            right: 4px; }}
         QFrame#gtsVSep {{ color: {t.border}; }}
         QLabel#gtsStatusExtra {{ color: {t.text_dim}; }}
         QLabel#gtsStatusExtra[level="editing"] {{ color: {t.warning}; }}
