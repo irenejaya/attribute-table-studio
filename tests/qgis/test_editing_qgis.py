@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """Attribute Explorer editing, forms, bulk tools and browse parity, in real
 QGIS (run with the QGIS Python: python tests/qgis/test_editing_qgis.py)."""
 

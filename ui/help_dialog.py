@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """Attribute Table Studio help (Plugins > Attribute Table Studio > Help)."""
 
 from qgis.PyQt.QtCore import QSize, Qt
@@ -300,6 +303,12 @@ command uses it; the normal attribute table shortcut (F6) is not
 changed.</p>
 <h4>Appearance</h4>
 <p>The tools follow the QGIS light or dark theme automatically.</p>
+<h4>License</h4>
+<p>Attribute Table Studio - Copyright (C) 2026 Irene Jaya. Free software under
+the GNU General Public License version 3, with an attribution term (section
+7(b)); it comes with no warranty. Works based on it keep the notice
+<i>Based on Attribute Table Studio by Irene Jaya</i>. Source code, license
+and terms: https://github.com/irenejaya/attribute-table-studio</p>
 """
 
 

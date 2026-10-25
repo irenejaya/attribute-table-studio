@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """Qt5 / Qt6 and QGIS 3.40+ / 4.x compatibility names used across the suite."""
 
 from qgis.PyQt.QtCore import QT_VERSION_STR

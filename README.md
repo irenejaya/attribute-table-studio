@@ -286,4 +286,14 @@ Code is a trademark of Microsoft Corporation.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+GNU General Public License version 3 with an attribution term under section
+7(b) — see [LICENSE](LICENSE) and [ADDITIONAL_TERMS.md](ADDITIONAL_TERMS.md).
+
+You may use, study, share and change Attribute Table Studio. If you distribute
+it, or a work based on it, that work stays under the GPL v3 with its source
+code, keeps the copyright notices in the source files, and shows this
+attribution wherever it lists its legal notices (for example an About or Help
+screen):
+
+    Based on Attribute Table Studio by Irene Jaya
+    https://github.com/irenejaya/attribute-table-studio
