@@ -11,11 +11,12 @@ from .theme import Metrics, Theme, stylesheet
 
 EXPLORER_HELP = """
 <h3>Attribute Explorer</h3>
-<p>A read-only table of the active layer with statistics attached above
-every column. Open it from the toolbar, the plugin menu, a layer's
-right-click menu (<i>Open in Attribute Explorer</i>) or the shortcut
-(default <b>Ctrl+Alt+T</b> when it is free). Each layer has its own
-explorer; opening it again brings that window to the front.</p>
+<p>A table of the active layer with statistics attached above every
+column. It opens read-only; <b>Edit</b> starts editing the layer. Open it
+from the toolbar, the plugin menu, a layer's right-click menu (<i>Open in
+Attribute Explorer</i>) or the shortcut (default <b>Ctrl+Alt+T</b> when it
+is free). Each layer has its own explorer; opening it again brings that
+window to the front.</p>
 <h4>Filters</h4>
 <ul>
 <li>Every column has a filter below its name. Click the symbol on the left
@@ -35,33 +36,127 @@ operator menu or the ✕ in a filter box clears one column. In the value list
 <p>Profiles describe exactly the records in scope (all filtered rows, not
 only the visible screen): missing (NULL) and distinct counts, top
 categories with shares of non-NULL values, histograms with min / max,
-earliest / latest dates and true / false counts. Click a profile for the
-full statistics (sum, mean, median, standard deviation, frequency list).
+earliest / latest dates and true / false counts. Hover a bar (histogram,
+category or true / false) for its count; hover elsewhere on the card for a
+brief summary. Click a profile for the full statistics (sum, mean, median,
+standard deviation, frequency list): select values or rows and press
+<b>Ctrl+C</b>, or use <b>Copy ▾</b> (summary, distribution or everything, as
+tab-separated text that pastes into Excel) and <b>Export ▾</b> (an Excel
+workbook with Summary and Distribution sheets, or either as CSV). Shares are
+exported as numbers; the workbook and <i>Everything</i> also record the
+layer, field, active filters and record count.
 NULL is missing; zero and empty text are values. <b>Summary: On / Off</b>
 collapses the strip. Statistics are exact and calculated in the
 background - visible columns first.</p>
 <h4>Selection and map</h4>
-<p>Click, Ctrl+click, Shift+click or drag rows (or tick the boxes) to select
-features; the table and the map selection stay in sync. Selecting features
+<p>Click, Ctrl+click, Shift+click or drag rows, or use the tick boxes (a
+click selects only that feature, Ctrl+click adds or removes it, Shift+click
+selects a range - also while editing), to select features; the table and the map selection stay in sync. Selecting features
 on the map scrolls the table to the first of them. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
-double-click a row to zoom to one feature.</p>
+double-click a row to zoom to one feature. <b>Select ▾</b> adds select all
+(shown or whole layer), invert, deselect, select by expression, select by
+value / form and pan to selection; its first line says how many selected
+features are outside the current view.</p>
+<h4>View</h4>
+<ul>
+<li><b>View ▾</b> switches between <b>Table view</b> and <b>Form view</b>
+(the layer's configured form with a record list; edits in the form are
+written when you move to another record or back to the table).</li>
+<li>Scope: <i>All records</i>, <i>Selected records</i> (same as
+<b>Selected only</b>), <i>Visible on map</i> (follows the map extent),
+<i>Edited and new</i> (unsaved changes) and <i>Failing constraints</i>
+(hard and soft counts in the scope line). Column filters always apply on
+top.</li>
+<li><i>Advanced expression filter</i> replaces it or combines it with AND /
+OR; <i>Stored expressions</i> reuses the layer's saved ones; <i>Filter by
+form</i> uses the layer's form in search mode. The expression shows as a
+chip in the scope line; <b>Clear filters</b> clears it too.</li>
+<li><i>Case-sensitive text filters</i>, <i>Selected to top</i> (keeps the
+filtered records, only moves the selection up), <i>Sort by expression</i>,
+<i>Conditional formatting</i> (the layer's own rules, painted in the table)
+and <i>Autosize all columns</i>. Right-click a column name for sorting,
+widths, hiding, the field calculator and field properties.</li>
+</ul>
+<h4>Editing</h4>
+<p>The second row holds the <i>Statistics for</i> line on the left and the
+editing commands on the right. <b>Edit</b> starts or stops editing the
+layer. The edit session is the layer's own: the map, the native attribute
+table and every other QGIS tool share it, and edits made there show up here.
+The right of the status bar says whether the layer is read only or being
+edited (orange) and how many unsaved changes it has (red when a save
+failed). Buttons that cannot be used say why in their tooltip.</p>
+<ul>
+<li>While editing, a click only focuses a cell (it does not change the
+selection); double-click, F2 or typing opens the field's configured QGIS
+widget. <b>Enter</b> or <b>Tab</b> write the value, <b>Escape</b> cancels
+that cell. A value breaking a hard constraint stays in the editor with the
+reason; a soft constraint writes it and warns. Virtual, joined and read-only
+fields cannot be edited.</li>
+<li>Unsaved cells have an amber corner. <b>Save edits</b> (or
+<b>Ctrl+S</b>) saves every unsaved change of the layer - including records
+hidden by filters and edits made elsewhere - and editing stays on. If saving
+fails the edits are kept and the provider's message is shown.
+<b>Discard</b> asks first. <b>Undo</b> / <b>Redo</b> (<b>Ctrl+Z</b> /
+<b>Ctrl+Y</b>) use the layer's undo stack.</li>
+<li><b>Add</b> adds a record in the table (the arrow offers the form);
+<b>Delete</b> deletes the selected features and tells you when some of them
+are not shown. <b>Cut</b>, <b>Copy</b> and <b>Paste</b> use the QGIS feature
+clipboard. A status link <i>Show edited and new</i> switches to that
+scope.</li>
+<li><b>Field calculator</b> opens QGIS's own Field Calculator for this
+layer, exactly as the native attribute table does: update a field (or the
+geometry), or create a new or virtual field, for the whole layer or only the
+selected features. It starts editing when needed.</li>
+<li><b>Quick update</b> is the native attribute table's field calculation
+bar: pick a field and an expression, then <b>Update All</b> - or
+<b>Update Filtered</b> while the table is filtered (column, expression or
+form filters, or a scope such as selected / visible on map) - or
+<b>Update Selected</b> (every selected feature, shown or not).
+<b>Preview</b> shows the first values without writing. Values are calculated
+and stored as QGIS does it (<i>$area</i> / <i>$length</i> on the project's
+ellipsoid, <i>@row_number</i>, rounding to the field precision, values that
+cannot be stored become NULL).</li>
+<li>What can be edited is what the layer provides: with the <b>map
+filter</b> (query) off, every record - even <b>Update All</b> and the Field
+calculator reach records the table filters hide; with the map filter on,
+only the records the map shows.</li>
+<li><b>Multi edit</b> opens the form for the selected features: only fields
+you change are written. Field calculator, Quick update and Multi edit are
+each one undo step.</li>
+<li><b>New field</b> / <b>Delete field</b> change the layer's schema (stored
+or virtual fields); <b>Reload</b> re-reads the data source. The ☰ menu holds
+the feature form, layer actions, copy as text, set NULL, <i>Review unsaved
+changes</i>, field properties and the native attribute table.</li>
+<li>Closing the explorer while the layer has unsaved edits asks: save and
+close, close and keep the layer's edits, or cancel. Nothing is discarded
+without asking.</li>
+<li>While editing, the <b>map filter</b> is frozen: the table only shows the
+records the map shows. Stop editing to change the map filter or turn it
+off.</li>
+</ul>
+<p>Settings can open the explorer with <b>F6</b> (all records),
+<b>Shift+F6</b> (selected) and <b>Ctrl+F6</b> (visible on map) instead of the
+native attribute table; turning it off gives the keys back.</p>
 <h4>Map filter</h4>
 <p>The ε-funnel button next to <b>Dock</b> turns the <b>map filter</b> on:
 the layer's own Query Builder filter then follows the table filters, so the
 map (and every other tool) shows the same records as the table. Change a
 filter and the map follows. Any filter the layer already had is kept
-underneath. Click again - or close the explorer - to give the layer its own
-filter back; the table keeps its filters until <b>Clear filters</b>. It is
-not available while the layer is being edited.</p>
+underneath. Like a Query Builder filter it stays when you close the
+explorer (and is saved with the project); opening the explorer again turns
+the button back on with the filters that made it. Click the button to give
+the layer its own filter back; the table keeps its filters until <b>Clear
+filters</b>. While the layer is being edited the map filter is frozen as it
+is; stop editing to change it or turn it off.</p>
 <h4>Columns, sorting, export</h4>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use
 <b>Columns</b> to show, hide and reorder; the layout is saved with the
 layer in the project. <b>Export</b> writes the filtered records to Excel
 or CSV with the scope recorded; <b>Ctrl+C</b> copies the selected rows.
-<b>Open Pivot</b> passes the filtered records to the Pivot Table.</p>
+<b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>
 """
 
 PIVOT_HELP = """

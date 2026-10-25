@@ -177,6 +177,34 @@ def square_button(metrics, icon, tooltip="", checkable=False):
     return btn
 
 
+def split_button(metrics, icon, tooltip, menu):
+    """Icon button with a menu arrow: a click runs the default action, the
+    arrow opens the alternatives (Add: in the table / with a form)."""
+    btn = square_button(metrics, icon, tooltip)
+    btn.setMenu(menu)
+    btn.setPopupMode(QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+    btn.setFixedSize(metrics.control_h + 14, metrics.control_h)
+    return btn
+
+
+def menu_square(metrics, icon, tooltip, menu):
+    """Icon button whose click opens *menu* (small arrow beside the icon)."""
+    btn = square_button(metrics, icon, tooltip)
+    btn.setMenu(menu)
+    btn.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+    btn.setFixedSize(metrics.control_h + 12, metrics.control_h)
+    return btn
+
+
+def vseparator(metrics):
+    """Thin vertical divider between groups of icon buttons."""
+    line = QFrame()
+    line.setObjectName("gtsVSep")
+    line.setFrameShape(QFrame.Shape.VLine)
+    line.setFixedSize(9, metrics.control_h - 6)
+    return line
+
+
 def primary_square(metrics, icon, tooltip=""):
     """Icon-only button at the primary height (Swap)."""
     btn = square_button(metrics, icon, tooltip)
@@ -337,6 +365,8 @@ class ButtonRow(QWidget):
                            QSizePolicy.Policy.Fixed)
 
     def add(self, btn):
+        if btn.objectName() == "gtsSquare":
+            btn.setProperty("gtsKeepLabel", True)     # already icon-only
         self._buttons.append(btn)
         self._lay.addWidget(btn)
         return btn
@@ -582,8 +612,15 @@ class StatusStrip(QFrame):
         lay.setSpacing(metrics.gap)
         self.message = ElideLabel()
         lay.addWidget(self.message, 1)
-        self.extra = QLabel("")
-        self.extra.setObjectName("gtsDim")
+        # optional follow-up for the current message (e.g. "Show edited and new")
+        self.action_btn = flat_link(metrics, "")
+        self.action_btn.setVisible(False)
+        self.action_btn.clicked.connect(self._run_action)
+        self._action = None
+        lay.addWidget(self.action_btn)
+        self.extra = ElideLabel()
+        self.extra.setObjectName("gtsStatusExtra")
+        self.extra.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         lay.addWidget(self.extra)
         self.cancel_btn = QToolButton()
         self.cancel_btn.setIcon(icons.native(icons.CANCEL))
@@ -596,14 +633,30 @@ class StatusStrip(QFrame):
         lay.addWidget(self.cancel_btn)
         self.set_status("Ready")
 
-    def set_status(self, text, level="info"):
+    def set_status(self, text, level="info", action=None):
+        """*action*: (label, callable) shown as a link after the message
+        until the next status."""
         self.message.setText(text)
         self.setProperty("level", level)
         self.style().unpolish(self)
         self.style().polish(self)
+        self._action = action[1] if action else None
+        self.action_btn.setText(action[0] if action else "")
+        self.action_btn.setVisible(bool(action))
 
-    def set_extra(self, text):
+    def _run_action(self):
+        fn, self._action = self._action, None
+        self.action_btn.setVisible(False)
+        if fn is not None:
+            fn()
+
+    def set_extra(self, text, level=None):
+        """*level* colours it: "editing" orange, "error" red, else dim."""
         self.extra.setText(text)
+        if self.extra.property("level") != level:
+            self.extra.setProperty("level", level)
+            self.extra.style().unpolish(self.extra)
+            self.extra.style().polish(self.extra)
 
     def set_busy(self, busy, cancellable=True):
         self.cancel_btn.setVisible(busy and cancellable)

@@ -11,21 +11,33 @@ Attribute Explorer table: model, delegate, row header and view.
   map selections never slow the table down.
 - Values use ``QgsField.displayString`` (same formatting as the native
   attribute table) with the reference colouring: text orange, numbers
-  green and right aligned, NULL grey italic.
+  green and right aligned, NULL grey italic.  Layer conditional styles
+  (View > Conditional formatting) paint over the type colours.
+- While the layer is being edited, cells of editable fields open the
+  field's configured QGIS editor widget (F2, typing or double click).  A
+  value is validated against the field's constraints, written to the
+  layer's edit buffer as one undo command, and the cell gets an amber
+  corner until it is saved.  A single click only focuses the cell.
 """
 
 from collections import OrderedDict
 
 from qgis.PyQt.QtCore import (
-    QAbstractTableModel, QEvent, QModelIndex, QPointF, QRect, QRectF, QSize,
-    Qt, pyqtSignal,
+    QAbstractTableModel, QEvent, QModelIndex, QPoint, QPointF, QRect, QRectF,
+    QSize, Qt, pyqtSignal,
 )
-from qgis.PyQt.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
+from qgis.PyQt.QtGui import QColor, QFont, QKeySequence, QPainter, QPen, QPolygonF
+from qgis.PyQt import sip
 from qgis.PyQt.QtWidgets import (
-    QAbstractButton, QAbstractItemView, QHeaderView, QStyledItemDelegate,
-    QStyleOptionViewItem, QTableView,
+    QAbstractButton, QAbstractItemView, QHeaderView, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QTableView, QToolTip,
 )
-from qgis.core import QgsApplication, QgsFeatureRequest
+from qgis.core import (
+    QgsApplication, QgsConditionalStyle, QgsExpressionContext,
+    QgsExpressionContextUtils, QgsFeature, QgsFeatureRequest,
+    QgsFieldConstraints, QgsVectorLayerUtils,
+)
+from qgis.gui import QgsGui
 
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY, enum_int
@@ -34,11 +46,18 @@ _ALIGN_LEFT = enum_int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCente
 _ALIGN_RIGHT = enum_int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
 
+_HARD = QgsFieldConstraints.ConstraintStrength.ConstraintStrengthHard
+_SOFT = QgsFieldConstraints.ConstraintStrength.ConstraintStrengthSoft
+
+
 class FeatureTableModel(QAbstractTableModel):
     FidRole = Qt.ItemDataRole.UserRole + 1
     RawRole = Qt.ItemDataRole.UserRole + 2
     PAGE = 256
     CACHE_LIMIT = 30000
+
+    editRejected = pyqtSignal(str)        # hard constraint / write failure
+    editWarned = pyqtSignal(str)          # soft constraint
 
     def __init__(self, theme, parent=None):
         super().__init__(parent)
@@ -55,6 +74,16 @@ class FeatureTableModel(QAbstractTableModel):
         self._null_colour = QColor(theme.data_null)
         self._italic = QFont()
         self._italic.setItalic(True)
+        # editing
+        self.editing = False
+        self.editable_cols = set()
+        self.dirty = {}                    # fid -> set of changed columns
+        self.added = set()                 # unsaved new features
+        # layer conditional styles (row rules + per field rules)
+        self._row_styles = []
+        self._field_styles = {}
+        self._style_cache = {}
+        self._style_context = None
 
     # ------------------------------------------------------------------
     def set_layer(self, layer):
@@ -78,6 +107,9 @@ class FeatureTableModel(QAbstractTableModel):
         self.fids = []
         self._rows = None
         self._cache.clear()
+        self.editable_cols = set()
+        self.dirty, self.added = {}, set()
+        self.load_styles()
         self.endResetModel()
 
     def set_fids(self, fids):
@@ -96,9 +128,12 @@ class FeatureTableModel(QAbstractTableModel):
         """Forget cached attributes (all, or of *fids*) and repaint."""
         if fids is None:
             self._cache.clear()
+            self._style_cache.clear()
         else:
             for fid in fids:
                 self._cache.pop(fid, None)
+                for key in [k for k in self._style_cache if k[0] == fid]:
+                    del self._style_cache[key]
         if self.fids and self.fields:
             self.dataChanged.emit(
                 self.index(0, 0),
@@ -151,6 +186,123 @@ class FeatureTableModel(QAbstractTableModel):
             self._cache.popitem(last=False)
 
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # conditional styles
+    # ------------------------------------------------------------------
+    def load_styles(self):
+        """Read the layer's conditional formatting rules."""
+        self._style_cache.clear()
+        self._row_styles, self._field_styles = [], {}
+        layer = self.layer
+        if layer is None:
+            return
+        styles = layer.conditionalStyles()
+        self._row_styles = [s for s in styles.rowStyles() if s.isValid()]
+        for fld in self.fields:
+            rules = [s for s in styles.fieldStyles(fld.name()) if s.isValid()]
+            if rules:
+                self._field_styles[fld.name()] = rules
+        self._style_context = QgsExpressionContext(
+            QgsExpressionContextUtils.globalProjectLayerScopes(layer))
+
+    def has_styles(self):
+        return bool(self._row_styles or self._field_styles)
+
+    def cell_style(self, row, col):
+        """Merged QgsConditionalStyle for a cell, or None."""
+        if not self.has_styles() or not 0 <= row < len(self.fids):
+            return None
+        fid = self.fids[row]
+        key = (fid, col)
+        if key in self._style_cache:
+            return self._style_cache[key]
+        attrs = self.attributes(row)
+        style = None
+        if attrs is not None:
+            feat = QgsFeature(self.layer.fields(), fid)
+            feat.setAttributes(list(attrs))
+            ctx = self._style_context
+            ctx.setFeature(feat)
+            found = []
+            if self._row_styles:
+                found += QgsConditionalStyle.matchingConditionalStyles(
+                    self._row_styles, None, ctx)
+            rules = self._field_styles.get(self.fields[col].name())
+            if rules:
+                found += QgsConditionalStyle.matchingConditionalStyles(
+                    rules, attrs[col], ctx)
+            if found:
+                style = QgsConditionalStyle.compressStyles(found)
+        self._style_cache[key] = style
+        if len(self._style_cache) > self.CACHE_LIMIT:
+            self._style_cache.clear()
+        return style
+
+    # ------------------------------------------------------------------
+    # editing
+    # ------------------------------------------------------------------
+    def set_editing(self, editing, editable_cols):
+        self.editing = editing
+        self.editable_cols = set(editable_cols) if editing else set()
+
+    def set_dirty(self, dirty, added):
+        self.dirty, self.added = dirty, added
+
+    def is_dirty(self, fid, col):
+        return fid in self.added or col in self.dirty.get(fid, ())
+
+    def validate(self, fid, col, value):
+        """(hard problems, soft problems) of writing *value* (texts, '' when
+        fine), checked with the field's QGIS constraints."""
+        layer = self.layer
+        feat = layer.getFeature(fid)
+        if not feat.isValid():
+            feat = QgsFeature(layer.fields(), fid)
+        feat.setAttribute(col, value)
+        hard_ok, hard = QgsVectorLayerUtils.validateAttribute(layer, feat, col, _HARD)
+        soft_ok, soft = QgsVectorLayerUtils.validateAttribute(layer, feat, col, _SOFT)
+        return ("; ".join(hard) if not hard_ok else ""), \
+            ("; ".join(soft) if not soft_ok else "")
+
+    def setData(self, index, value, role=Qt.ItemDataRole.EditRole):
+        if role != Qt.ItemDataRole.EditRole or not index.isValid():
+            return False
+        if not self.flags(index) & Qt.ItemFlag.ItemIsEditable:
+            return False
+        row, col = index.row(), index.column()
+        fid = self.fids[row]
+        layer = self.layer
+        name = self.fields[col].name()
+        old = self.raw_value(row, col)
+        if (F.is_null(old) and F.is_null(value)) or (
+                not F.is_null(old) and not F.is_null(value) and old == value
+                and type(old) is type(value)):
+            return True
+        hard, soft = self.validate(fid, col, value)
+        if hard:
+            self.editRejected.emit(f"{name}: {hard}")
+            return False
+        layer.beginEditCommand(f"Attribute Explorer: {name} changed")
+        try:
+            ok = layer.changeAttributeValue(fid, col, value, old)
+        except Exception:
+            ok = False
+        if ok:
+            layer.endEditCommand()
+        else:
+            layer.destroyEditCommand()
+            self.editRejected.emit(f"{name}: the value was not accepted")
+        self._cache.pop(fid, None)
+        for key in [k for k in self._style_cache if k[0] == fid]:
+            del self._style_cache[key]
+        if ok:
+            self.dirty.setdefault(fid, set()).add(col)
+            if soft:
+                self.editWarned.emit(f"{name}: {soft} (soft constraint, value kept)")
+        self.dataChanged.emit(self.index(row, 0), self.index(row, len(self.fields) - 1))
+        return ok
+
+    # ------------------------------------------------------------------
     def rowCount(self, parent=QModelIndex()):
         return 0 if parent.isValid() else len(self.fids)
 
@@ -158,7 +310,10 @@ class FeatureTableModel(QAbstractTableModel):
         return 0 if parent.isValid() else len(self.fields)
 
     def flags(self, index):
-        return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+        if self.editing and index.isValid() and index.column() in self.editable_cols:
+            flags |= Qt.ItemFlag.ItemIsEditable
+        return flags
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
         if not index.isValid():
@@ -166,13 +321,26 @@ class FeatureTableModel(QAbstractTableModel):
         row, col = index.row(), index.column()
         if role == Qt.ItemDataRole.DisplayRole:
             return self.display_text(row, col)
+        if role == Qt.ItemDataRole.EditRole:
+            return self.raw_value(row, col)
         if role == Qt.ItemDataRole.TextAlignmentRole:
             return _ALIGN_RIGHT if self.kinds[col] in F.NUMERIC else _ALIGN_LEFT
         if role == Qt.ItemDataRole.ForegroundRole:
+            style = self.cell_style(row, col)
+            if style is not None and style.validTextColor():
+                return style.textColor()
             if F.is_null(self.raw_value(row, col)):
                 return self._null_colour
             return self._colours.get(col)
+        if role == Qt.ItemDataRole.BackgroundRole:
+            style = self.cell_style(row, col)
+            if style is not None and style.validBackgroundColor():
+                return style.backgroundColor()
+            return None
         if role == Qt.ItemDataRole.FontRole:
+            style = self.cell_style(row, col)
+            if style is not None and style.font() != QFont():
+                return style.font()
             if F.is_null(self.raw_value(row, col)):
                 return self._italic
             return None
@@ -211,9 +379,11 @@ class FeatureTableModel(QAbstractTableModel):
 # ============================================================================
 
 class RowDelegate(QStyledItemDelegate):
-    """Paints cells with padding; selection comes from the layer."""
+    """Paints cells with padding (selection comes from the layer) and, while
+    editing, opens the field's configured QGIS editor widget."""
 
     PAD = 7
+    CORNER = 7
 
     def __init__(self, theme, parent=None):
         super().__init__(parent)
@@ -221,12 +391,16 @@ class RowDelegate(QStyledItemDelegate):
         self._sel_bg = QColor(theme.selected)
         self._sel_fg = QColor(theme.selected_text)
         self._alt = QColor(theme.base_alt)
+        self._dirty = QColor("#F5A623")          # unsaved: amber corner
+        self._focus = QColor(theme.accent)
+        self._wrappers = {}                      # C++ editor address -> (wrapper, index)
 
     def paint(self, painter, option, index):
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
         model = index.model()
-        fid = model.fids[index.row()] if index.row() < len(model.fids) else None
+        row, col = index.row(), index.column()
+        fid = model.fids[row] if row < len(model.fids) else None
         selected = fid in model.selected
         painter.save()
         if selected:
@@ -235,17 +409,99 @@ class RowDelegate(QStyledItemDelegate):
         else:
             if opt.features & QStyleOptionViewItem.ViewItemFeature.Alternate:
                 painter.fillRect(opt.rect, self._alt)
+            background = model.data(index, Qt.ItemDataRole.BackgroundRole)
+            if background is not None:
+                painter.fillRect(opt.rect, QColor(background))
             painter.setPen(opt.palette.color(opt.palette.ColorRole.Text))
         painter.setFont(opt.font)
         rect = opt.rect.adjusted(self.PAD, 0, -self.PAD, 0)
         text = opt.fontMetrics.elidedText(
             opt.text, Qt.TextElideMode.ElideRight, rect.width())
         painter.drawText(rect, opt.displayAlignment, text)
+        if model.editing:
+            if model.is_dirty(fid, col):
+                r = opt.rect
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(self._dirty)
+                painter.drawPolygon(QPolygonF([
+                    QPointF(r.left(), r.top()), QPointF(r.left() + self.CORNER, r.top()),
+                    QPointF(r.left(), r.top() + self.CORNER)]))
+            if opt.state & QStyle.StateFlag.State_HasFocus:
+                painter.setPen(QPen(self._focus, 1.5))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(QRectF(opt.rect).adjusted(1, 1, -1, -1))
         painter.restore()
 
     def sizeHint(self, option, index):
         size = super().sizeHint(option, index)
         return QSize(size.width() + 2 * self.PAD, size.height())
+
+    # ------------------------------------------------------------------
+    # editors: the field's configured QGIS widget
+    # ------------------------------------------------------------------
+    def createEditor(self, parent, option, index):
+        model = index.model()
+        layer = model.layer
+        col = index.column()
+        registry = QgsGui.editorWidgetRegistry()
+        # the layer's configured widget, else the one QGIS picks for the field
+        setup = registry.findBest(layer, layer.fields().at(col).name())
+        wrapper = registry.create(
+            setup.type(), layer, col, setup.config(), None, parent)
+        if wrapper is None or wrapper.widget() is None:
+            return super().createEditor(parent, option, index)
+        editor = wrapper.widget()
+        editor.setAutoFillBackground(True)
+        editor.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        key = sip.unwrapinstance(editor)
+        self._wrappers[key] = (wrapper, index)
+        editor.destroyed.connect(lambda *_a, k=key: self._drop_wrapper(k))
+        return editor
+
+    def _drop_wrapper(self, key):
+        entry = self._wrappers.pop(key, None)
+        if entry is not None:
+            entry[0].deleteLater()       # owned by the viewport, not the editor
+
+    def setEditorData(self, editor, index):
+        entry = self._wrappers.get(sip.unwrapinstance(editor))
+        if entry is None:
+            return super().setEditorData(editor, index)
+        wrapper = entry[0]
+        model = index.model()
+        fid = model.fid(index.row())
+        feat = model.layer.getFeature(fid) if fid is not None else QgsFeature()
+        if feat.isValid():
+            wrapper.setFeature(feat)
+        else:
+            wrapper.setValues(model.raw_value(index.row(), index.column()), [])
+
+    def setModelData(self, editor, model, index):
+        entry = self._wrappers.get(sip.unwrapinstance(editor))
+        if entry is None:
+            return super().setModelData(editor, model, index)
+        model.setData(index, entry[0].value(), Qt.ItemDataRole.EditRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
+
+    def eventFilter(self, editor, event):
+        """Enter / Tab keep a value that breaks a hard constraint in the
+        editor (with the reason); Escape cancels only this cell."""
+        if event.type() == QEvent.Type.KeyPress and event.key() in (
+                Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Tab, Qt.Key.Key_Backtab):
+            entry = self._wrappers.get(sip.unwrapinstance(editor))
+            if entry is not None and entry[1].isValid():
+                wrapper, index = entry
+                model = index.model()
+                fid = model.fid(index.row())
+                if fid is not None:
+                    hard, _soft = model.validate(fid, index.column(), wrapper.value())
+                    if hard:
+                        QToolTip.showText(editor.mapToGlobal(QPoint(0, editor.height())),
+                                          hard, editor)
+                        return True
+        return super().eventFilter(editor, event)
 
 
 # ============================================================================
@@ -254,7 +510,8 @@ class RowDelegate(QStyledItemDelegate):
 
 class RowHeader(QHeaderView):
     """Left gutter: a tick box showing whether the feature is selected,
-    then the row number.  Clicking toggles that feature."""
+    then the row number.  Clicking selects that feature (Ctrl+click adds
+    or removes it, Shift+click selects a range)."""
 
     rowPressed = pyqtSignal(int, object)       # row, keyboard modifiers
 
@@ -344,17 +601,30 @@ class RowHeader(QHeaderView):
 # ============================================================================
 
 class ExplorerTableView(QTableView):
-    """Read-only grid; reports clicks / drags / keys so the panel can
-    update the QGIS selection."""
+    """Grid that reports clicks / drags / keys so the panel can update the
+    QGIS selection.  While editing, a click only focuses the cell, F2 /
+    typing / double click open the editor, Tab moves between editable
+    columns, and outside an editor the editing keys (undo, redo, cut,
+    paste, delete) go to the panel instead of QGIS."""
 
     rowPressed = pyqtSignal(int, object)        # row, modifiers
     rowDragged = pyqtSignal(int)                # row under the mouse
-    rowActivated = pyqtSignal(int)              # double click
+    rowActivated = pyqtSignal(int)              # double click (browsing)
     currentMoved = pyqtSignal(int, object)      # keyboard navigation
     selectAllRequested = pyqtSignal()
     copyRequested = pyqtSignal()
     toggleRequested = pyqtSignal(int)
     contextRequested = pyqtSignal(object, int, int)   # global pos, row, col
+    editKeyRequested = pyqtSignal(str)          # undo / redo / cut / paste / delete
+    editorClosed = pyqtSignal()
+
+    _EDIT_KEYS = (
+        (QKeySequence.StandardKey.Undo, "undo"),
+        (QKeySequence.StandardKey.Redo, "redo"),
+        (QKeySequence.StandardKey.Cut, "cut"),
+        (QKeySequence.StandardKey.Paste, "paste"),
+        (QKeySequence.StandardKey.Delete, "delete"),
+    )
 
     def __init__(self, theme, metrics, header, parent=None):
         super().__init__(parent)
@@ -376,6 +646,7 @@ class ExplorerTableView(QTableView):
         self.verticalHeader().setDefaultSectionSize(metrics.font_h + 9)
         self.verticalHeader().setMinimumSectionSize(metrics.font_h + 4)
         self.row_header.rowPressed.connect(self.rowPressed.emit)
+        self.editing = False
         self._dragging = False
         self._last_drag_row = -1
         self._theme = theme
@@ -418,10 +689,43 @@ class ExplorerTableView(QTableView):
         return event.position().toPoint() if hasattr(event, "position") \
             else event.pos()
 
+    def set_editing(self, editing):
+        if self.editing == editing:
+            return
+        if not editing and self.state() == QAbstractItemView.State.EditingState:
+            self.commit_editor()
+        self.editing = editing
+        self.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+            | QAbstractItemView.EditTrigger.AnyKeyPressed if editing
+            else QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.viewport().update()
+
+    def commit_editor(self, commit=True):
+        """Close the open editor (writing its value unless *commit* is
+        False) - before saving, switching tools or resetting the model."""
+        if self.state() != QAbstractItemView.State.EditingState:
+            return
+        index = self.currentIndex()
+        editor = self.indexWidget(index) if index.isValid() else None
+        if editor is None:
+            editor = self.focusWidget()
+        delegate = self.itemDelegate()
+        if editor is not None and editor is not self:
+            if commit:
+                delegate.commitData.emit(editor)
+            delegate.closeEditor.emit(
+                editor, QStyledItemDelegate.EndEditHint.NoHint)
+
+    def closeEditor(self, editor, hint):
+        super().closeEditor(editor, hint)
+        self.editorClosed.emit()
+
     def mousePressEvent(self, event):
         super().mousePressEvent(event)
-        if event.button() != Qt.MouseButton.LeftButton:
-            return
+        if event.button() != Qt.MouseButton.LeftButton or self.editing:
+            return                       # editing: a click only focuses
         idx = self.indexAt(self._pos(event))
         if idx.isValid():
             self._dragging = True
@@ -442,30 +746,83 @@ class ExplorerTableView(QTableView):
         super().mouseReleaseEvent(event)
 
     def mouseDoubleClickEvent(self, event):
+        if self.editing:
+            super().mouseDoubleClickEvent(event)  # opens the editor
+            return
         idx = self.indexAt(self._pos(event))
         if idx.isValid():
             self.rowActivated.emit(idx.row())
+
+    def _edit_key(self, event):
+        for seq, name in self._EDIT_KEYS:
+            if event.matches(seq):
+                return name
+        return None
+
+    def event(self, event):
+        # while editing, these keys belong to the Explorer (not QGIS's own
+        # undo / paste / delete commands) when no cell editor is open
+        if event.type() == QEvent.Type.ShortcutOverride and self.editing \
+                and self.state() != QAbstractItemView.State.EditingState \
+                and self._edit_key(event):
+            event.accept()
+            return True
+        return super().event(event)
 
     def keyPressEvent(self, event):
         key = event.key()
         mods = event.modifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        if self.editing:
+            name = self._edit_key(event)
+            if name:
+                self.editKeyRequested.emit(name)
+                return
         if ctrl and key == Qt.Key.Key_A:
             self.selectAllRequested.emit()
             return
         if ctrl and key == Qt.Key.Key_C:
             self.copyRequested.emit()
             return
-        if key == Qt.Key.Key_Space and self.currentIndex().isValid():
+        if key == Qt.Key.Key_Space and self.currentIndex().isValid() and not self.editing:
             self.toggleRequested.emit(self.currentIndex().row())
             return
         before = self.currentIndex().row()
         super().keyPressEvent(event)
         after = self.currentIndex().row()
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp,
-                   Qt.Key.Key_PageDown, Qt.Key.Key_Home, Qt.Key.Key_End) \
+        if not self.editing and key in (
+                Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp,
+                Qt.Key.Key_PageDown, Qt.Key.Key_Home, Qt.Key.Key_End) \
                 and after >= 0 and after != before:
             self.currentMoved.emit(after, mods)
+
+    def moveCursor(self, action, modifiers):
+        """Tab / Shift+Tab move to the next editable shown column."""
+        if not self.editing or action not in (
+                QAbstractItemView.CursorAction.MoveNext,
+                QAbstractItemView.CursorAction.MovePrevious):
+            return super().moveCursor(action, modifiers)
+        current = self.currentIndex()
+        model = self.model()
+        if not current.isValid() or model is None:
+            return super().moveCursor(action, modifiers)
+        header = self.horizontalHeader()
+        order = [header.logicalIndex(v) for v in range(header.count())
+                 if not header.isSectionHidden(header.logicalIndex(v))
+                 and header.logicalIndex(v) in model.editable_cols]
+        if not order:
+            return current
+        step = 1 if action == QAbstractItemView.CursorAction.MoveNext else -1
+        row = current.row()
+        pos = order.index(current.column()) if current.column() in order else -1
+        pos += step
+        if pos >= len(order):
+            pos, row = 0, row + 1
+        elif pos < 0:
+            pos, row = len(order) - 1, row - 1
+        if not 0 <= row < model.rowCount():
+            return current
+        return model.index(row, order[pos])
 
     def _context(self, pos):
         idx = self.indexAt(pos)

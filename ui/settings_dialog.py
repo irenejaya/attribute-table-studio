@@ -63,6 +63,14 @@ class SettingsDialog(QDialog):
         self.delay.setToolTip("How long to wait after typing before a filter "
                               "is applied (Enter applies at once)")
         ef.addRow("Filter delay while typing", self.delay)
+        self.keys_cb = QCheckBox("Open Attribute Explorer with F6, Shift+F6 and Ctrl+F6")
+        self.keys_cb.setToolTip(
+            "F6 opens all records, Shift+F6 the selected records and Ctrl+F6 the "
+            "records visible on the map.\nThe keys are taken from their current QGIS "
+            "commands (the attribute table) and given back when you untick this or "
+            "unload the plugin.\nThe native table stays available in the Layer menu "
+            "and in Explorer's More menu.")
+        ef.addRow(self.keys_cb)
         lay.addWidget(exp)
 
         # ---- pivot ----
@@ -109,6 +117,7 @@ class SettingsDialog(QDialog):
             cb.setChecked(get(f"{key}/openDocked"))
         self.summary_cb.setChecked(get("explorer/summaryVisible"))
         self.delay.setValue(get("explorer/filterDelayMs"))
+        self.keys_cb.setChecked(get("explorer/replaceTableKeys"))
         self.cell_limit.setValue(get("pivot/cellLimit"))
         self.decimals.setValue(get("pivot/decimals"))
 
@@ -120,6 +129,7 @@ class SettingsDialog(QDialog):
             settings.set_value(f"{key}/openDocked", cb.isChecked())
         settings.set_value("explorer/summaryVisible", self.summary_cb.isChecked())
         settings.set_value("explorer/filterDelayMs", self.delay.value())
+        settings.set_value("explorer/replaceTableKeys", self.keys_cb.isChecked())
         settings.set_value("pivot/cellLimit", self.cell_limit.value())
         settings.set_value("pivot/decimals", self.decimals.value())
         self.accept()

@@ -24,7 +24,10 @@ from . import filters as FL
 ID_LIMIT = 100000            # longest id list written into a subset string
 # the layer's own filter, kept on the layer while the map filter is on, so a
 # project saved in that state gets it back when it is opened again
-PROPERTY = "attribute_table_studio/map_filter_base"
+PROPERTY = "attribute_table_studio/map_filter_base"   # before map filters persisted
+# A map filter left on when its explorer closes stays on the layer (like a
+# Query Builder filter); this records how to resume and undo it.
+STATE = "attribute_table_studio/map_filter"
 
 
 def dialect(layer):
@@ -62,11 +65,11 @@ def _literal(value, dialect_name):
     return sql_string(str(value))
 
 
-def filter_sql(flt, dialect_name):
+def filter_sql(flt, dialect_name, case_sensitive=False):
     """Subset text for one active filter, or None when the provider cannot
     give exactly the table's answer.  Raises FilterError for bad input."""
     if dialect_name == "qgis":
-        return flt.build()
+        return flt.build(case_sensitive)
     col = FL.quote_column(flt.field)
     op, kind = flt.op, flt.kind
     if op == "null":
@@ -90,6 +93,8 @@ def filter_sql(flt, dialect_name):
     if kind == F.BOOL:
         return f"{col} = {_literal(op == 'true', dialect_name)}"
     if kind == F.TEXT:
+        if case_sensitive and op in ("contains", "starts"):
+            return _exact_case_sql(col, op, str(flt.value), dialect_name)
         return _text_sql(col, op, str(flt.value), dialect_name)
     if kind in (F.DATE, F.DATETIME, F.TIME):
         return _temporal_sql(col, flt, dialect_name)
@@ -132,6 +137,19 @@ def _text_sql(col, op, text, dialect_name):
     return f"{col} ILIKE {sql_string(pattern)}"
 
 
+def _exact_case_sql(col, op, text, dialect_name):
+    """Case-sensitive "contains" / "starts with" (binary comparison)."""
+    if dialect_name == "sqlite":
+        if op == "starts":
+            return f"substr({col}, 1, {len(text)}) = {sql_string(text)}"
+        return f"instr({col}, {sql_string(text)}) > 0"
+    if dialect_name == "postgres":
+        if op == "starts":
+            return f"left({col}, {len(text)}) = {sql_string(text)}"
+        return f"strpos({col}, {sql_string(text)}) > 0"
+    return None
+
+
 def _temporal_sql(col, flt, dialect_name):
     if dialect_name not in ("sqlite", "postgres"):
         return None
@@ -156,10 +174,10 @@ def _temporal_sql(col, flt, dialect_name):
     return f"{lhs} {FL._SQL_CMP[op]} {literal(parse(flt.value))}"
 
 
-def filters_sql(layer, filters):
-    """Subset text for the active *filters* (without the layer's own
-    filter): '' when none is active, None when they cannot be written
-    exactly for this layer."""
+def filters_sql(layer, filters, case_sensitive=False, expression=None):
+    """Subset text for the active *filters* and the table's own expression
+    filter (without the layer's own filter): '' when none is active, None
+    when they cannot be written exactly for this layer."""
     name = dialect(layer)
     if name is None:
         return None
@@ -168,12 +186,16 @@ def filters_sql(layer, filters):
         if not flt.is_active():
             continue
         try:
-            sql = filter_sql(flt, name)
+            sql = filter_sql(flt, name, case_sensitive)
         except FL.FilterError:
             return None
         if not sql:
             return None
         parts.append(sql)
+    if expression:
+        if name != "qgis":             # QGIS expressions are not provider SQL
+            return None
+        parts.append(expression)
     if not parts:
         return ""
     return parts[0] if len(parts) == 1 else " AND ".join(f"({p})" for p in parts)
@@ -211,9 +233,10 @@ def with_base(base, ours):
 
 
 def restore_forgotten(layer):
-    """Give a layer saved while its map filter was on its own filter back."""
+    """Projects saved by earlier versions while a map filter was on: give
+    the layer its own filter back (map filters did not persist then)."""
     base = layer.customProperty(PROPERTY)
-    if base is None or layer.isEditable():
+    if base is None or layer.isEditable() or layer.customProperty(STATE):
         return False
     layer.setSubsetString(str(base))
     layer.removeCustomProperty(PROPERTY)

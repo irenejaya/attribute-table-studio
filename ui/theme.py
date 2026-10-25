@@ -169,6 +169,20 @@ def stylesheet(t, m):
             border: 1px solid {t.border}; border-radius: {m.radius}px;
             padding: 0px 9px; }}
         QToolButton#gtsSquare {{ padding: 0px; }}
+        QToolButton#gtsSquare[popupMode="1"] {{ padding-right: 13px; }}
+        QToolButton#gtsSquare::menu-button {{ width: 13px;
+            border-left: 1px solid {t.border}; }}
+        QToolButton#gtsSquare[popupMode="2"] {{ padding-right: 12px; }}
+        QToolButton#gtsSquare::menu-indicator {{
+            subcontrol-origin: padding; subcontrol-position: center right;
+            right: 4px; }}
+        QFrame#gtsVSep {{ color: {t.border}; }}
+        QLabel#gtsStatusExtra {{ color: {t.text_dim}; }}
+        QLabel#gtsStatusExtra[level="editing"] {{ color: {t.warning}; }}
+        QLabel#gtsStatusExtra[level="editing-clean"] {{ color: {t.warning}; }}
+        QLabel#gtsStatusExtra[level="busy"] {{ color: {t.accent_text}; }}
+        QLabel#gtsStatusExtra[level="error"] {{ color: {t.danger}; font-weight: 700; }}
+        QLabel#gtsQuickTitle {{ font-weight: 700; color: {t.text_strong}; }}
         QToolButton#gtsButton:hover, QToolButton#gtsSquare:hover {{
             background: {t.card_hover}; }}
         QToolButton#gtsButton:pressed, QToolButton#gtsSquare:pressed {{
@@ -254,4 +268,10 @@ def stylesheet(t, m):
         QTableView#gtsTable QTableCornerButton::section {{
             background: {t.header}; border: none;
             border-right: 1px solid {t.border}; border-bottom: 1px solid {t.border}; }}
+        QListView#gtsFormList {{ background: {t.base}; border: 1px solid {t.border};
+            border-radius: {m.radius}px; outline: 0; }}
+        QListView#gtsFormList::item {{ padding: 3px 6px; color: {t.text}; }}
+        QListView#gtsFormList::item:hover {{ background: {t.base_alt}; }}
+        QListView#gtsFormList::item:selected {{ background: {t.selected};
+            color: {t.selected_text}; }}
     """
