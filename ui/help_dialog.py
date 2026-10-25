@@ -141,7 +141,8 @@ off.</li>
 <b>Shift+F6</b> (selected) and <b>Ctrl+F6</b> (visible on map) instead of the
 native attribute table; turning it off gives the keys back.</p>
 <h4>Map filter</h4>
-<p>The ε-funnel button next to <b>Dock</b> turns the <b>map filter</b> on:
+<p>The funnel button next to <b>Dock</b> (the mark QGIS shows beside a filtered
+layer) turns the <b>map filter</b> on:
 the layer's own Query Builder filter then follows the table filters, so the
 map (and every other tool) shows the same records as the table. Change a
 filter and the map follows. Any filter the layer already had is kept

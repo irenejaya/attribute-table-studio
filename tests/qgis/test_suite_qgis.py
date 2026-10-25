@@ -681,6 +681,11 @@ class SuiteTests(unittest.TestCase):
         act.trigger()
         self.assertEqual((self.layer.selectedFeatureCount(), other.selectedFeatureCount()),
                          (0, 0))
+        # map filter: QGIS's 'filtered layer' funnel; More: drawn bars, no arrow room
+        self.assertEqual(icons.QUERY, "/mIndicatorFilter.svg")
+        self.assertFalse(icons.native(icons.QUERY).isNull())
+        self.assertFalse(panel.edit_bar.more_btn.icon().isNull())
+        self.assertIn("padding-right: 0px", panel.edit_bar.more_btn.styleSheet())
         # the value list's Apply is as tall as All / None
         picker = ValuePicker("LAND_USE_TYPE", [("RESIDENTIAL", "RESIDENTIAL", 5)], [],
                              panel.theme, panel.metrics, panel)

@@ -60,8 +60,9 @@ proposed and only assigned when no other command uses it; change it in
   also while editing). A feature selected on the map scrolls its row into view.
   *Selected only* limits table and statistics to the selection. Filtering
   never changes the map selection.
-- **Map filter** (the ε-funnel button next to *Dock*): while it is on, the
-  layer's own Query Builder filter follows the table filters, so the map shows
+- **Map filter** (the outline funnel next to *Dock*, the mark QGIS shows beside
+  a filtered layer): while it is on, the layer's own Query Builder filter
+  follows the table filters, so the map shows
   the same records as the table. It is written as readable SQL where the
   layer's format answers exactly like the table (otherwise as a list of
   feature ids), and it is combined with any filter the layer already has.
