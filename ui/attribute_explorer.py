@@ -21,6 +21,7 @@ a stale result can never overwrite a newer one.
 """
 
 import json
+from contextlib import contextmanager
 
 from qgis.PyQt.QtCore import Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QGuiApplication, QKeySequence
@@ -38,6 +39,7 @@ from ..core import fields as F
 from ..core import filters as FL
 from ..core import settings
 from ..core import stats as S
+from ..core import subset as SUB
 from ..core.compat import (
     NO_GEOMETRY, SELECT_ADD, SELECT_REMOVE, SELECT_SET, TASK_VISIBLE,
     VECTOR_LAYER_FILTER,
@@ -96,6 +98,12 @@ class ExplorerPanel(QWidget):
         self._drag_behaviour = SELECT_SET
         self._has_result = False
         self._closing = False
+        # map filter: the layer's Query Builder filter follows the table
+        self._map_filter = False
+        self._base_subset = ""           # the layer's own filter before
+        self._applied_subset = None      # the filter this explorer set
+        self._subset_busy = False        # our own setSubsetString running
+        self._available = 0              # records without our map filter
 
         self._refresh_timer = QTimer(self)
         self._refresh_timer.setSingleShot(True)
@@ -181,6 +189,9 @@ class ExplorerPanel(QWidget):
             "Clear every column filter"))
         top.addWidget(row, 1)
         top.addSpacing(m.gap)
+        self.query_btn = W.square_button(m, icons.native_for(icons.QUERY, t), "",
+                                         checkable=True)
+        top.addWidget(self.query_btn)
         self.dock_btn = W.dock_button(m)
         top.addWidget(self.dock_btn)
         root.addLayout(top)
@@ -221,6 +232,7 @@ class ExplorerPanel(QWidget):
         self.summary_btn.toggled.connect(self._on_summary_toggled)
         self.pivot_btn.clicked.connect(self._open_pivot)
         self.clear_btn.clicked.connect(self.clear_filters)
+        self.query_btn.toggled.connect(self._toggle_map_filter)
         self.export_xlsx.triggered.connect(lambda: self.export("xlsx"))
         self.export_csv.triggered.connect(lambda: self.export("csv"))
         self.copy_action.triggered.connect(self.copy_selected_rows)
@@ -262,6 +274,7 @@ class ExplorerPanel(QWidget):
             return
         if self.layer is not None:
             self._save_layout()
+            self._restore_map_filter()
             self._disconnect_layer()
         self.runner.new_generation()
         self.layer = layer
@@ -302,7 +315,9 @@ class ExplorerPanel(QWidget):
             (lyr.featuresDeleted, self._on_features_changed),
             (lyr.dataChanged, self._on_features_changed),
             (lyr.afterRollBack, self._on_features_changed),
-            (lyr.subsetStringChanged, self._on_features_changed),
+            (lyr.subsetStringChanged, self._on_subset_changed),
+            (lyr.editingStarted, self._update_query_btn),
+            (lyr.editingStopped, self._on_editing_stopped),
             (lyr.updatedFields, self._on_schema_changed),
             (lyr.nameChanged, self.titleChanged.emit),
         ]
@@ -343,6 +358,7 @@ class ExplorerPanel(QWidget):
         except RuntimeError:
             pass
         self.runner.new_generation()
+        self._restore_map_filter()
         self._disconnect_layer()
 
     # ====================================================================
@@ -367,7 +383,23 @@ class ExplorerPanel(QWidget):
         self._data_timer.start()
 
     def _on_features_changed(self, *_args):
+        if self._subset_busy:            # our own map filter, not new data
+            return
         self._data_timer.start()
+
+    def _on_subset_changed(self):
+        if self._subset_busy:
+            return
+        if self._map_filter:
+            # the layer filter was changed elsewhere (e.g. the Query Builder)
+            self._map_filter = False
+            self._applied_subset = None
+            self._set_query_checked(False)
+            if self.layer is not None:
+                self.layer.removeCustomProperty(SUB.PROPERTY)
+            self.status.set_status("The layer filter was changed outside the "
+                                   "explorer — map filter turned off", "warning")
+        self._on_features_changed()
 
     def _on_data_settled(self):
         if self.layer is None or self._closing:
@@ -465,7 +497,14 @@ class ExplorerPanel(QWidget):
             self.profiles = {}
         self.runner.new_generation()
         self._profile_queue = []
-        spec = ScanSpec(self.layer, expr, restrict)
+        with self._unfiltered():
+            spec = ScanSpec(self.layer, expr, restrict)
+            self._available = max(self.layer.featureCount(), 0)
+            # the map filter follows the column filters only, so with a
+            # restricted table their records are counted separately
+            map_spec = (ScanSpec(self.layer, expr, None)
+                        if self._map_filter and restrict is not None else None)
+        self._map_filters = filters
         self._spec = spec
         order = self._profile_order() if self.header.profiles_visible else []
         order = [i for i in order if i not in self.profiles]
@@ -481,13 +520,15 @@ class ExplorerPanel(QWidget):
         kinds = list(self.model.kinds)
         sort = self.sort
 
-        def work(job, spec=spec, first=first, kinds=kinds, sort=sort):
+        def work(job, spec=spec, first=first, kinds=kinds, sort=sort,
+                 map_spec=map_spec):
             fids, cols = scan(spec, job, first, True, sort)
             profs = {}
             for idx, col in zip(first, cols):
                 job.check()
                 profs[idx] = S.compute_profile(kinds[idx], col)
-            return fids, profs
+            map_fids = scan(map_spec, job)[0] if map_spec is not None else None
+            return fids, profs, map_fids
 
         self.status.set_status(
             "Sorting…" if sort_only else f"Filtering {self.layer.name()}…", "busy")
@@ -507,7 +548,9 @@ class ExplorerPanel(QWidget):
             self._finish_busy("Cancelled — the previous result is still shown",
                               "warning")
             return
-        fids, profs = job.result
+        fids, profs, map_fids = job.result
+        if self._map_filter:             # before the rows are read
+            self._sync_map_filter(fids if map_fids is None else map_fids)
         self.model.set_fids(fids)
         self._anchor = None
         self.view.verticalHeader().updateGeometry()
@@ -610,8 +653,9 @@ class ExplorerPanel(QWidget):
         layer = self.layer
         if layer is None:
             return
+        self._update_query_btn()
         shown = len(self.model.fids)
-        available = layer.featureCount()
+        available = self._available_count()
         self.count_label.setText(f"{available:,} records" if available >= 0 else "")
         if self.external is not None:
             scope = "Pivot records"
@@ -637,11 +681,11 @@ class ExplorerPanel(QWidget):
         if self.layer is None or self.runner.busy:
             return
         shown = len(self.model.fids)
-        available = max(self.layer.featureCount(), 0)
+        available = self._available_count()
         sel = len(self.model.selected)
         self.status.set_status(
             f"{shown:,} shown / {available:,} available  •  {sel:,} selected")
-        extra = "Read only"
+        extra = "Map filter on  •  Read only" if self._map_on_layer() else "Read only"
         if self.shortcut_text:
             extra += f"  •  {self.shortcut_text}"
         self.status.set_extra(extra)
@@ -672,6 +716,148 @@ class ExplorerPanel(QWidget):
         self.external = None
         self.external_chip.setVisible(False)
         self.refresh()
+
+    # ====================================================================
+    # MAP FILTER (the layer's Query Builder filter follows the table)
+    # ====================================================================
+
+    def _map_on_layer(self):
+        return self._applied_subset not in (None, self._base_subset)
+
+    def _available_count(self):
+        if self._map_on_layer():
+            return self._available
+        return max(self.layer.featureCount(), 0) if self.layer is not None else 0
+
+    def _set_subset(self, text):
+        self._subset_busy = True
+        try:
+            return self.layer.setSubsetString(text)
+        finally:
+            self._subset_busy = False
+
+    @contextmanager
+    def _unfiltered(self):
+        """Read the layer without the map filter this explorer set (the
+        table and its statistics always see every record)."""
+        layer = self.layer
+        if layer is None or not self._map_on_layer() or layer.isEditable():
+            yield
+            return
+        self._set_subset(self._base_subset)
+        try:
+            yield
+        finally:
+            self._set_subset(self._applied_subset)
+
+    def _set_query_checked(self, checked):
+        self.query_btn.blockSignals(True)
+        self.query_btn.setChecked(checked)
+        self.query_btn.blockSignals(False)
+        self._update_query_btn()
+
+    def _update_query_btn(self, *_args):
+        layer = self.layer
+        editing = layer is not None and layer.isEditable()
+        active = bool(self._active_filters())
+        self.query_btn.setEnabled(layer is not None and not editing
+                                  and (active or self._map_filter))
+        if editing:
+            tip = ("Map filter (Query Builder)\nNot available while the layer "
+                   "is being edited.")
+        elif self._map_filter:
+            tip = ("Map filter on: the layer's Query Builder filter follows the "
+                   "table filters, so the map shows the same records.\n"
+                   "Click to turn it off and show every feature again "
+                   "(the table keeps its filters).")
+        elif not active:
+            tip = ("Map filter (Query Builder)\nAdd a column filter first, then "
+                   "click to show only the filtered records on the map.")
+        else:
+            tip = ("Map filter (Query Builder): show only the filtered records "
+                   "on the map.\nWhile on, the layer's Query Builder filter "
+                   "follows the table filters.")
+        self.query_btn.setToolTip(tip)
+
+    def _toggle_map_filter(self, on):
+        layer = self.layer
+        if not on:
+            self._restore_map_filter()
+            self.status.set_status(
+                "Map filter off — the map shows every feature again "
+                "(the table keeps its filters)")
+            return
+        problem = None
+        if layer is None:
+            problem = "No layer"
+        elif layer.isEditable():
+            problem = "The map filter is not available while the layer is edited"
+        elif SUB.dialect(layer) is None:
+            problem = (f"The map filter is not available for "
+                       f"{layer.providerType()} layers")
+        elif SUB.with_base(layer.subsetString(), "x") is None:
+            problem = ("The layer's own filter is an SQL query, so the map "
+                       "filter cannot be added to it")
+        if problem:
+            self._set_query_checked(False)
+            self.status.set_status(problem, "warning")
+            return
+        self._map_filter = True
+        self._base_subset = layer.subsetString()
+        self._applied_subset = None
+        layer.setCustomProperty(SUB.PROPERTY, self._base_subset)
+        self._update_query_btn()
+        self.refresh()
+
+    def _sync_map_filter(self, column_fids):
+        """Point the layer filter at the records of the column filters:
+        readable SQL when the provider matches the table exactly, otherwise
+        the list of their feature ids (checked by count either way)."""
+        layer = self.layer
+        if layer.isEditable():
+            self.status.set_status("The map filter stays as it is while the "
+                                   "layer is being edited", "warning")
+            return
+        filters = getattr(self, "_map_filters", [])
+        candidates = [SUB.filters_sql(layer, filters),
+                      SUB.ids_subset(layer, column_fids)]
+        for ours in candidates:
+            if ours is None:
+                continue
+            text = SUB.with_base(self._base_subset, ours)
+            if text is None or not self._set_subset(text):
+                continue
+            count = layer.featureCount()
+            if ours == "" or count < 0 or count == len(column_fids):
+                self._applied_subset = text
+                return
+        self._restore_map_filter()
+        self.status.set_status(
+            "The map filter could not be applied to this layer (too many "
+            "records for an id list) — it was turned off", "warning")
+
+    def _restore_map_filter(self):
+        """Give the layer its own filter back (map filter off)."""
+        layer = self.layer
+        if self._map_filter and layer is not None:
+            try:
+                if not layer.isEditable():
+                    if layer.subsetString() != self._base_subset:
+                        self._set_subset(self._base_subset)
+                    layer.removeCustomProperty(SUB.PROPERTY)
+            except RuntimeError:         # layer already deleted
+                pass
+        self._map_filter = False
+        self._applied_subset = None
+        try:
+            self._set_query_checked(False)
+        except RuntimeError:
+            pass
+
+    def _on_editing_stopped(self):
+        self._update_query_btn()
+        if self._map_filter:
+            self.refresh()
 
     def set_external_scope(self, fids, label):
         """Show only *fids* (records handed over from a pivot cell)."""
@@ -1042,7 +1228,8 @@ class ExplorerPanel(QWidget):
         cols = self._shown_columns()
         header = [self.model.fields[c].name() for c in cols]
         fids = list(self.model.fids)
-        source = QgsVectorLayerFeatureSource(layer)
+        with self._unfiltered():
+            source = QgsVectorLayerFeatureSource(layer)
         meta = {
             "Layer": layer.name(),
             "Source": layer.publicSource(),
@@ -1134,7 +1321,8 @@ class ExplorerPanel(QWidget):
         counts = dict(prof.frequencies) if prof is not None and kind in (
             F.TEXT, F.OTHER) else {}
         try:
-            raw = layer.uniqueValues(logical, VALUE_LIST_LIMIT)
+            with self._unfiltered():
+                raw = layer.uniqueValues(logical, VALUE_LIST_LIMIT)
         except Exception:
             raw = set()
         values = sorted((v for v in raw if not F.is_null(v)), key=F.sort_key)
