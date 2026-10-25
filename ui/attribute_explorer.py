@@ -8,8 +8,8 @@ Population rules (plan, "Column statistics and scope rules"):
 
     scope = records available through the layer (provider subset and
             unsaved edits included)
-            AND the View scope (All / Selected / Visible on map /
-                Edited and new / Failing constraints)
+            AND the View scope (All / Selected / Visible on Map /
+                Failing Constraints / Edited and New)
             AND every column filter (AND across columns, OR inside a list)
             AND the expression filter
             AND records handed over from a pivot cell (drill-through)
@@ -1389,7 +1389,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         menu.addAction(icons.native(icons.SELECT_ALL),
                        "Select all shown records").triggered.connect(self.select_all)
         menu.addAction(icons.native(icons.INVERT),
-                       "Invert selection (filtered records)").triggered.connect(
+                       "Invert selection").triggered.connect(
             self.invert_selection)
         menu.addAction(icons.native(icons.DESELECT),
                        "Deselect all").triggered.connect(self.deselect_all)

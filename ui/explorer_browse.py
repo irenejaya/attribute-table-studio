@@ -9,8 +9,8 @@ the header and row context menus.
 Scope model:
 
     records available through the layer
-      -> View scope: All / Selected / Visible on map / Edited and new /
-                     Failing constraints
+      -> View scope: All / Selected / Visible on Map / Failing Constraints /
+                     Edited and New
       AND the column filters
       AND the expression filter
       AND a Pivot drill-through restriction
@@ -31,11 +31,12 @@ from . import explorer_dialogs as D
 from . import icons
 from . import widgets as W
 
-SCOPES = (("all", "All records", icons.TABLE),
-          ("selected", "Selected records", icons.SELECTED_ONLY),
-          ("map", "Visible on map", icons.ZOOM_TO),
-          ("edited", "Edited and new", icons.TOGGLE_EDIT),
-          ("failing", "Failing constraints", icons.WARNING))
+# named, drawn and ordered as in the QGIS attribute table's filter menu
+SCOPES = (("all", "Show All Features", icons.TABLE),
+          ("selected", "Show Selected Features", icons.SELECTED_ONLY),
+          ("map", "Show Features Visible on Map", icons.TABLE_VISIBLE),
+          ("failing", "Show Features with Failing Constraints", icons.TABLE_INVALID),
+          ("edited", "Show Edited and New Features", icons.TABLE_EDITED))
 SCOPE_LABELS = {"all": "Filtered records", "selected": "Selected records",
                 "map": "Records visible on the map", "edited": "Edited and new records",
                 "failing": "Records failing constraints"}
@@ -108,13 +109,13 @@ class BrowseMixin:
             scopes.addAction(act)
             act.triggered.connect(lambda _c=False, k=key: self.set_view_scope(k))
         menu.addSeparator()
-        menu.addAction(icons.native(icons.EXPRESSION), "Advanced expression filter…"
+        menu.addAction(icons.native(icons.ADVANCED_FILTER), "Advanced Filter (Expression)"
                        ).triggered.connect(self.edit_expression_filter)
         act = menu.addAction("Clear expression filter")
         act.setEnabled(bool(self.expr_filter))
         act.triggered.connect(lambda: self.set_expression_filter(None))
-        menu.addAction(icons.native(icons.STORED), "Stored expressions…").triggered.connect(
-            self.stored_expressions)
+        menu.addAction(icons.native(icons.STORED_FILTER), "Stored Filter Expressions"
+                       ).triggered.connect(self.stored_expressions)
         menu.addAction(icons.native(icons.FORM_SELECT), "Filter by form…").triggered.connect(
             lambda: D.FormSearchDialog(self).exec())
         act = menu.addAction("Case-sensitive text filters")
@@ -199,7 +200,7 @@ class BrowseMixin:
         self.refresh()
 
     def edit_expression_filter(self):
-        dlg = D.ExpressionDialog(self, "Advanced expression filter", self.expr_filter or "",
+        dlg = D.ExpressionDialog(self, "Advanced Filter (Expression)", self.expr_filter or "",
                                  "filter", has_current=bool(self.expr_filter))
         if dlg.exec():
             self.set_expression_filter(dlg.expression(), dlg.mode())
@@ -295,7 +296,7 @@ class BrowseMixin:
                        ).triggered.connect(self.select_all)
         menu.addAction(icons.native(icons.SELECT_ALL), "Select all available layer records"
                        ).triggered.connect(self.select_layer_all)
-        menu.addAction(icons.native(icons.INVERT), "Invert selection (filtered records)"
+        menu.addAction(icons.native(icons.INVERT), "Invert selection"
                        ).triggered.connect(self.invert_selection)
         count = self.layer.featureCount()
         if count < 0 or len(self.model.fids) < count:     # only differs when filtered

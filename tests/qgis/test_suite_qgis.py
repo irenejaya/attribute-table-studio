@@ -721,6 +721,45 @@ class SuiteTests(unittest.TestCase):
         self.assertIn("Pivot Table", dlg.windowTitle())
         dlg.close()
 
+    def test_13h_view_menu_like_qgis_and_form_size(self):
+        from qgis.PyQt.QtWidgets import QScrollArea
+        from attribute_table_studio.ui import explorer_dialogs as D
+        from attribute_table_studio.ui import icons
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        # View: the scopes named, drawn and ordered as in the QGIS attribute table
+        panel.view_menu.aboutToShow.emit()
+        actions = {a.text(): a for a in panel.view_menu.actions() if not a.isSeparator()}
+        names = [a.text() for a in panel.view_menu.actions() if a.text().startswith("Show ")]
+        self.assertEqual(names, ["Show All Features", "Show Selected Features",
+                                 "Show Features Visible on Map",
+                                 "Show Features with Failing Constraints",
+                                 "Show Edited and New Features"])
+        for name, icon in (("Show Features Visible on Map", icons.TABLE_VISIBLE),
+                           ("Show Features with Failing Constraints", icons.TABLE_INVALID),
+                           ("Show Edited and New Features", icons.TABLE_EDITED),
+                           ("Advanced Filter (Expression)", icons.ADVANCED_FILTER),
+                           ("Stored Filter Expressions", icons.STORED_FILTER)):
+            self.assertIn(name, actions)
+            self.assertFalse(icons.native(icon).isNull())
+        # Select: plain "Invert selection"
+        panel.select_menu.aboutToShow.emit()
+        self.assertIn("Invert selection", [a.text() for a in panel.select_menu.actions()])
+        # Filter by form / Select by value open showing the whole form width
+        # (within the screen)
+        for select in (False, True):
+            dlg = D.FormSearchDialog(panel, select=select)
+            dlg.show()
+            H.settle(0.3)
+            scroll = dlg.findChild(QScrollArea)
+            widest = int(dlg.screen().availableGeometry().width() * 0.9)
+            if dlg.width() < widest:
+                self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
+            else:
+                self.assertEqual(dlg.width(), widest)
+            self.assertGreater(dlg.width(), 560)
+            dlg.close()
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)
