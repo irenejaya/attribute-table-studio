@@ -57,8 +57,8 @@ the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
 double-click a row to zoom to one feature. The icon left of <b>Select ▾</b>
 deselects the features of this layer. <b>Select ▾</b> adds select all
-(shown or whole layer), invert selection (the filtered records, or the whole
-layer while the table is filtered), deselect features from all layers,
+(shown or whole layer), invert selection (and invert selection for the
+whole layer while the table is filtered), deselect features from all layers,
 select by expression, select by value / form and pan to selection; its first
 line says how many selected features are outside the current view.</p>
 <h4>View</h4>
@@ -66,14 +66,15 @@ line says how many selected features are outside the current view.</p>
 <li><b>View ▾</b> switches between <b>Table view</b> and <b>Form view</b>
 (the layer's configured form with a record list; edits in the form are
 written when you move to another record or back to the table).</li>
-<li>Scope: <i>All records</i>, <i>Selected records</i> (same as
-<b>Selected only</b>), <i>Visible on map</i> (follows the map extent),
-<i>Edited and new</i> (unsaved changes) and <i>Failing constraints</i>
-(hard and soft counts in the scope line). Column filters always apply on
-top.</li>
-<li><i>Advanced expression filter</i> replaces it or combines it with AND /
-OR; <i>Stored expressions</i> reuses the layer's saved ones; <i>Filter by
-form</i> uses the layer's form in search mode. The expression shows as a
+<li>Scope, named as in the QGIS attribute table: <i>Show All Features</i>,
+<i>Show Selected Features</i> (same as <b>Selected only</b>), <i>Show
+Features Visible on Map</i> (follows the map extent), <i>Show Features with
+Failing Constraints</i> (hard and soft counts in the scope line) and
+<i>Show Edited and New Features</i> (unsaved changes). Column filters
+always apply on top.</li>
+<li><i>Advanced Filter (Expression)</i> replaces it or combines it with AND /
+OR; <i>Stored Filter Expressions</i> reuses the layer's saved ones;
+<i>Filter by form</i> uses the layer's form in search mode. The expression shows as a
 chip in the scope line; <b>Clear filters</b> clears it too.</li>
 <li><i>Case-sensitive text filters</i>, <i>Selected to top</i> (keeps the
 filtered records, only moves the selection up), <i>Sort by expression</i>,

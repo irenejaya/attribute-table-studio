@@ -86,6 +86,12 @@ FLASH = "/mActionHighlightFeature.svg"
 ACTION = "/mAction.svg"
 FIELD_PROPS = "/propertyicons/attributes.svg"
 STORED = "/mIconStoredQueries.svg"
+# the QGIS attribute table's filter menu
+TABLE_VISIBLE = "/mActionOpenTableVisible.svg"
+TABLE_INVALID = "/mActionOpenTableInvalid.svg"
+TABLE_EDITED = "/mActionOpenTableEdited.svg"
+ADVANCED_FILTER = "/mActionFilter.svg"
+STORED_FILTER = "/mActionHandleStoreFilterExpressionChecked.svg"
 HISTORY = "/mActionHistory.svg"
 QUERY = "/mIndicatorFilter.svg"      # the Layers panel's "filtered" mark
 GEOM_DIFF = "/algorithms/mAlgorithmSymmetricalDifference.svg"

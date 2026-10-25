@@ -519,7 +519,7 @@ class EditingTests(unittest.TestCase):
             return [a.text() for a in p.select_menu.actions() if not a.isSeparator()]
         shown = menu_texts()
         for text in ("Select all shown records", "Select all available layer records",
-                     "Invert selection (filtered records)", "Select by expression…",
+                     "Invert selection", "Select by expression…",
                      "Select by value / form…", "Pan to selection"):
             self.assertIn(text, shown)
         # the whole-layer invert only differs - and only shows - while the

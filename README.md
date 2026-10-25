@@ -84,14 +84,16 @@ proposed and only assigned when no other command uses it; change it in
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
   rows (*Ctrl+C*); *Pivot Table* hands the filtered records to the Pivot
   Table.
-- **View ▾** (before *Columns*): table or form view; scopes *All records*,
-  *Selected records*, *Visible on map*, *Edited and new*, *Failing
-  constraints*; advanced expression filter (replace / AND / OR), stored
-  expressions, filter by form, case-sensitive text filters, selected to top,
-  sort by expression, conditional formatting, autosize. Column filters always
-  apply on top of the scope.
-- **Select ▾**: select all shown / all layer records, invert selection (the
-  filtered records, or the whole layer while the table is filtered), deselect
+- **View ▾** (before *Columns*): table or form view; the scopes with the
+  names and icons of the QGIS attribute table (*Show All Features*, *Show
+  Selected Features*, *Show Features Visible on Map*, *Show Features with
+  Failing Constraints*, *Show Edited and New Features*); *Advanced Filter
+  (Expression)* (replace / AND / OR), *Stored Filter Expressions*, filter by
+  form, case-sensitive text filters, selected to top, sort by expression,
+  conditional formatting, autosize. Column filters always apply on top of the
+  scope.
+- **Select ▾**: select all shown / all layer records, invert selection (plus
+  invert selection for the whole layer while the table is filtered), deselect
   features from all layers, select by expression, select by value / form, pan
   or zoom to the selection.
 

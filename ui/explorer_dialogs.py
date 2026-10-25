@@ -6,6 +6,7 @@ look.
 """
 
 from qgis.PyQt.QtCore import QMetaType, Qt
+from qgis.PyQt.QtGui import QGuiApplication
 from qgis.PyQt.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
@@ -87,6 +88,22 @@ class _Dialog(QDialog):
         lbl.setObjectName("gts" + role.capitalize())
         self.lay.addWidget(lbl)
         return lbl
+
+    def fit_form(self, scroll, form, least=(560, 420)):
+        """Open wide enough for the whole form (no sideways scrolling) and
+        as tall as it needs, within the screen."""
+        self.lay.activate()
+        screen = self.screen() if hasattr(self, "screen") else None
+        avail = (screen or QGuiApplication.primaryScreen()).availableGeometry()
+        hint = form.sizeHint()
+        frame = 2 * scroll.frameWidth()
+        margins = self.lay.contentsMargins()
+        width = (hint.width() + frame + scroll.verticalScrollBar().sizeHint().width()
+                 + margins.left() + margins.right())
+        other = self.sizeHint().height() - scroll.sizeHint().height()   # note, buttons
+        height = hint.height() + frame + other
+        self.resize(max(least[0], min(width, int(avail.width() * 0.9))),
+                    max(least[1], min(height, int(avail.height() * 0.85))))
 
 
 def _expression_builder(layer, text=""):
@@ -312,7 +329,8 @@ class ExpressionDialog(_Dialog):
     (filters) or the sort direction (sorting)."""
 
     def __init__(self, panel, title, text="", purpose="filter", has_current=False):
-        super().__init__(panel, title, icons.EXPRESSION)
+        super().__init__(panel, title, icons.ADVANCED_FILTER if purpose == "filter"
+                         else icons.EXPRESSION)
         self.resize(760, 560)
         self.builder = _expression_builder(panel.layer, text)
         self.lay.addWidget(self.builder, 1)
@@ -355,7 +373,8 @@ class StoredExpressionsDialog(_Dialog):
     """The layer's stored filter expressions: apply, save, rename, delete."""
 
     def __init__(self, panel):
-        super().__init__(panel, f"Stored expressions — {panel.layer.name()}", icons.STORED)
+        super().__init__(panel, f"Stored Filter Expressions — {panel.layer.name()}",
+                         icons.STORED_FILTER)
         self.resize(620, 420)
         self.manager = panel.layer.storedExpressionManager()
         self.list = QTreeWidget()
@@ -383,7 +402,7 @@ class StoredExpressionsDialog(_Dialog):
         self.list.itemDoubleClicked.connect(lambda *_: self._apply())
         self.save_btn.setEnabled(bool(panel.expr_filter))
         self.save_btn.setToolTip(panel.expr_filter or "Set an expression filter first "
-                                 "(View > Advanced expression filter)")
+                                 "(View > Advanced Filter (Expression))")
         self._fill()
 
     def _fill(self):
@@ -441,7 +460,6 @@ class FormSearchDialog(_Dialog):
     def __init__(self, panel, select=False):
         title = "Select by value" if select else "Filter by form"
         super().__init__(panel, f"{title} — {panel.layer.name()}", icons.FORM_SELECT)
-        self.resize(560, 620)
         self.note("Fill in values (operators next to each field), then use the "
                   "buttons below the form to filter the table or change the map "
                   "selection.")
@@ -451,6 +469,7 @@ class FormSearchDialog(_Dialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.form)
         self.lay.addWidget(scroll, 1)
+        self.fit_form(scroll, self.form)
         self.form.filterExpressionSet.connect(self._on_filter)
         self.form.closed.connect(self.accept)
         if hasattr(self.form, "flashFeatures"):
@@ -474,7 +493,6 @@ class MultiEditDialog(_Dialog):
     def __init__(self, panel, fids):
         super().__init__(panel, f"Multi edit — {len(fids):,} features of "
                                 f"{panel.layer.name()}", icons.MULTI_EDIT)
-        self.resize(600, 640)
         self.fids = list(fids)
         self.note(f"Change the fields to set on all <b>{len(fids):,}</b> captured features. "
                   "Fields showing mixed values are left as they are unless you change them. "
@@ -492,6 +510,7 @@ class MultiEditDialog(_Dialog):
         self.apply_btn.clicked.connect(self._apply)
         box.rejected.connect(self.reject)
         self.lay.addWidget(box)
+        self.fit_form(scroll, self.form, least=(600, 420))
 
     def _apply(self):
         if self.form.save():
