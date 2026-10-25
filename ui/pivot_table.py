@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """
 Pivot Table - grouped summaries and cross tabs in a separate window.
 
@@ -449,7 +452,7 @@ class PivotPanel(QWidget):
     # ====================================================================
 
     def _build_ui(self):
-        m, t = self.metrics, self.theme
+        m = self.metrics
         root = QVBoxLayout(self)
         root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)

@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """Build the installable plugin zip:  python scripts/package.py
 
 Creates dist/attribute_table_studio-<version>.zip containing a top-level
@@ -13,7 +16,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGE = "attribute_table_studio"
 INCLUDE = ("__init__.py", "plugin.py", "metadata.txt", "icon.svg", "LICENSE",
-           "README.md", "core", "ui", "icons")
+           "ADDITIONAL_TERMS.md", "README.md", "core", "ui", "icons")
 
 
 def version():

@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """
 Attribute Explorer - the attribute table with attached column statistics,
 editing (shared with the layer's QGIS edit session), forms, calculations
@@ -176,8 +179,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         top.addSpacing(m.group_gap)
 
         # right aligned: View | Zoom | Selected only | Deselect | Select |
-        # Columns | Summary | Pivot Table | Clear filters | Export, then query
-        # and dock
+        # Go to field | Summary | Pivot Table | Clear filters | Columns |
+        # Export, then query and dock
         row = W.ButtonRow(m)
         row.add_stretch()
         self._build_view_select(row)
@@ -193,18 +196,20 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             m, icons.native(icons.DESELECT_LAYER), "Deselect features from the "
             "current layer\n(Select ▾ also deselects features from all layers)"))
         row.add(self.select_btn)
-        self.columns_btn = row.add(W.button(
-            m, "Columns", icons.native(icons.COLUMNS),
-            "Show, hide and reorder columns"))
+        self.field_box = row.add_widget(W.FieldFinder(t, m))
+        self.field_box.fields_provider = self._field_entries
+        self.field_box.fieldChosen.connect(self.go_to_field)
         self.summary_btn = row.add(W.button(
             m, "Summary: On", icons.native(icons.SUMMARY),
             "Show or hide the column statistics strip", checkable=True))
         self.pivot_btn = row.add(W.button(
             m, "Pivot Table", icons.tool(icons.PIVOT),
             "Summarise the filtered records in a Pivot Table"))
-        self.clear_btn = row.add(W.button(
-            m, "Clear filters", icons.with_badge(icons.FILTER, "x", t),
-            "Clear every column filter"))
+        self.clear_btn = row.add(W.square_button(
+            m, icons.with_badge(icons.FILTER, "x", t),
+            "Clear filters\nClear every column filter"))
+        self.columns_btn = row.add(W.square_button(
+            m, icons.native(icons.COLUMNS), "Columns\nShow, hide and reorder columns"))
         export_menu = QMenu(self)
         self.export_xlsx = export_menu.addAction(icons.native(icons.XLSX), "Excel (.xlsx)…")
         self.export_csv = export_menu.addAction(icons.native(icons.CSV), "CSV (.csv)…")
@@ -1452,6 +1457,52 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             flt = FL.ColumnFilter(cell.name, kind, "eq", F.display_value(raw))
         cell.set_filter(flt)
         self.refresh()
+
+    def _field_entries(self):
+        """Go to field: every field in table order, with its QGIS type
+        and whether its column is hidden."""
+        h = self.header
+        out = []
+        for visual in range(h.count()):
+            logical = h.logicalIndex(visual)
+            fld = self.model.fields[logical]
+            out.append((logical, fld.name(), fld.typeName() or fld.friendlyTypeString(),
+                        icons.field(self.model.kinds[logical], self.theme),
+                        h.isSectionHidden(logical), fld.alias()))
+        return out
+
+    def go_to_field(self, logical):
+        """Scroll the table so the field's column is in the middle (a
+        hidden column is shown first) and flash its heading."""
+        if self.layer is None or not 0 <= logical < len(self.model.fields):
+            return
+        if self.is_form_view():
+            self.set_form_view(False)
+        h = self.header
+        if h.isSectionHidden(logical):
+            h.setSectionHidden(logical, False)
+            h.relayout()
+            self._layout_timer.start()
+            self._profile_timer.start()
+        # after the layout has taken the column (and the scroll range) in
+        QTimer.singleShot(0, lambda: self._scroll_to_column(logical))
+
+    def _scroll_to_column(self, logical):
+        h = self.header
+        if self.layer is None or h.isSectionHidden(logical):
+            return
+        # the table updates its scroll range on a timer of its own: bring it
+        # up to date first, or a column just shown again is out of reach
+        self.view.updateGeometries()
+        bar = self.view.horizontalScrollBar()
+        # the column in the middle of the table (one wider than the table at
+        # its left edge); near either end, as close as the scroll goes
+        width = self.view.viewport().width()
+        left, size = h.sectionPosition(logical), h.sectionSize(logical)
+        target = left if size >= width else left + (size - width) // 2
+        bar.setValue(max(bar.minimum(), min(target, bar.maximum())))
+        h.flash(logical)
+        self.view.setFocus()
 
     def _hide_column(self, logical):
         self.header.setSectionHidden(logical, True)

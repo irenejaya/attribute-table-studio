@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """Regenerate the screenshots in docs/screenshots from a made-up dataset.
 
 Run with QGIS' Python, once per theme (QT_QPA_PLATFORM=offscreen works):
@@ -8,8 +11,9 @@ Run with QGIS' Python, once per theme (QT_QPA_PLATFORM=offscreen works):
 
 Every value is invented: random parcel IDs, land use, owner type, area,
 land value, storeys, year built, survey dates and two yes / no flags, on a
-grid of squares in a neutral spot of EPSG:3857.  dark_map_filter.png is
-made separately and is not touched.
+grid of squares in a neutral spot of EPSG:3857.  The dark run also draws
+dark_map_filter.png (the top row, then the map without and with the map
+filter).
 """
 
 import os
@@ -288,6 +292,64 @@ if THEME == "dark":
     H.settle(0.6)
     save(box, "dates", crop=(0, 0, 900, 400))
     box.close()
+
+    # map filter: the top row, then the map without and with it
+    from qgis.core import (QgsFillSymbol, QgsMapRendererCustomPainterJob,
+                           QgsMapSettings, QgsSingleSymbolRenderer)
+    from qgis.PyQt.QtCore import QRect
+    from qgis.PyQt.QtGui import QColor, QImage, QPainter
+    layer.setRenderer(QgsSingleSymbolRenderer(QgsFillSymbol.createSimple(
+        {"color": "#e8b931", "outline_color": "#5a4a10", "outline_width": "0.1"})))
+    extent = layer.extent()
+
+    def render():
+        ms = QgsMapSettings()
+        ms.setLayers([layer])
+        ms.setDestinationCrs(layer.crs())
+        ms.setOutputSize(QSize(560, 240))
+        ms.setExtent(extent.buffered(extent.width() * 0.04))
+        ms.setBackgroundColor(QColor("white"))
+        image = QImage(ms.outputSize(), QImage.Format.Format_ARGB32_Premultiplied)
+        image.fill(QColor("white"))
+        painter = QPainter(image)
+        job = QgsMapRendererCustomPainterJob(ms, painter)
+        job.start()
+        job.waitForFinished()
+        painter.end()
+        return image
+
+    def wrect(widget):
+        return QRect(widget.mapTo(win, QPoint(0, 0)), widget.size())
+
+    layer.removeSelection()
+    off = render()
+    ex.query_btn.setChecked(True)
+    H.wait_for(lambda: idle(ex))
+    H.settle(0.4)
+    on = render()
+    strip = win.grab(wrect(ex.view_btn).united(wrect(ex.dock_btn))
+                     .adjusted(-6, -6, 6, 6)).toImage()
+    gap, pad, cap = 20, 10, 22
+    width = max(strip.width(), off.width() * 2 + gap) + 2 * pad
+    sheet = QImage(width, pad + strip.height() + 12 + cap + off.height() + pad,
+                   QImage.Format.Format_ARGB32)
+    sheet.fill(QColor("#323232"))
+    painter = QPainter(sheet)
+    painter.drawImage(width - pad - strip.width(), pad, strip)
+    y = pad + strip.height() + 12
+    x0 = width - pad - (off.width() * 2 + gap)
+    painter.setPen(QColor("#e6e6e6"))
+    align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    painter.drawText(QRect(x0, y, off.width(), cap), align, "Map filter off — every feature")
+    painter.drawText(QRect(x0 + off.width() + gap, y, off.width(), cap), align,
+                     "Map filter on — only the filtered records")
+    painter.drawImage(x0, y + cap, off)
+    painter.drawImage(x0 + off.width() + gap, y + cap, on)
+    painter.end()
+    sheet.save(os.path.join(OUT, "dark_map_filter.png"))
+    print("saved", os.path.relpath(os.path.join(OUT, "dark_map_filter.png")))
+    ex.query_btn.setChecked(False)
+    H.wait_for(lambda: idle(ex))
 
 # Pivot Table
 pv = plugin.open_pivot(layer)

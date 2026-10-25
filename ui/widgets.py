@@ -1,4 +1,7 @@
 # -*- coding: utf-8 -*-
+# Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
+# Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
+# attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """
 Shared widgets, so every Attribute Table Studio tool looks and behaves the same.
 
@@ -18,14 +21,21 @@ Shared widgets, so every Attribute Table Studio tool looks and behaves the same.
   with a Cancel button while a job runs.
 - :class:`FieldChecklistDialog`: searchable field checklist used by
   "Columns" (Explorer) and "Field(s) to Compare" (Compare).
+- :class:`FieldFinder`: "Go to field…" box (Explorer): type to search the
+  fields, pick one to scroll the table to it.
 """
 
-from qgis.PyQt.QtCore import QPoint, QPointF, QRect, QSize, Qt, QTimer, pyqtSignal
-from qgis.PyQt.QtGui import QColor, QPainter, QPolygonF
+from qgis.PyQt.QtCore import (
+    QEvent, QModelIndex, QPoint, QPointF, QRect, QSize, Qt, QTimer, pyqtSignal,
+)
+from qgis.PyQt.QtGui import (
+    QColor, QFont, QFontMetrics, QPainter, QPolygonF, QStandardItem, QStandardItemModel,
+)
 from qgis.PyQt.QtWidgets import (
-    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFrame,
-    QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListWidget,
-    QListWidgetItem, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QAbstractItemView, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFrame,
+    QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListView, QListWidget,
+    QListWidgetItem, QSizePolicy, QStyle, QStyledItemDelegate, QToolButton,
+    QVBoxLayout, QWidget,
 )
 from qgis.gui import QgsMapLayerComboBox
 
@@ -375,6 +385,7 @@ class ButtonRow(QWidget):
         super().__init__(parent)
         self._metrics = metrics
         self._buttons = []
+        self._extras = []                # non-button widgets (search box)
         self._compact = False
         self._lay = QHBoxLayout(self)
         self._lay.setContentsMargins(0, 0, 0, 0)
@@ -388,6 +399,13 @@ class ButtonRow(QWidget):
         self._buttons.append(btn)
         self._lay.addWidget(btn)
         return btn
+
+    def add_widget(self, widget):
+        """A widget that is not a button (e.g. a search box): it keeps its
+        own size when the buttons turn icon-only."""
+        self._extras.append(widget)
+        self._lay.addWidget(widget)
+        return widget
 
     def add_spacing(self, px=None):
         self._lay.addSpacing(self._metrics.group_gap if px is None else px)
@@ -424,7 +442,9 @@ class ButtonRow(QWidget):
                 total += self._compact_width(b)
                 continue
             total += self._text_width(b)
-        visible = [b for b in self._buttons if not b.isHidden()]
+        extras = [w for w in self._extras if not w.isHidden()]
+        total += sum(w.sizeHint().width() for w in extras)
+        visible = [b for b in self._buttons if not b.isHidden()] + extras
         total += self._metrics.gap * max(len(visible) - 1, 0)
         return total
 
@@ -445,6 +465,9 @@ class ButtonRow(QWidget):
                 continue
             width += (b.sizeHint().width() if b.property("gtsKeepLabel")
                       else self._compact_width(b)) + self._metrics.gap
+        for w in self._extras:
+            if not w.isHidden():
+                width += w.minimumSizeHint().width() + self._metrics.gap
         return QSize(width, self._height())
 
     def resizeEvent(self, event):
@@ -783,3 +806,250 @@ class FieldChecklistDialog(QDialog):
 
     def ordered_names(self):
         return [i.text() for i in self._items()]
+
+
+# ============================================================================
+# GO TO FIELD
+# ============================================================================
+
+FIELD_LOGICAL = Qt.ItemDataRole.UserRole + 1     # logical index of the field
+FIELD_TYPE = Qt.ItemDataRole.UserRole + 2        # QGIS type name
+FIELD_HIDDEN = Qt.ItemDataRole.UserRole + 3      # column hidden in the table
+FIELD_SEARCH = Qt.ItemDataRole.UserRole + 4      # name and alias (search text)
+
+
+class _FieldDelegate(QStyledItemDelegate):
+    """A field row: type icon, name, and the QGIS type in small dim text."""
+
+    def __init__(self, theme, metrics, parent=None):
+        super().__init__(parent)
+        self.theme = theme
+        self.metrics = metrics
+
+    def sizeHint(self, option, index):
+        return QSize(200, self.metrics.control_h)
+
+    def paint(self, painter, option, index):
+        painter.save()
+        rect = option.rect
+        selected = bool(option.state & QStyle.StateFlag.State_Selected)
+        hidden = bool(index.data(FIELD_HIDDEN))
+        t = self.theme
+        if selected:
+            painter.fillRect(rect, QColor(t.selected))
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+        x = rect.left() + 8
+        if icon is not None:
+            icon.paint(painter, QRect(x, rect.center().y() - 7, 16, 16))
+        x += 24
+        kind = index.data(FIELD_TYPE) or ""
+        if hidden:
+            kind = f"hidden · {kind}" if kind else "hidden"
+        small = QFont(option.font)
+        small.setPointSizeF(max(6.0, option.font.pointSizeF() - 1.5))
+        kind_w = QFontMetrics(small).horizontalAdvance(kind)
+        right = rect.right() - 10
+        name_rect = QRect(x, rect.top(), max(10, right - kind_w - 12 - x), rect.height())
+        name = option.fontMetrics.elidedText(index.data(Qt.ItemDataRole.DisplayRole) or "",
+                                             Qt.TextElideMode.ElideRight, name_rect.width())
+        painter.setFont(option.font)
+        painter.setPen(QColor(t.selected_text if selected else (t.text_dim if hidden else t.text)))
+        painter.drawText(name_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, name)
+        painter.setFont(small)
+        painter.setPen(QColor(t.selected_text if selected else t.text_dim))
+        painter.drawText(QRect(right - kind_w, rect.top(), kind_w, rect.height()),
+                         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, kind)
+        painter.restore()
+
+
+class _FieldList(QListView):
+    """FieldFinder's drop-down list, with a footer (count and keys)."""
+
+    def __init__(self, theme, metrics):
+        super().__init__()
+        self.total = 0
+        self.footer_h = metrics.font_h + 10
+        self.setUniformItemSizes(True)
+        self.setMouseTracking(True)              # the row under the mouse lights up
+        self.viewport().setMouseTracking(True)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setViewportMargins(0, 0, 0, self.footer_h)
+        self.setStyleSheet(
+            f"QListView {{ background: {theme.card}; color: {theme.text}; "
+            f"border: 1px solid {theme.border}; outline: 0; }}"
+            f"QWidget#gtsFieldFooter {{ background: {theme.card}; "
+            f"border-top: 1px solid {theme.border_soft}; }}"
+            f"QWidget#gtsFieldFooter QLabel {{ color: {theme.text_dim}; }}")
+        self.footer = QWidget(self)
+        self.footer.setObjectName("gtsFieldFooter")
+        self.footer.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        row = QHBoxLayout(self.footer)
+        row.setContentsMargins(8, 0, 8, 0)
+        self.count_label = QLabel(self.footer)
+        row.addWidget(self.count_label)
+        row.addStretch(1)
+        self.keys_label = QLabel("↑↓ choose  •  Enter go", self.footer)
+        row.addWidget(self.keys_label)
+
+    def setModel(self, model):
+        super().setModel(model)
+        for signal in (model.modelReset, model.layoutChanged, model.rowsInserted,
+                       model.rowsRemoved):
+            signal.connect(self._update_count)
+
+    def mouseMoveEvent(self, event):
+        """Hovering makes the row current (blue, and what Enter picks), as
+        in QGIS's own drop-down lists."""
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        index = self.indexAt(pos)
+        if index.isValid() and index != self.currentIndex():
+            self.setCurrentIndex(index)
+        super().mouseMoveEvent(event)
+
+    def footer_width(self):
+        """Width the footer needs (count, keys, margins and a gap),
+        measured from the text so nothing is cut."""
+        for label in (self.count_label, self.keys_label):
+            label.ensurePolished()               # the style sheet's font, not the default
+        # the arrows and bullet come from a fallback font that Qt measures a
+        # little narrow: give the keys some room, or "Enter go" is cut
+        keys = self.keys_label.sizeHint().width() + 16
+        self.keys_label.setMinimumWidth(keys)
+        return self.count_label.sizeHint().width() + keys + 16 + 32
+
+    def _update_count(self, *_args):
+        shown = self.model().rowCount() if self.model() is not None else 0
+        noun = "field" if self.total == 1 else "fields"
+        self.count_label.setText(f"{self.total:,} {noun}" if shown == self.total
+                                 else f"{shown:,} of {self.total:,} {noun}")
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        r = self.contentsRect()
+        self.footer.setGeometry(r.left(), r.bottom() - self.footer_h + 1,
+                                r.width(), self.footer_h)
+        # the vertical scroll bar spans the whole height: keep the footer
+        # on top of its lower end, or it hides the end of "Enter go"
+        self.footer.raise_()
+
+
+class FieldFinder(QFrame):
+    """"Go to field…": type to search the fields (name or alias, anywhere
+    in it), pick one to jump to its column.  Looks like a filter cell; the
+    list shows the field type icon, the name and the QGIS type name."""
+
+    fieldChosen = pyqtSignal(int)               # logical index
+
+    def __init__(self, theme, metrics, parent=None):
+        super().__init__(parent)
+        self.setObjectName("gtsFilterCell")
+        self.theme = theme
+        self.metrics = metrics
+        # callable -> [(logical, name, type name, icon, hidden, alias)]
+        self.fields_provider = None
+        self.setFixedHeight(metrics.control_h)
+        self.setToolTip("Go to field\nType to search the fields, then pick one "
+                        "to scroll the table to its column")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(6, 0, 1, 0)
+        lay.setSpacing(0)
+        self.edit = QLineEdit(self)
+        self.edit.setFrame(False)
+        self.edit.setPlaceholderText("Go to field…")
+        self.edit.setClearButtonEnabled(True)
+        lay.addWidget(self.edit, 1)
+        self.arrow = QToolButton(self)
+        self.arrow.setObjectName("gtsOp")
+        self.arrow.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.arrow.setIcon(icons.glyph("chevron", theme.text_dim))
+        self.arrow.setIconSize(QSize(12, 12))
+        self.arrow.setToolTip("Show every field")
+        lay.addWidget(self.arrow)
+
+        self.model = QStandardItemModel(self)
+        self.list = _FieldList(theme, metrics)
+        self.completer = QCompleter(self.model, self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self.completer.setCompletionRole(FIELD_SEARCH)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
+        self.completer.setMaxVisibleItems(10)
+        self.completer.setPopup(self.list)
+        # after setPopup, which installs QCompleter's own item delegate
+        self.list.setItemDelegate(_FieldDelegate(theme, metrics, self.list))
+        self.completer.setWidget(self.edit)
+        self.completer.activated[QModelIndex].connect(self.choose)
+        self.edit.textEdited.connect(self.show_list)
+        self.arrow.clicked.connect(self._toggle)
+        self.edit.installEventFilter(self)
+
+    def sizeHint(self):
+        return QSize(155, self.metrics.control_h)
+
+    def minimumSizeHint(self):
+        return QSize(120, self.metrics.control_h)
+
+    def _fill(self):
+        self.model.clear()
+        entries = self.fields_provider() if self.fields_provider is not None else []
+        for logical, name, type_name, icon, hidden, alias in entries:
+            item = QStandardItem(name)
+            if icon is not None:
+                item.setIcon(icon)
+            item.setData(logical, FIELD_LOGICAL)
+            item.setData(type_name, FIELD_TYPE)
+            item.setData(bool(hidden), FIELD_HIDDEN)
+            item.setData(f"{name} {alias}" if alias else name, FIELD_SEARCH)
+            if alias:
+                item.setToolTip(f"{name} ({alias})")
+            item.setEditable(False)
+            self.model.appendRow(item)
+        self.list.total = self.model.rowCount()
+
+    def show_list(self, text=None):
+        """Open the list, filtered by *text* (every field when empty)."""
+        if not self.list.isVisible():
+            self._fill()
+        self.completer.setCompletionPrefix(self.edit.text() if text is None else text)
+        self.list._update_count()
+        width = max(self.width(), 270, self.list.footer_width())
+        rect = QRect(-self.edit.x(), 0, width,
+                     self.edit.height() + (self.height() - self.edit.height()) // 2 + 2)
+        self.completer.complete(rect)
+        if self.list.isVisible():
+            # QCompleter sizes the list for its rows; add the footer
+            self.list.resize(width, self.list.height() + self.list.footer_h)
+
+    def _toggle(self):
+        if self.list.isVisible():
+            self.list.hide()
+        else:
+            self.show_list()
+            self.edit.setFocus()
+
+    def choose(self, index):
+        logical = index.data(FIELD_LOGICAL)
+        self.list.hide()
+        self.edit.clear()
+        if logical is not None:
+            self.fieldChosen.emit(int(logical))
+
+    def eventFilter(self, obj, event):
+        if obj is self.edit and event.type() == QEvent.Type.KeyPress \
+                and not self.list.isVisible():
+            key = event.key()
+            if key in (Qt.Key.Key_Down, Qt.Key.Key_Up):
+                self.show_list()
+                return True
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and self.edit.text():
+                # Enter without the list: the first field that matches
+                self._fill()
+                self.completer.setCompletionPrefix(self.edit.text())
+                model = self.completer.completionModel()
+                if model.rowCount():
+                    self.choose(model.index(0, 0))
+                return True
+            if key == Qt.Key.Key_Escape and self.edit.text():
+                self.edit.clear()
+                return True
+        return super().eventFilter(obj, event)
