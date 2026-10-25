@@ -139,5 +139,5 @@ class SettingsDialog(QDialog):
             from qgis.gui import QgsConfigureShortcutsDialog, QgsGui
             dlg = QgsConfigureShortcutsDialog(self, QgsGui.shortcutsManager())
             dlg.exec()
-        except Exception:   # pragma: no cover - very old builds
-            pass
+        except (ImportError, AttributeError, TypeError):   # pragma: no cover
+            pass                         # no shortcut dialog in this build

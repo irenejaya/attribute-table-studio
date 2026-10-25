@@ -135,7 +135,8 @@ class Metrics:
         self.radius = 4
         bold = QFont(font)
         bold.setBold(True)
-        self.bold_fm = QFontMetrics(bold)
+        bold_fm = QFontMetrics(bold)
+        self.bold_fm = bold_fm
         self.fm = fm
         # heading sizes follow the QGIS font size (never smaller than body)
         base = font.pointSizeF() if font.pointSizeF() > 0 else 9.0

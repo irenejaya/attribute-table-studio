@@ -33,9 +33,10 @@ MSG_CRITICAL = Qgis.MessageLevel.Critical
 MSG_SUCCESS = Qgis.MessageLevel.Success
 
 # quick background jobs: cancellable, no prompt, kept out of the task list
-TASK_QUIET = QgsTask.CanCancel | QgsTask.CancelWithoutPrompt | QgsTask.Hidden
+TASK_QUIET = (QgsTask.Flag.CanCancel | QgsTask.Flag.CancelWithoutPrompt
+              | QgsTask.Flag.Hidden)
 # long jobs the user may want to watch in the QGIS task manager
-TASK_VISIBLE = QgsTask.CanCancel | QgsTask.CancelWithoutPrompt
+TASK_VISIBLE = QgsTask.Flag.CanCancel | QgsTask.Flag.CancelWithoutPrompt
 
 
 def enum_int(value):
