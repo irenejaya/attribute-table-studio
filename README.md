@@ -258,6 +258,8 @@ python tests/qgis/test_filters_qgis.py        # expressions on memory + GeoPacka
 python tests/qgis/test_suite_qgis.py          # end-to-end: all three tools
 python tests/qgis/test_compare_regression.py  # Compare exports == v1.1
 python tests/qgis/test_editing_qgis.py        # Explorer editing, forms, scopes, menus
+python tests/qgis/make_screenshots.py docs/screenshots dark   # README images (made-up data)
+python tests/qgis/make_screenshots.py docs/screenshots light
 ```
 
 All suites pass on QGIS 4.2 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).

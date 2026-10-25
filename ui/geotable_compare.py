@@ -854,6 +854,7 @@ class GeoTableCompareDialog(QWidget):
         scroll.setWidget(self.validation_label)
         scroll.setObjectName("validationScroll")
         vf.addWidget(scroll)
+        self.validation_scroll = scroll
         self.validation_frame.setVisible(False)
         grid.addWidget(self.validation_frame, 4, 0, 1, 5)
 
@@ -1566,6 +1567,16 @@ class GeoTableCompareDialog(QWidget):
     # PRE-FLIGHT VALIDATION
     # ====================================================================
 
+    def _fit_validation(self):
+        """Keep the report readable when the results table is full (up to
+        130 px, then it scrolls) instead of squeezed to a sliver."""
+        scroll, label = self.validation_scroll, self.validation_label
+        width = max(scroll.viewport().width(), self.validation_frame.width() - 24, 200)
+        needed = (label.heightForWidth(width) if label.hasHeightForWidth()
+                  else label.sizeHint().height())
+        scroll.setMinimumHeight(min(scroll.maximumHeight(),
+                                    max(needed, label.fontMetrics().height()) + 2))
+
     def validate_data(self):
         """Run pre-flight checks and display results inline."""
         old_layer = self.old_table_combo.currentLayer()
@@ -1660,6 +1671,7 @@ class GeoTableCompareDialog(QWidget):
         )
         self.validation_label.setText("<br>".join(html_parts))
         self.validation_frame.setVisible(True)
+        self._fit_validation()
         self.clear_validation_btn.setEnabled(True)
 
         if err_msgs:

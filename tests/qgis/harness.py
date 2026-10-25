@@ -156,29 +156,29 @@ LAND_USES = (["RESIDENTIAL"] * 93 + ["INDUSTRIAL"] * 4 + ["COMMERCIAL"] * 2
              + ["RURAL"] + ["OTHER"])
 
 
-def demo_layer(n=7411, seed=7, path=None, name="Parcels flood results"):
-    """GeoPackage of n square parcels with flood statistics."""
+def demo_layer(n=7411, seed=7, path=None, name="Sample parcels"):
+    """GeoPackage of n square parcels with made-up attributes (random IDs,
+    land use, scores, dates, flags) in a neutral spot of EPSG:3857."""
     from qgis.core import (QgsFeature, QgsGeometry, QgsPointXY, QgsProject,
                            QgsVectorFileWriter, QgsVectorLayer)
     from qgis.PyQt.QtCore import QDate
     rnd = random.Random(seed)
     mem = QgsVectorLayer(
-        "Polygon?crs=EPSG:28355"
-        "&field=PARCEL_VIEW_PFI:string(20)&field=PARCEL_MASTER_FID:integer"
-        "&field=LAND_USE_TYPE:string(30)&field=FL_1_PCT_MAX:double(10,2)"
-        "&field=FL_1_PCT_MIN:double(10,2)&field=FL_2_PCT:double(10,2)"
-        "&field=FL_5_PCT:double(10,2)&field=SURVEY_DATE:date"
-        "&field=IN_FLOOD_ZONE:boolean&field=ZONE_CODE:integer",
+        "Polygon?crs=EPSG:3857"
+        "&field=PARCEL_ID:string(20)&field=OWNER_ID:integer"
+        "&field=LAND_USE:string(30)&field=SCORE_MAX:double(10,2)"
+        "&field=SCORE_MIN:double(10,2)&field=SCORE_2Y:double(10,2)"
+        "&field=SCORE_5Y:double(10,2)&field=SURVEY_DATE:date"
+        "&field=IS_VACANT:boolean&field=ZONE_CODE:integer",
         name, "memory")
     feats = []
     for i in range(n):
         f = QgsFeature(mem.fields())
-        pfi = str(rnd.choice([2200000, 2450000, 3500000, 4070000, 4300000,
-                              421480000]) + rnd.randint(0, 9999))
+        # made-up IDs; some repeat on purpose (Compare's duplicate check)
+        pid = "P-{:06d}".format(rnd.choice([11, 12, 13, 14, 15, 16]) * 10000
+                                + rnd.randint(0, 9999))
         if i < 12:
-            pfi = ["421481771", "4079219", "4302955", "2206867", "3536545",
-                   "421498140", "2457434", "2457440", "2457808", "2457792",
-                   "4347804", "4125936"][i]
+            pid = "P-{:06d}".format(170001 + i)
         base = rnd.choice([rnd.gauss(38, 6), rnd.gauss(59, 3), rnd.gauss(88, 4)])
         base = max(26.43, min(99.21, base))
         lu = rnd.choice(LAND_USES)
@@ -188,13 +188,13 @@ def demo_layer(n=7411, seed=7, path=None, name="Parcels flood results"):
             lu = "COMMERCIAL"
         d = QDate(2023, 1, 1).addDays(rnd.randint(0, 600))
         f.setAttributes([
-            pfi, None, lu, round(base, 2), round(base - rnd.random(), 2),
+            pid, None, lu, round(base, 2), round(base - rnd.random(), 2),
             round(base - rnd.random() * 0.1, 2),
             round(base - rnd.random() * 0.3, 2) if rnd.random() > .3 else 0.0,
             d if rnd.random() > .05 else None,
             rnd.random() > .4 if rnd.random() > .02 else None,
             rnd.choice([1, 2, 2, 3, 3, 3, 4, 5])])
-        x, y = 320000 + (i % 100) * 30, 5810000 + (i // 100) * 30
+        x, y = 10000 + (i % 100) * 30, 10000 + (i // 100) * 30
         f.setGeometry(QgsGeometry.fromPolygonXY([[
             QgsPointXY(x, y), QgsPointXY(x + 25, y), QgsPointXY(x + 25, y + 25),
             QgsPointXY(x, y + 25), QgsPointXY(x, y)]]))
@@ -277,7 +277,7 @@ def demo_updated_layer(base, n_added=12, n_deleted=5, n_modified=28, seed=11,
     layer = QgsVectorLayer(path + "|layername=parcels", name, "ogr")
     feats = list(layer.getFeatures())
     layer.startEditing()
-    idx = layer.fields().indexOf("FL_1_PCT_MAX")
+    idx = layer.fields().indexOf("SCORE_MAX")
     for f in rnd.sample(feats[20:], n_modified):
         layer.changeAttributeValue(f.id(), idx, round(f[idx] + rnd.uniform(.1, 2), 2))
     for f in feats[:3]:
@@ -287,10 +287,10 @@ def demo_updated_layer(base, n_added=12, n_deleted=5, n_modified=28, seed=11,
     layer.deleteFeatures([f.id() for f in feats[-n_deleted:]])
     for i in range(n_added):
         f = QgsFeature(layer.fields())
-        f.setAttribute("PARCEL_VIEW_PFI", str(995001 + i))
-        f.setAttribute("LAND_USE_TYPE", "COMMERCIAL")
-        f.setAttribute("FL_1_PCT_MAX", 57.64)
-        x, y = 290000 + i * 30, 5800000
+        f.setAttribute("PARCEL_ID", "P-{:06d}".format(990001 + i))
+        f.setAttribute("LAND_USE", "COMMERCIAL")
+        f.setAttribute("SCORE_MAX", 57.64)
+        x, y = 7000 + i * 30, 9000
         f.setGeometry(QgsGeometry.fromPolygonXY([[
             QgsPointXY(x, y), QgsPointXY(x + 25, y), QgsPointXY(x + 25, y + 25),
             QgsPointXY(x, y + 25), QgsPointXY(x, y)]]))

@@ -33,7 +33,7 @@ def run_compare(cls, iface, base, new, geom, path):
     d = cls(iface)
     d.old_table_combo.setLayer(base)
     d.new_table_combo.setLayer(new)
-    d.join_field_combo.setCurrentIndex(d.join_field_combo.findText("PARCEL_VIEW_PFI"))
+    d.join_field_combo.setCurrentIndex(d.join_field_combo.findText("PARCEL_ID"))
     d.geom_compare_cb.setChecked(geom)
     d.compare_tables()
     d.results_table.selectRow(0)

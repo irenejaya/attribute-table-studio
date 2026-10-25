@@ -77,8 +77,8 @@ class EditingTests(unittest.TestCase):
         self.iface.setActiveLayer(self.layer)
         self.panel = self.plugin.open_explorer(self.layer)
         settle(self.panel)
-        self.fl = self.layer.fields().indexOf("FL_1_PCT_MAX")
-        self.lu = self.layer.fields().indexOf("LAND_USE_TYPE")
+        self.fl = self.layer.fields().indexOf("SCORE_MAX")
+        self.lu = self.layer.fields().indexOf("LAND_USE")
 
     def tearDown(self):
         layer = self.layer
@@ -164,7 +164,7 @@ class EditingTests(unittest.TestCase):
         ASK.answers = ["discard"]
         b.edit_btn.click()
         self.assertFalse(self.layer.isEditable())
-        self.assertNotEqual(self.layer.getFeature(fid)["LAND_USE_TYPE"], "OTHER")
+        self.assertNotEqual(self.layer.getFeature(fid)["LAND_USE"], "OTHER")
 
     def test_03_cell_edit_undo_redo_save(self):
         p = self.panel
@@ -174,21 +174,21 @@ class EditingTests(unittest.TestCase):
         idx = p.model.index(row, self.fl)
         self.assertTrue(p.model.flags(idx) & Qt.ItemFlag.ItemIsEditable)
         self.assertTrue(p.model.setData(idx, 12.5))
-        self.assertEqual(self.layer.getFeature(fid)["FL_1_PCT_MAX"], 12.5)
+        self.assertEqual(self.layer.getFeature(fid)["SCORE_MAX"], 12.5)
         settle(p)
         self.assertTrue(p.model.is_dirty(fid, self.fl))
         self.assertTrue(p.edit_bar.save_btn.isEnabled())
         self.assertEqual(p.edit.counts()["cells"], 1)
         p.edit.undo()
-        self.assertNotEqual(self.layer.getFeature(fid)["FL_1_PCT_MAX"], 12.5)
+        self.assertNotEqual(self.layer.getFeature(fid)["SCORE_MAX"], 12.5)
         p.edit.redo()
-        self.assertEqual(self.layer.getFeature(fid)["FL_1_PCT_MAX"], 12.5)
+        self.assertEqual(self.layer.getFeature(fid)["SCORE_MAX"], 12.5)
         self.assertTrue(p.save_edits())
         self.assertTrue(self.layer.isEditable())             # stays editing
         self.assertFalse(self.layer.isModified())
         saved = next(self.layer.dataProvider().getFeatures(
             QgsFeatureRequest().setFilterFid(fid)))
-        self.assertEqual(saved["FL_1_PCT_MAX"], 12.5)
+        self.assertEqual(saved["SCORE_MAX"], 12.5)
         settle(p)
         self.assertFalse(p.model.is_dirty(fid, self.fl))
         # profiles use the saved / unsaved values (12.5 is the new minimum)
@@ -200,7 +200,7 @@ class EditingTests(unittest.TestCase):
         layer = self.layer
         layer.setFieldConstraint(self.lu, QgsFieldConstraints.Constraint.ConstraintNotNull,
                                  QgsFieldConstraints.ConstraintStrength.ConstraintStrengthHard)
-        layer.addExpressionField('"FL_1_PCT_MAX" * 2', QgsField("DOUBLE_MAX", D._MT.Double))
+        layer.addExpressionField('"SCORE_MAX" * 2', QgsField("DOUBLE_MAX", D._MT.Double))
         settle(p)
         self.start()
         rejected = []
@@ -208,7 +208,7 @@ class EditingTests(unittest.TestCase):
         idx = p.model.index(0, self.lu)
         before = p.model.raw_value(0, self.lu)
         self.assertFalse(p.model.setData(idx, None))
-        self.assertTrue(rejected and "LAND_USE_TYPE" in rejected[-1])
+        self.assertTrue(rejected and "LAND_USE" in rejected[-1])
         self.assertEqual(p.model.raw_value(0, self.lu), before)
         virtual = layer.fields().indexFromName("DOUBLE_MAX")
         fid_idx = layer.fields().indexFromName("fid")
@@ -253,7 +253,7 @@ class EditingTests(unittest.TestCase):
         p.set_view_scope("all")
         settle(p)
         # delete selected, some of them hidden by a filter
-        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq",
                                                            "RESIDENTIAL"))
         p.refresh()
         settle(p)
@@ -286,7 +286,7 @@ class EditingTests(unittest.TestCase):
     def test_08_new_and_delete_fields(self):
         p = self.panel
         cells = p.header.cells
-        cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
         p.refresh()
         settle(p)
         self.start()
@@ -298,12 +298,12 @@ class EditingTests(unittest.TestCase):
         settle(p)
         self.assertGreaterEqual(self.layer.fields().indexFromName("NOTES"), 0)
         # unrelated filters survive the schema change
-        lu = self.layer.fields().indexFromName("LAND_USE_TYPE")
+        lu = self.layer.fields().indexFromName("LAND_USE")
         self.assertIsNotNone(p.header.cells[lu].current_filter())
         dlg = D.NewFieldDialog(p)
         dlg.virtual.setChecked(True)
         dlg.name_edit.setText("HALF_MAX")
-        dlg.expr.setExpression('"FL_1_PCT_MAX" / 2')
+        dlg.expr.setExpression('"SCORE_MAX" / 2')
         dlg._apply()
         settle(p)
         virtual = self.layer.fields().indexFromName("HALF_MAX")
@@ -381,7 +381,7 @@ class EditingTests(unittest.TestCase):
         """Not filtered: "Update All" and "Update Selected", as in QGIS."""
         p, layer = self.panel, self.layer
         self.start()
-        q = self._quick("FL_1_PCT_MAX", '"FL_1_PCT_MAX" + 1000')
+        q = self._quick("SCORE_MAX", '"SCORE_MAX" + 1000')
         self.assertEqual(q.run_btn.text(), "Update All")
         self.assertFalse(q.selected_btn.isEnabled())            # nothing selected
         self.assertTrue(q.run_btn.isEnabled())
@@ -389,7 +389,7 @@ class EditingTests(unittest.TestCase):
         layer.selectByIds(ids)
         H.settle(0.1)
         self.assertTrue(q.selected_btn.isEnabled())
-        before = {f: f_["FL_1_PCT_MAX"] for f_ in layer.getFeatures() for f in [f_.id()]}
+        before = {f: f_["SCORE_MAX"] for f_ in layer.getFeatures() for f in [f_.id()]}
         q.preview_btn.click()                                   # a toggle
         self.assertTrue(q.preview.isVisibleTo(p))
         q.preview_btn.click()
@@ -398,15 +398,15 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(q.preview.isVisibleTo(p))
         self.assertIn(f"Update All: {layer.featureCount():,} records", q.preview_title.text())
         self.assertIn("Update Selected: 4", q.preview_title.text())
-        self.assertEqual({f.id(): f["FL_1_PCT_MAX"] for f in layer.getFeatures()}, before)
+        self.assertEqual({f.id(): f["SCORE_MAX"] for f in layer.getFeatures()}, before)
         depth = layer.undoStack().count()
         q.selected_btn.click()
         self.assertEqual(layer.undoStack().count(), depth + 1)  # one undo step
-        after = {f.id(): f["FL_1_PCT_MAX"] for f in layer.getFeatures()}
+        after = {f.id(): f["SCORE_MAX"] for f in layer.getFeatures()}
         for f, v in before.items():
             self.assertAlmostEqual(after[f], v + 1000 if f in ids else v)
         p.edit.undo()
-        self.assertEqual({f.id(): f["FL_1_PCT_MAX"] for f in layer.getFeatures()}, before)
+        self.assertEqual({f.id(): f["SCORE_MAX"] for f in layer.getFeatures()}, before)
         # Update All: every feature, @row_number in the layer's order
         q = self._quick("ZONE_CODE", "@row_number")
         q.run_btn.click()
@@ -419,10 +419,10 @@ class EditingTests(unittest.TestCase):
         ids = p.model.fids[:3]
         self.layer.selectByIds(ids)
         dlg = D.MultiEditDialog(p, ids)
-        dlg.form.changeAttribute("LAND_USE_TYPE", "MIXED")
+        dlg.form.changeAttribute("LAND_USE", "MIXED")
         dlg._apply()
         for fid in ids:
-            self.assertEqual(self.layer.getFeature(fid)["LAND_USE_TYPE"], "MIXED")
+            self.assertEqual(self.layer.getFeature(fid)["LAND_USE"], "MIXED")
 
     def test_12_form_view(self):
         p = self.panel
@@ -432,10 +432,10 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(p.is_form_view())
         self.assertEqual(p.form_view.current, fid)
         self.start()
-        p.form_view.form.changeAttribute("LAND_USE_TYPE", "FORM EDIT")
+        p.form_view.form.changeAttribute("LAND_USE", "FORM EDIT")
         p.set_form_view(False)                               # writes the form
         self.assertFalse(p.is_form_view())
-        self.assertEqual(self.layer.getFeature(fid)["LAND_USE_TYPE"], "FORM EDIT")
+        self.assertEqual(self.layer.getFeature(fid)["LAND_USE"], "FORM EDIT")
         settle(p)
         row = p.model.row_of(fid)
         self.assertEqual(p.view.currentIndex().row(), row)
@@ -466,38 +466,38 @@ class EditingTests(unittest.TestCase):
         # failing constraints
         layer.setFieldConstraint(self.lu, QgsFieldConstraints.Constraint.ConstraintExpression,
                                  QgsFieldConstraints.ConstraintStrength.ConstraintStrengthSoft)
-        layer.setConstraintExpression(self.lu, '"LAND_USE_TYPE" <> \'RURAL\'')
+        layer.setConstraintExpression(self.lu, '"LAND_USE" <> \'RURAL\'')
         p.set_view_scope("failing")
         settle(p)
-        rural = sum(1 for f in layer.getFeatures() if f["LAND_USE_TYPE"] == "RURAL")
+        rural = sum(1 for f in layer.getFeatures() if f["LAND_USE"] == "RURAL")
         self.assertEqual(len(p.model.fids), rural)
         self.assertIn(f"(0 hard, {rural} soft)", p.scope_label.fullText())
 
     def test_14_expression_filter_and_stored(self):
         p = self.panel
         total = self.layer.featureCount()
-        p.set_expression_filter('"FL_1_PCT_MAX" > 80')
+        p.set_expression_filter('"SCORE_MAX" > 80')
         settle(p)
         a = len(p.model.fids)
         self.assertLess(a, total)
         self.assertIn("Expression", p.scope_label.toolTip())
         self.assertTrue(p.expr_chip.isVisibleTo(p))
-        p.set_expression_filter('"LAND_USE_TYPE" = \'RESIDENTIAL\'', "and")
+        p.set_expression_filter('"LAND_USE" = \'RESIDENTIAL\'', "and")
         settle(p)
         self.assertLessEqual(len(p.model.fids), a)
-        p.set_expression_filter('"FL_1_PCT_MAX" < 10', "or")
+        p.set_expression_filter('"SCORE_MAX" < 10', "or")
         settle(p)
         manager = self.layer.storedExpressionManager()
         dlg = D.StoredExpressionsDialog(p)
         before = len(manager.storedExpressions())
-        manager.addStoredExpression("high", '"FL_1_PCT_MAX" > 90')
+        manager.addStoredExpression("high", '"SCORE_MAX" > 90')
         dlg._fill()
         self.assertEqual(dlg.list.topLevelItemCount(), before + 1)
         dlg.list.setCurrentItem(dlg.list.topLevelItem(dlg.list.topLevelItemCount() - 1))
         dlg._apply()
         p.set_expression_filter(dlg.applied)
         settle(p)
-        self.assertEqual(p.expr_filter, '"FL_1_PCT_MAX" > 90')
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 90')
         p.clear_filters()
         settle(p)
         self.assertIsNone(p.expr_filter)
@@ -527,7 +527,7 @@ class EditingTests(unittest.TestCase):
         self.assertNotIn("Invert Selection (Whole Layer)", shown)
         self.assertNotIn("Select All Features (Whole Layer)", shown)
         p.header.cells[self.lu].set_filter(
-            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
         p.refresh()
         settle(p)
         shown = menu_texts()
@@ -546,7 +546,7 @@ class EditingTests(unittest.TestCase):
         p.clear_filters()
         settle(p)
         # sort by expression (descending)
-        p.sort_expr = ('"FL_1_PCT_MAX" * -1', False)
+        p.sort_expr = ('"SCORE_MAX" * -1', False)
         p.refresh(sort_only=True)
         settle(p)
         values = [p.model.raw_value(r, self.fl) for r in range(5)]
@@ -561,7 +561,7 @@ class EditingTests(unittest.TestCase):
 
     def test_16_conditional_formatting(self):
         p = self.panel
-        style = QgsConditionalStyle('"FL_1_PCT_MAX" > 50')
+        style = QgsConditionalStyle('"SCORE_MAX" > 50')
         style.setBackgroundColor(QColor("#123456"))
         self.layer.conditionalStyles().setRowStyles([style])
         H.settle(0.1)
@@ -593,7 +593,7 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(view.event(override))
         self.assertTrue(override.isAccepted())
         QTest.keyClick(view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
-        self.assertNotEqual(self.layer.getFeature(fid)["FL_1_PCT_MAX"], 3.5)
+        self.assertNotEqual(self.layer.getFeature(fid)["SCORE_MAX"], 3.5)
         # Ctrl+S saves the layer while editing (accepted at the panel)
         p.model.setData(p.model.index(2, self.fl), 4.5)
         save = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_S,
@@ -621,7 +621,7 @@ class EditingTests(unittest.TestCase):
     def test_19_map_filter_frozen_while_editing(self):
         p = self.panel
         cell = p.header.cells[self.lu]
-        cell.set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        cell.set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
         p.refresh()
         settle(p)
         p.query_btn.setChecked(True)
@@ -631,7 +631,7 @@ class EditingTests(unittest.TestCase):
         self.start()
         self.assertFalse(p.query_btn.isEnabled())
         self.assertIn("frozen", p.query_btn.toolTip())
-        cell.set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "INDUSTRIAL"))
+        cell.set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "INDUSTRIAL"))
         p.refresh()
         settle(p)
         self.assertEqual(self.layer.subsetString(), frozen)    # unchanged
@@ -648,7 +648,7 @@ class EditingTests(unittest.TestCase):
         reopened before that takes the map filter over."""
         p, layer = self.panel, self.layer
         p.header.cells[self.lu].set_filter(
-            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
         p.refresh()
         settle(p)
         p.query_btn.setChecked(True)
@@ -696,8 +696,8 @@ class EditingTests(unittest.TestCase):
                      "Copy Cell Value", "Set Cell to NULL", "Review Unsaved Changes…",
                      "Layer Field Properties…", "Open Native Attribute Table", "Help"):
             self.assertIn(text, texts)
-        for text in ("Sort FL_1_PCT_MAX Ascending", "Autosize This Column",
-                     "Set Column Width…", "Calculate FL_1_PCT_MAX…"):
+        for text in ("Sort SCORE_MAX Ascending", "Autosize This Column",
+                     "Set Column Width…", "Calculate SCORE_MAX…"):
             self.assertIn(text, shown)
 
     def test_22_cell_editor_widgets(self):
@@ -710,24 +710,24 @@ class EditingTests(unittest.TestCase):
         delegate = view.itemDelegate()
         idx = p.model.index(1, self.lu)
         fid = p.model.fid(1)
-        before = layer.getFeature(fid)["LAND_USE_TYPE"]
+        before = layer.getFeature(fid)["LAND_USE"]
         view.setCurrentIndex(idx)
         view.edit(idx)
         H.settle(0.05)
         editor = view.indexWidget(idx)
         self.assertIsNotNone(editor)                 # the field's QGIS widget
         wrapper = delegate._wrappers[sip.unwrapinstance(editor)][0]
-        self.assertEqual(wrapper.field().name(), "LAND_USE_TYPE")
+        self.assertEqual(wrapper.field().name(), "LAND_USE")
         wrapper.setValues(None, [])
         QTest.keyClick(editor, Qt.Key.Key_Return)    # hard constraint: stays open
         H.settle(0.05)
         self.assertEqual(view.state(), QAbstractItemView.State.EditingState)
-        self.assertEqual(layer.getFeature(fid)["LAND_USE_TYPE"], before)
+        self.assertEqual(layer.getFeature(fid)["LAND_USE"], before)
         wrapper.setValues("TYPED", [])
         view.commit_editor()
         H.settle(0.1)
         self.assertNotEqual(view.state(), QAbstractItemView.State.EditingState)
-        self.assertEqual(layer.getFeature(fid)["LAND_USE_TYPE"], "TYPED")
+        self.assertEqual(layer.getFeature(fid)["LAND_USE"], "TYPED")
         self.assertFalse(delegate._wrappers)         # wrapper released with the editor
         # Escape cancels only this cell
         view.edit(p.model.index(2, self.lu))
@@ -736,8 +736,8 @@ class EditingTests(unittest.TestCase):
         delegate._wrappers[sip.unwrapinstance(editor)][0].setValues("CANCELLED", [])
         QTest.keyClick(editor, Qt.Key.Key_Escape)
         H.settle(0.05)
-        self.assertNotEqual(layer.getFeature(p.model.fid(2))["LAND_USE_TYPE"], "CANCELLED")
-        self.assertEqual(layer.getFeature(fid)["LAND_USE_TYPE"], "TYPED")
+        self.assertNotEqual(layer.getFeature(p.model.fid(2))["LAND_USE"], "CANCELLED")
+        self.assertEqual(layer.getFeature(fid)["LAND_USE"], "TYPED")
 
     # ---- Quick update: QGIS's rules for what is updated --------------------
     def test_23_quick_update_filtered_without_query(self):
@@ -745,7 +745,7 @@ class EditingTests(unittest.TestCase):
         only the shown records, "Update Selected" every selected feature,
         and once the filters are cleared "Update All" reaches every record."""
         p, layer = self.panel, self.layer
-        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq",
                                                            "RESIDENTIAL"))
         p.refresh()
         settle(p)
@@ -779,7 +779,7 @@ class EditingTests(unittest.TestCase):
         from qgis.PyQt.QtWidgets import QCheckBox
         p, layer = self.panel, self.layer
         everything = set(layer.allFeatureIds())
-        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq",
                                                            "RESIDENTIAL"))
         p.refresh()
         settle(p)
@@ -790,7 +790,7 @@ class EditingTests(unittest.TestCase):
         self.start()
         # a narrower table filter while editing: Update Filtered stays inside it
         fl = p.header.cells[self.fl]
-        fl.set_filter(FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "gt", "80"))
+        fl.set_filter(FL.ColumnFilter("SCORE_MAX", F.REAL, "gt", "80"))
         p.refresh()
         settle(p)
         narrower = set(p.model.fids)
@@ -845,10 +845,10 @@ class EditingTests(unittest.TestCase):
         layer.selectByIds([fid])
         H.settle(0.1)
         cases = [("P2", "0.125", 0.13),                    # double(10,2); Python round: 0.12
-                 ("FL_1_PCT_MAX", "0.125", 0.125),         # no precision: not rounded
+                 ("SCORE_MAX", "0.125", 0.125),         # no precision: not rounded
                  ("ZONE_CODE", "2.5", 3),                   # integer; Python round: 2
                  ("ZONE_CODE", "'abc'", None),              # cannot convert: NULL
-                 ("PARCEL_VIEW_PFI", "'ABCDEFGHIJKLMNOPQRSTUVWXYZ'", "ABCDEFGHIJKLMNOPQRST")]
+                 ("PARCEL_ID", "'ABCDEFGHIJKLMNOPQRSTUVWXYZ'", "ABCDEFGHIJKLMNOPQRST")]
         for field, expression, expected in cases:
             q = self._quick(field, expression)
             q.selected_btn.click()
@@ -1019,12 +1019,12 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(clip.text().startswith("Bin\tRecords\tShare\n"))
         acts["Everything"].trigger()
         text = clip.text()
-        for part in (f"Layer\t{self.layer.name()}", "Field\tFL_1_PCT_MAX (Decimal)",
+        for part in (f"Layer\t{self.layer.name()}", "Field\tSCORE_MAX (Decimal)",
                      "Active filters\tNone", "Statistic\tValue\tShare", "Bin\tRecords\tShare"):
             self.assertIn(part, text)
         pop.close()
         # a true/false column has no distribution table
-        bool_idx = self.layer.fields().indexOf("IN_FLOOD_ZONE")
+        bool_idx = self.layer.fields().indexOf("IS_VACANT")
         pop = self._open_details(bool_idx)
         acts = {a.text(): a for a in pop.copy_menu.actions()}
         self.assertFalse(acts["Distribution Table"].isEnabled())
@@ -1043,7 +1043,7 @@ class EditingTests(unittest.TestCase):
         QFileDialog.getSaveFileName = staticmethod(
             lambda *a, **k: (os.path.join(folder, target["name"]), ""))
         p = self.panel
-        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq",
                                                            "RESIDENTIAL"))
         p.refresh()
         settle(p)
@@ -1059,7 +1059,7 @@ class EditingTests(unittest.TestCase):
             self.assertEqual(wb.sheetnames, ["Summary", "Distribution"])
             summary = {r[0]: r[1:] for r in wb["Summary"].iter_rows(values_only=True) if r[0]}
             self.assertEqual(summary["Layer"][0], self.layer.name())
-            self.assertIn("LAND_USE_TYPE", summary["Active filters"][0])
+            self.assertIn("LAND_USE", summary["Active filters"][0])
             prof = p.profiles[self.fl]
             self.assertEqual(summary["Records in scope"][0], prof.count)
             self.assertAlmostEqual(summary["Non-NULL"][1], prof.non_null / prof.count)
