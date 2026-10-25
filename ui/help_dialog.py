@@ -165,9 +165,9 @@ turn it off. An explorer closed during editing gives the layer its own
 filter back as soon as editing stops.</p>
 <h4>Columns, sorting, export</h4>
 <p><b>Go to field</b> in the top row: type part of a field name and pick
-it (or press Enter for the first match) to scroll the table to that column;
-its heading is highlighted for a moment, and a hidden column is shown
-again. The list shows each field's type icon, name and QGIS type.</p>
+it (or press Enter for the first match) to scroll that column to the middle
+of the table; its heading is highlighted for a moment, and a hidden column
+is shown again. The list shows each field's type icon, name and QGIS type.</p>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use the
 <b>Columns</b> icon to show, hide and reorder; the layout is saved with the

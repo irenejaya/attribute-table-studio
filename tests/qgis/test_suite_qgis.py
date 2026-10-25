@@ -820,14 +820,19 @@ class SuiteTests(unittest.TestCase):
         box.show_list("score")
         self.assertEqual(model.rowCount(), 4)
         self.assertIn(f"4 of {fields.count()} fields", box.list.count_label.text())
-        # choosing: the hidden column is shown again, scrolled to the left
-        # edge and flashed; the box clears
+        # choosing: the hidden column is shown again, scrolled to the middle
+        # (as near as the scroll goes) and flashed; the box clears
         box.choose(item("SCORE_5Y"))
         H.settle(0.2)
         h, bar = panel.header, panel.view.horizontalScrollBar()
+        half = panel.view.viewport().width() // 2
+
+        def middle(logical):
+            want = h.sectionPosition(logical) + h.sectionSize(logical) // 2 - half
+            return max(0, min(want, bar.maximum()))
         self.assertFalse(h.isSectionHidden(target))
         self.assertGreater(bar.value(), 0)
-        self.assertEqual(bar.value(), min(h.sectionPosition(target), bar.maximum()))
+        self.assertLessEqual(abs(bar.value() - middle(target)), 1)
         self.assertTrue(h._flash.isVisible())
         self.assertEqual(box.edit.text(), "")
         self.assertFalse(box.list.isVisible())
@@ -837,7 +842,14 @@ class SuiteTests(unittest.TestCase):
         QTest.keyClick(box.edit, Qt.Key.Key_Return)
         H.settle(0.2)
         lu = fields.indexOf("LAND_USE")
-        self.assertEqual(bar.value(), min(h.sectionPosition(lu), bar.maximum()))
+        self.assertLessEqual(abs(bar.value() - middle(lu)), 1)
+        # a column away from both ends sits right in the middle of the view
+        mid = fields.indexOf("SCORE_MIN")
+        panel.go_to_field(mid)
+        H.settle(0.2)
+        self.assertTrue(0 < bar.value() < bar.maximum())
+        centre = h.sectionViewportPosition(mid) + h.sectionSize(mid) // 2
+        self.assertLessEqual(abs(centre - half), 1)
         # the value list of a column is a fixed, compact ~6.5 rows
         panel.header.cells[fields.indexOf("PARCEL_ID")]._pick_values()
         H.settle(0.3)

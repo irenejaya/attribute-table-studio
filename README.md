@@ -82,7 +82,7 @@ proposed and only assigned when no other command uses it; change it in
   reorder; layouts are saved with the layer in the project.
 - **Go to field**: type part of a field name (or alias) and pick it from the
   list — type icon, name and QGIS type on each line, hidden columns marked —
-  to scroll the table so that column is at the left edge, with its heading
+  to scroll the table so that column is in the middle, with its heading
   briefly highlighted. A hidden column is shown again. ↑ / ↓ and Enter work
   too; Enter without the list goes to the first match.
 - The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*

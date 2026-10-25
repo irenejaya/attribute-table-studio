@@ -1472,7 +1472,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         return out
 
     def go_to_field(self, logical):
-        """Scroll the table so the field's column is at the left edge (a
+        """Scroll the table so the field's column is in the middle (a
         hidden column is shown first) and flash its heading."""
         if self.layer is None or not 0 <= logical < len(self.model.fields):
             return
@@ -1495,7 +1495,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         # up to date first, or a column just shown again is out of reach
         self.view.updateGeometries()
         bar = self.view.horizontalScrollBar()
-        bar.setValue(min(h.sectionPosition(logical), bar.maximum()))
+        # the column in the middle of the table (one wider than the table at
+        # its left edge); near either end, as close as the scroll goes
+        width = self.view.viewport().width()
+        left, size = h.sectionPosition(logical), h.sectionSize(logical)
+        target = left if size >= width else left + (size - width) // 2
+        bar.setValue(max(bar.minimum(), min(target, bar.maximum())))
         h.flash(logical)
         self.view.setFocus()
 
