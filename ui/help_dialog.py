@@ -55,10 +55,11 @@ selects a range - also while editing), to select features; the table and the map
 on the map scrolls the table to the first of them. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
-double-click a row to zoom to one feature. <b>Select ▾</b> adds select all
-(shown or whole layer), invert, deselect, select by expression, select by
-value / form and pan to selection; its first line says how many selected
-features are outside the current view.</p>
+double-click a row to zoom to one feature. The icon left of <b>Select ▾</b>
+deselects the features of this layer. <b>Select ▾</b> adds select all
+(shown or whole layer), invert, deselect features from all layers, select by
+expression, select by value / form and pan to selection; its first line says
+how many selected features are outside the current view.</p>
 <h4>View</h4>
 <ul>
 <li><b>View ▾</b> switches between <b>Table view</b> and <b>Form view</b>
@@ -161,18 +162,42 @@ or CSV with the scope recorded; <b>Ctrl+C</b> copies the selected rows.
 
 PIVOT_HELP = """
 <h3>Pivot Table</h3>
-<p>Grouped summaries and cross tabs in a separate window.</p>
+<p>A pivot table <b>groups records</b> by the values of one or more fields
+and <b>summarises</b> each group - for example the number of parcels and the
+average flood depth for every land use, or for every land use and zone.</p>
+<h4>Build one in five steps</h4>
 <ol>
-<li>Choose the <b>Layer</b> and the input with <b>Change scope</b>: all
-available records, the records filtered in Attribute Explorer, or the
-selected records.</li>
-<li>Pick one or more <b>Rows</b> fields. Add <b>Columns</b> to turn the
-summary into a cross tab.</li>
-<li>Add <b>Values</b>: a field, an aggregation (count records, count
-non-NULL, count distinct, sum, mean, median, min, max, population standard
-deviation) and an optional label. The same field may be used twice.</li>
-<li>Optionally add <b>Filters</b>, then press <b>Build Pivot</b>.</li>
+<li><b>Layer and input.</b> Pick the <b>Layer</b> at the top left, then
+<b>Change scope</b> to choose which records feed the pivot: <i>All available
+records</i>, the <i>Explorer filtered records</i> (open Attribute Explorer
+and filter first) or the <i>Selected records</i>. The line next to the layer
+says which input is in use.</li>
+<li><b>Rows</b> (on the left, under <i>Build your table</i>): choose the field
+to group by - one result row per value. <b>Add row</b> groups by a second
+field inside the first (e.g. land use, then zone).</li>
+<li><b>Columns</b> (optional): choose a field to spread across the top. The
+result becomes a cross tab - one column per value of that field. Leave it at
+<i>None</i> for a simple grouped list.</li>
+<li><b>Values</b>: what to calculate for each group. Pick a field and an
+aggregation: <i>Count records</i> (no field needed), <i>Count non-NULL</i>,
+<i>Count distinct</i>, or for numbers <i>Sum, Mean, Median, Min, Max</i> and
+<i>Std dev (population)</i>. Type a label if you like. <b>Add value</b> adds
+another measure; the same field may be used twice (e.g. its mean and its
+max).</li>
+<li>Optionally <b>Add filter</b> to use only part of the input (all filters
+must match), then press <b>Build Pivot</b>.</li>
 </ol>
+<p><b>Example:</b> Rows = <i>LAND_USE_TYPE</i>, Columns = <i>ZONE_CODE</i>,
+Values = <i>Count records</i> and <i>FL_1_PCT_MAX - Mean</i> gives, for every
+land use, the number of parcels and their mean flood depth in each zone, with
+totals.</p>
+<h4>Reading the result</h4>
+<ul>
+<li>The header shows how many records were used. <i>Show record count</i>
+and <i>Show grand total</i> (under Options) add those rows and columns.</li>
+<li><b>Double-click</b> a result to open the records behind it in Attribute
+Explorer.</li>
+</ul>
 <h4>Rules</h4>
 <ul>
 <li>Numeric measures skip NULL and keep zero; a group with no valid value

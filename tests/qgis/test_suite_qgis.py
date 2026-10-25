@@ -465,8 +465,8 @@ class SuiteTests(unittest.TestCase):
         row = pivot.refresh_btn.parentWidget()
         self.assertTrue(H.wait_for(lambda: row._compact, 5))
         H.settle(0.2)
-        for btn in (pivot.refresh_btn, pivot.export_btn):
-            self.assertTrue(btn.property("gtsCompact"))
+        self.assertTrue(pivot.refresh_btn.property("gtsCompact"))
+        for btn in (pivot.refresh_btn, pivot.export_btn):      # Export is an icon anyway
             self.assertGreaterEqual(_ink_width(btn), 13, btn.toolTip())
         win.resize(2000, win.height())          # room for every label
         self.assertTrue(H.wait_for(lambda: not row._compact, 5))
@@ -656,6 +656,66 @@ class SuiteTests(unittest.TestCase):
         canvas_extent = self.iface.mapCanvas().extent()
         self.assertFalse(canvas_extent.isEmpty())
 
+    def test_13g_round9_ui(self):
+        from qgis.PyQt.QtWidgets import QToolButton
+        from attribute_table_studio.ui import icons
+        from attribute_table_studio.ui.explorer_header import ValuePicker
+        from attribute_table_studio.ui.help_dialog import HelpDialog
+        # Explorer: deselect this layer (icon) vs all layers (Select menu)
+        other = H.demo_layer(n=50, seed=3, name="Other parcels")
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.layer.selectByIds(panel.model.fids[:3])
+        other.selectByIds(list(other.allFeatureIds())[:2])
+        H.settle(0.1)
+        self.assertTrue(panel.deselect_btn.isEnabled())
+        self.assertFalse(icons.native(icons.DESELECT_LAYER).isNull())
+        panel.deselect_btn.click()
+        self.assertEqual(self.layer.selectedFeatureCount(), 0)
+        self.assertEqual(other.selectedFeatureCount(), 2)       # only this layer
+        self.assertFalse(panel.deselect_btn.isEnabled())
+        self.layer.selectByIds(panel.model.fids[:3])
+        panel.select_menu.aboutToShow.emit()
+        act = next(a for a in panel.select_menu.actions()
+                   if a.text() == "Deselect features from all layers")
+        act.trigger()
+        self.assertEqual((self.layer.selectedFeatureCount(), other.selectedFeatureCount()),
+                         (0, 0))
+        # the value list's Apply is as tall as All / None
+        picker = ValuePicker("LAND_USE_TYPE", [("RESIDENTIAL", "RESIDENTIAL", 5)], [],
+                             panel.theme, panel.metrics, panel)
+        buttons = {b.text().strip(): b for b in picker.findChildren(QToolButton)}
+        self.assertEqual(buttons["Apply"].height() or buttons["Apply"].maximumHeight(),
+                         buttons["All"].maximumHeight())
+        picker.close()
+        QgsProject.instance().removeMapLayer(other.id())
+        # Compare: narrow field picker, icon export, a minimum width the rows fit
+        compare = self.plugin.open_compare()
+        self.assertLess(compare.filter_field_combo.width() or
+                        compare.filter_field_combo.maximumWidth(), 170)
+        self.assertEqual(compare.export_btn.text().strip(), "")
+        self.assertIsNotNone(compare.export_btn.menu())
+        win = self.plugin.compare_host._window
+        win.resize(400, 700)
+        H.settle(0.3)
+        self.assertGreater(win.width(), 400)
+        for bar in (compare.filter_field_combo.parentWidget(),
+                    compare.review_scope.parentWidget()):
+            self.assertGreaterEqual(bar.width(), bar.minimumSizeHint().width())
+        # Pivot: icon export, then Help, then Dock
+        pivot = self.plugin.open_pivot(self.layer)
+        x = lambda w: w.mapTo(pivot, QPoint(0, 0)).x()
+        self.assertLess(x(pivot.export_btn), x(pivot.help_btn))
+        self.assertLess(x(pivot.help_btn), x(pivot.dock_btn))
+        self.assertEqual(pivot.export_btn.text().strip(), "")
+        pivot.help_btn.click()
+        H.settle(0.1)
+        dlg = pivot._help_dialog
+        self.assertIsInstance(dlg, HelpDialog)
+        self.assertTrue(dlg.isVisible())
+        self.assertIn("Pivot Table", dlg.windowTitle())
+        dlg.close()
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)
@@ -664,14 +724,16 @@ class SuiteTests(unittest.TestCase):
 
         def x(widget):
             return widget.mapTo(panel, QPoint(0, 0)).x()
-        # top row, right aligned: Zoom | Selected only | View | Select | Columns |
-        # Summary | Pivot Table | Clear filters | Export | query | dock
-        order = [panel.zoom_btn, panel.selected_btn, panel.view_btn, panel.select_btn,
-                 panel.columns_btn, panel.summary_btn, panel.pivot_btn, panel.clear_btn,
-                 panel.export_btn, btn, panel.dock_btn]
+        # top row, right aligned: View | Zoom | Selected only | Deselect |
+        # Select | Columns | Summary | Pivot Table | Clear filters | Export |
+        # query | dock
+        order = [panel.view_btn, panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
+                 panel.select_btn, panel.columns_btn, panel.summary_btn, panel.pivot_btn,
+                 panel.clear_btn, panel.export_btn, btn, panel.dock_btn]
         xs = [x(w) for w in order]
         self.assertEqual(xs, sorted(xs))
-        for icon_only in (panel.zoom_btn, panel.selected_btn, panel.export_btn):
+        for icon_only in (panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
+                          panel.export_btn):
             self.assertEqual(icon_only.text().strip(), "")
         self.assertEqual(panel.pivot_btn.text().strip(), "Pivot Table")
         self.assertEqual([a.text() for a in panel.export_btn.menu().actions()

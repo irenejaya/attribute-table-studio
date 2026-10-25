@@ -22,7 +22,7 @@ Changing filters never changes the feature selection.
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QInputDialog, QMenu
 from qgis.core import (
-    QgsCoordinateTransform, QgsFeatureRequest, QgsProject,
+    QgsCoordinateTransform, QgsFeatureRequest, QgsProject, QgsVectorLayer,
 )
 from qgis.gui import QgsExpressionSelectionDialog
 
@@ -48,7 +48,7 @@ class BrowseMixin:
     # construction
     # ------------------------------------------------------------------
     def _build_view_select(self, row):
-        """View and Select menu buttons, placed before Columns."""
+        """View and Select menu buttons (the panel places them in its row)."""
         m = self.metrics
         self.view_menu = QMenu(self)
         self.view_menu.aboutToShow.connect(self._fill_view_menu)
@@ -61,8 +61,6 @@ class BrowseMixin:
                                    "Select shown or layer records, by expression or by "
                                    "value, and pan / zoom to the selection",
                                    menu=self.select_menu)
-        row.add(self.view_btn)
-        row.add(self.select_btn)
 
     def _browse_layer_changed(self, layer):
         self.expr_filter = None
@@ -301,8 +299,8 @@ class BrowseMixin:
                        ).triggered.connect(self.invert_selection)
         menu.addAction(icons.native(icons.INVERT), "Invert layer selection"
                        ).triggered.connect(self.invert_layer_selection)
-        menu.addAction(icons.native(icons.DESELECT), "Deselect all layer features"
-                       ).triggered.connect(self.deselect_all)
+        menu.addAction(icons.native(icons.DESELECT), "Deselect features from all layers"
+                       ).triggered.connect(self.deselect_all_layers)
         menu.addSeparator()
         menu.addAction(icons.native(icons.EXPR_SELECT), "Select by expression…"
                        ).triggered.connect(self.select_by_expression)
@@ -316,6 +314,15 @@ class BrowseMixin:
             act = menu.addAction(icons.native(icons.ZOOM_SELECTED), "Zoom to selection")
             act.setEnabled(n > 0)
             act.triggered.connect(self.zoom_to_selection)
+
+    def deselect_all_layers(self):
+        """QGIS's "Deselect Features from All Layers"."""
+        for layer in QgsProject.instance().mapLayers().values():
+            if isinstance(layer, QgsVectorLayer) and layer.selectedFeatureCount():
+                if layer is self.layer:
+                    self.deselect_all()
+                else:
+                    layer.removeSelection()
 
     def select_layer_all(self):
         self._table_selecting = True
