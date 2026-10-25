@@ -93,6 +93,24 @@ class LayerCombo(QgsMapLayerComboBox):
         super().showPopup()
 
 
+_SMALL_WORDS = {"a", "an", "and", "as", "at", "by", "for", "from", "in", "into",
+                "of", "on", "or", "the", "to", "via", "with"}
+
+
+def title_case(text):
+    """Menu text in Title Case, as QGIS writes its menus ("Save edits" ->
+    "Save Edits"); words already in capitals (NULL) stay as they are."""
+    words = text.split(" ")
+    for i, word in enumerate(words):
+        if i and word.strip("()") in _SMALL_WORDS:
+            continue
+        for j, ch in enumerate(word):
+            if ch.isalpha():
+                words[i] = word[:j] + ch.upper() + word[j + 1:]
+                break
+    return " ".join(words)
+
+
 def label(text="", role=None, parent=None):
     """QLabel with a style role: 'title', 'heading', 'dim', 'strong', 'link'."""
     lbl = QLabel(text, parent)

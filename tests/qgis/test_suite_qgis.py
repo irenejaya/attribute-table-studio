@@ -677,7 +677,7 @@ class SuiteTests(unittest.TestCase):
         self.layer.selectByIds(panel.model.fids[:3])
         panel.select_menu.aboutToShow.emit()
         act = next(a for a in panel.select_menu.actions()
-                   if a.text() == "Deselect features from all layers")
+                   if a.text() == "Deselect Features from All Layers")
         act.trigger()
         self.assertEqual((self.layer.selectedFeatureCount(), other.selectedFeatureCount()),
                          (0, 0))
@@ -738,13 +738,29 @@ class SuiteTests(unittest.TestCase):
         for name, icon in (("Show Features Visible on Map", icons.TABLE_VISIBLE),
                            ("Show Features with Failing Constraints", icons.TABLE_INVALID),
                            ("Show Edited and New Features", icons.TABLE_EDITED),
-                           ("Advanced Filter (Expression)", icons.ADVANCED_FILTER),
-                           ("Stored Filter Expressions", icons.STORED_FILTER)):
+                           ("Advanced Filter (Expression)…", icons.ADVANCED_FILTER),
+                           ("Stored Filter Expressions…", icons.STORED_FILTER)):
             self.assertIn(name, actions)
             self.assertFalse(icons.native(icon).isNull())
-        # Select: plain "Invert selection"
+        # Select: QGIS's Title Case names, "…" where a dialog opens
         panel.select_menu.aboutToShow.emit()
-        self.assertIn("Invert selection", [a.text() for a in panel.select_menu.actions()])
+        self.assertIn("Invert Selection", [a.text() for a in panel.select_menu.actions()])
+        # the row menu uses the same names
+        from attribute_table_studio.ui import widgets as W
+        shown = []
+        original = QMenu.exec
+        QMenu.exec = lambda menu, *a: shown.extend(
+            act.text() for act in menu.actions() if not act.isSeparator())
+        try:
+            panel._context_menu(QPoint(0, 0), 0, 0)
+        finally:
+            QMenu.exec = original
+        for text in ("Open Form…", "Copy Cell Value", "Select All Features",
+                     "Invert Selection", "Deselect All Features", "Zoom to Selection"):
+            self.assertIn(text, shown)
+        self.assertEqual(W.title_case("Show or hide the Quick update row"),
+                         "Show or Hide the Quick Update Row")
+        self.assertEqual(W.title_case("Set cell to NULL"), "Set Cell to NULL")
         # Filter by form / Select by value open showing the whole form width
         # (within the screen)
         for select in (False, True):
@@ -782,7 +798,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(panel.pivot_btn.text().strip(), "Pivot Table")
         self.assertEqual([a.text() for a in panel.export_btn.menu().actions()
                           if not a.isSeparator()],
-                         ["Excel (.xlsx)", "CSV (.csv)", "Copy selected rows"])
+                         ["Excel (.xlsx)…", "CSV (.csv)…", "Copy Selected Rows"])
         self.assertFalse(btn.isEnabled())            # no filter yet
         total = layer.featureCount()
         lu = layer.fields().indexOf("LAND_USE_TYPE")

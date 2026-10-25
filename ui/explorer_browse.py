@@ -88,8 +88,8 @@ class BrowseMixin:
         menu = self.view_menu
         menu.clear()
         group = QActionGroup(menu)
-        for key, text, icon in (("table", "Table view", icons.TABLE),
-                                ("form", "Form view", icons.FORM_VIEW)):
+        for key, text, icon in (("table", "Table View", icons.TABLE),
+                                ("form", "Form View", icons.FORM_VIEW)):
             act = menu.addAction(icons.native(icon), text)
             act.setCheckable(True)
             act.setChecked(self.is_form_view() == (key == "form"))
@@ -109,34 +109,34 @@ class BrowseMixin:
             scopes.addAction(act)
             act.triggered.connect(lambda _c=False, k=key: self.set_view_scope(k))
         menu.addSeparator()
-        menu.addAction(icons.native(icons.ADVANCED_FILTER), "Advanced Filter (Expression)"
+        menu.addAction(icons.native(icons.ADVANCED_FILTER), "Advanced Filter (Expression)…"
                        ).triggered.connect(self.edit_expression_filter)
-        act = menu.addAction("Clear expression filter")
+        act = menu.addAction("Clear Expression Filter")
         act.setEnabled(bool(self.expr_filter))
         act.triggered.connect(lambda: self.set_expression_filter(None))
-        menu.addAction(icons.native(icons.STORED_FILTER), "Stored Filter Expressions"
+        menu.addAction(icons.native(icons.STORED_FILTER), "Stored Filter Expressions…"
                        ).triggered.connect(self.stored_expressions)
-        menu.addAction(icons.native(icons.FORM_SELECT), "Filter by form…").triggered.connect(
+        menu.addAction(icons.native(icons.FORM_SELECT), "Filter by Form…").triggered.connect(
             lambda: D.FormSearchDialog(self).exec())
-        act = menu.addAction("Case-sensitive text filters")
+        act = menu.addAction("Case-Sensitive Text Filters")
         act.setCheckable(True)
         act.setChecked(self.case_sensitive)
         act.setToolTip("'contains' and 'starts with' match upper / lower case exactly")
         act.toggled.connect(self.set_case_sensitive)
         menu.addSeparator()
-        act = menu.addAction(icons.native(icons.SELECTED_TOP), "Selected to top")
+        act = menu.addAction(icons.native(icons.SELECTED_TOP), "Move Selection to Top")
         act.setCheckable(True)
         act.setChecked(self.selected_top)
         act.toggled.connect(self.set_selected_top)
-        menu.addAction(icons.native(icons.SORT), "Sort by expression…").triggered.connect(
+        menu.addAction(icons.native(icons.SORT), "Sort by Expression…").triggered.connect(
             self.edit_sort_expression)
-        act = menu.addAction("Clear sort")
+        act = menu.addAction("Clear Sort")
         act.setEnabled(self.sort is not None or bool(self.sort_expr))
         act.triggered.connect(self.clear_sort)
         menu.addSeparator()
-        menu.addAction(icons.native(icons.CONDITIONAL), "Conditional formatting…"
+        menu.addAction(icons.native(icons.CONDITIONAL), "Conditional Formatting…"
                        ).triggered.connect(lambda: D.ConditionalFormatDialog(self).exec())
-        menu.addAction("Autosize all columns").triggered.connect(self.autosize_columns)
+        menu.addAction("Autosize All Columns").triggered.connect(self.autosize_columns)
 
     # ------------------------------------------------------------------
     # scope
@@ -292,29 +292,32 @@ class BrowseMixin:
                                                     if hidden else ""))
         info.setEnabled(False)
         menu.addSeparator()
-        menu.addAction(icons.native(icons.SELECT_ALL), "Select all shown records"
-                       ).triggered.connect(self.select_all)
-        menu.addAction(icons.native(icons.SELECT_ALL), "Select all available layer records"
-                       ).triggered.connect(self.select_layer_all)
-        menu.addAction(icons.native(icons.INVERT), "Invert selection"
-                       ).triggered.connect(self.invert_selection)
+        # the whole-layer variants only differ (and only show) while filtered
         count = self.layer.featureCount()
-        if count < 0 or len(self.model.fids) < count:     # only differs when filtered
-            menu.addAction(icons.native(icons.INVERT), "Invert selection (whole layer)"
+        filtered = count < 0 or len(self.model.fids) < count
+        menu.addAction(icons.native(icons.SELECT_ALL), "Select All Features"
+                       ).triggered.connect(self.select_all)
+        if filtered:
+            menu.addAction(icons.native(icons.SELECT_ALL), "Select All Features (Whole Layer)"
+                           ).triggered.connect(self.select_layer_all)
+        menu.addAction(icons.native(icons.INVERT), "Invert Selection"
+                       ).triggered.connect(self.invert_selection)
+        if filtered:
+            menu.addAction(icons.native(icons.INVERT), "Invert Selection (Whole Layer)"
                            ).triggered.connect(self.invert_layer_selection)
-        menu.addAction(icons.native(icons.DESELECT), "Deselect features from all layers"
+        menu.addAction(icons.native(icons.DESELECT), "Deselect Features from All Layers"
                        ).triggered.connect(self.deselect_all_layers)
         menu.addSeparator()
-        menu.addAction(icons.native(icons.EXPR_SELECT), "Select by expression…"
+        menu.addAction(icons.native(icons.EXPR_SELECT), "Select Features by Expression…"
                        ).triggered.connect(self.select_by_expression)
-        menu.addAction(icons.native(icons.FORM_SELECT), "Select by value / form…"
+        menu.addAction(icons.native(icons.FORM_SELECT), "Select Features by Value…"
                        ).triggered.connect(lambda: D.FormSearchDialog(self, select=True).exec())
         if self.layer.isSpatial():
             menu.addSeparator()
-            act = menu.addAction(icons.native(icons.PAN_SELECTED), "Pan to selection")
+            act = menu.addAction(icons.native(icons.PAN_SELECTED), "Pan to Selection")
             act.setEnabled(n > 0)
             act.triggered.connect(self.pan_to_selection)
-            act = menu.addAction(icons.native(icons.ZOOM_SELECTED), "Zoom to selection")
+            act = menu.addAction(icons.native(icons.ZOOM_SELECTED), "Zoom to Selection")
             act.setEnabled(n > 0)
             act.triggered.connect(self.zoom_to_selection)
 
@@ -411,21 +414,21 @@ class BrowseMixin:
             return
         name = self.model.fields[logical].name()
         menu = QMenu(self)
-        menu.addAction(icons.native(icons.SORT), f"Sort {name} ascending").triggered.connect(
+        menu.addAction(icons.native(icons.SORT), f"Sort {name} Ascending").triggered.connect(
             lambda: self.sort_by(logical, False))
-        menu.addAction(icons.native(icons.SORT_REVERSE), f"Sort {name} descending"
+        menu.addAction(icons.native(icons.SORT_REVERSE), f"Sort {name} Descending"
                        ).triggered.connect(lambda: self.sort_by(logical, True))
-        menu.addAction("Sort by expression…").triggered.connect(self.edit_sort_expression)
-        act = menu.addAction("Clear sort")
+        menu.addAction("Sort by Expression…").triggered.connect(self.edit_sort_expression)
+        act = menu.addAction("Clear Sort")
         act.setEnabled(self.sort is not None or bool(self.sort_expr))
         act.triggered.connect(self.clear_sort)
         menu.addSeparator()
-        menu.addAction("Autosize this column").triggered.connect(
+        menu.addAction("Autosize This Column").triggered.connect(
             lambda: self.autosize_columns([logical]))
-        menu.addAction("Autosize all columns").triggered.connect(self.autosize_columns)
-        menu.addAction("Set column width…").triggered.connect(
+        menu.addAction("Autosize All Columns").triggered.connect(self.autosize_columns)
+        menu.addAction("Set Column Width…").triggered.connect(
             lambda: self.set_column_width(logical))
-        menu.addAction(f"Hide column {name}").triggered.connect(
+        menu.addAction(f"Hide Column {name}").triggered.connect(
             lambda: self._hide_column(logical))
         menu.addAction(icons.native(icons.COLUMNS), "Columns…").triggered.connect(
             self._choose_columns)
@@ -433,9 +436,9 @@ class BrowseMixin:
         act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
         act.setEnabled(self.can_calculate(name))
         act.triggered.connect(lambda: self.open_calculator(name))
-        act = menu.addAction(icons.native(icons.DELETE_FIELD), f"Delete field {name}…")
+        act = menu.addAction(icons.native(icons.DELETE_FIELD), f"Delete Field {name}…")
         act.setEnabled(self.edit.editing)
         act.triggered.connect(lambda: self.delete_field(name))
-        menu.addAction(icons.native(icons.FIELD_PROPS), "Field properties…").triggered.connect(
+        menu.addAction(icons.native(icons.FIELD_PROPS), "Field Properties…").triggered.connect(
             self.open_field_properties)
         menu.exec(self.header.mapToGlobal(pos))

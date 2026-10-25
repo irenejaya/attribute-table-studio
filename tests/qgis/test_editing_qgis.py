@@ -518,18 +518,21 @@ class EditingTests(unittest.TestCase):
             p.select_menu.aboutToShow.emit()
             return [a.text() for a in p.select_menu.actions() if not a.isSeparator()]
         shown = menu_texts()
-        for text in ("Select all shown records", "Select all available layer records",
-                     "Invert selection", "Select by expression…",
-                     "Select by value / form…", "Pan to selection"):
+        for text in ("Select All Features", "Invert Selection",
+                     "Deselect Features from All Layers", "Select Features by Expression…",
+                     "Select Features by Value…", "Pan to Selection", "Zoom to Selection"):
             self.assertIn(text, shown)
-        # the whole-layer invert only differs - and only shows - while the
+        # the whole-layer variants only differ - and only show - while the
         # table is filtered
-        self.assertNotIn("Invert selection (whole layer)", shown)
+        self.assertNotIn("Invert Selection (Whole Layer)", shown)
+        self.assertNotIn("Select All Features (Whole Layer)", shown)
         p.header.cells[self.lu].set_filter(
             FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
         p.refresh()
         settle(p)
-        self.assertIn("Invert selection (whole layer)", menu_texts())
+        shown = menu_texts()
+        self.assertIn("Invert Selection (Whole Layer)", shown)
+        self.assertIn("Select All Features (Whole Layer)", shown)
         filtered = sorted(p.model.fids)
         layer.selectByIds(filtered[:2])
         H.settle(0.1)
@@ -689,12 +692,12 @@ class EditingTests(unittest.TestCase):
             p._header_menu(QPoint(p.header.sectionViewportPosition(self.fl) + 5, 40))
         finally:
             QMenu.exec = original
-        for text in ("Open feature form…", "Layer feature actions", "Copy selected rows as text",
-                     "Copy cell value", "Set cell to NULL", "Review unsaved changes…",
-                     "Layer field properties…", "Open native attribute table", "Help"):
+        for text in ("Open Feature Form…", "Layer Feature Actions", "Copy Selected Rows as Text",
+                     "Copy Cell Value", "Set Cell to NULL", "Review Unsaved Changes…",
+                     "Layer Field Properties…", "Open Native Attribute Table", "Help"):
             self.assertIn(text, texts)
-        for text in ("Sort FL_1_PCT_MAX ascending", "Autosize this column",
-                     "Set column width…", "Calculate FL_1_PCT_MAX…"):
+        for text in ("Sort FL_1_PCT_MAX Ascending", "Autosize This Column",
+                     "Set Column Width…", "Calculate FL_1_PCT_MAX…"):
             self.assertIn(text, shown)
 
     def test_22_cell_editor_widgets(self):
@@ -1008,11 +1011,11 @@ class EditingTests(unittest.TestCase):
         self.assertAlmostEqual(float(share), int(count) / self.panel.profiles[self.fl].valid)
         # the Copy menu
         acts = {a.text(): a for a in pop.copy_menu.actions()}
-        self.assertEqual(list(acts), ["Summary statistics", "Distribution table", "Everything"])
-        acts["Summary statistics"].trigger()
+        self.assertEqual(list(acts), ["Summary Statistics", "Distribution Table", "Everything"])
+        acts["Summary Statistics"].trigger()
         self.assertTrue(clip.text().startswith("Statistic\tValue\tShare\nRecords in scope"))
         self.assertIn("\nNon-NULL\t", clip.text())
-        acts["Distribution table"].trigger()
+        acts["Distribution Table"].trigger()
         self.assertTrue(clip.text().startswith("Bin\tRecords\tShare\n"))
         acts["Everything"].trigger()
         text = clip.text()
@@ -1024,8 +1027,8 @@ class EditingTests(unittest.TestCase):
         bool_idx = self.layer.fields().indexOf("IN_FLOOD_ZONE")
         pop = self._open_details(bool_idx)
         acts = {a.text(): a for a in pop.copy_menu.actions()}
-        self.assertFalse(acts["Distribution table"].isEnabled())
-        self.assertIn("\ntrue\t", (acts["Summary statistics"].trigger(),
+        self.assertFalse(acts["Distribution Table"].isEnabled())
+        self.assertIn("\ntrue\t", (acts["Summary Statistics"].trigger(),
                                       QGuiApplication.clipboard().text())[1])
         pop.close()
 
@@ -1047,10 +1050,10 @@ class EditingTests(unittest.TestCase):
         try:
             pop = self._open_details(self.fl)
             acts = {a.text(): a for a in pop.export_menu.actions()}
-            self.assertEqual(list(acts), ["Excel workbook", "Summary as CSV",
-                                          "Distribution as CSV"])
+            self.assertEqual(list(acts), ["Excel Workbook…", "Summary as CSV…",
+                                          "Distribution as CSV…"])
             target["name"] = "stats.xlsx"
-            acts["Excel workbook"].trigger()
+            acts["Excel Workbook…"].trigger()
             H.settle(0.3)
             wb = load_workbook(os.path.join(folder, "stats.xlsx"))
             self.assertEqual(wb.sheetnames, ["Summary", "Distribution"])
@@ -1068,7 +1071,7 @@ class EditingTests(unittest.TestCase):
             # the popup opens again after the save dialog
             pop = self._reopened_details()
             target["name"] = "summary.csv"
-            {a.text(): a for a in pop.export_menu.actions()}["Summary as CSV"].trigger()
+            {a.text(): a for a in pop.export_menu.actions()}["Summary as CSV…"].trigger()
             H.settle(0.3)
             with open(os.path.join(folder, "summary.csv"), encoding="utf-8-sig") as fh:
                 rows = list(csv.reader(fh))
@@ -1077,7 +1080,7 @@ class EditingTests(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(folder, "summary_scope.txt")))
             pop = self._reopened_details()
             target["name"] = "dist.csv"
-            {a.text(): a for a in pop.export_menu.actions()}["Distribution as CSV"].trigger()
+            {a.text(): a for a in pop.export_menu.actions()}["Distribution as CSV…"].trigger()
             H.settle(0.3)
             with open(os.path.join(folder, "dist.csv"), encoding="utf-8-sig") as fh:
                 rows = list(csv.reader(fh))
