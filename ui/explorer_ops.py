@@ -8,92 +8,73 @@ undo command; a cancelled batch destroys its incomplete command, so a
 partial result is never left behind or reported as complete.
 """
 
-import datetime
-
-from qgis.PyQt.QtCore import QDate, QDateTime, QTime, Qt
+from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtWidgets import QApplication, QProgressDialog
 from qgis.core import (
-    Qgis, QgsDistanceArea, QgsExpression, QgsFeatureRequest, QgsGeometry,
-    QgsProject, QgsVectorLayer, QgsVectorLayerUtils,
+    Qgis, QgsDistanceArea, QgsExpression, QgsFeatureRequest, QgsField,
+    QgsGeometry, QgsProject, QgsVectorLayer, QgsVectorLayerUtils,
 )
 
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY
 
 BATCH_PROGRESS = 2000            # show a cancellable progress dialog above this
-RECENT = "fieldcalc"             # QGIS's own field calculator history (shared)
 
 
 class OperationError(Exception):
     """A user-facing problem (bad expression, value that cannot be stored)."""
 
 
-def coerce(field, value):
-    """*value* converted for *field* the way QGIS stores calculated values:
-    integers round, decimals round to the field precision, text checks the
-    field length, dates parse ISO text.  Raises OperationError."""
+def convert_like_qgis(field, value):
+    """The value QGIS's field calculators write for *field*:
+    QgsField.convertCompatible's result, which QGIS writes even when the
+    conversion fails (NULL, or text cut to the field length).  Decimals
+    round half away from zero to the field precision, integers round the
+    same way.  Returns (value, problem or None)."""
     if F.is_null(value):
-        return None
-    kind = F.field_kind(field)
-    name = field.name()
+        return None, None
     try:
-        if kind in (F.INTEGER,):
-            if isinstance(value, bool):
-                return int(value)
-            if isinstance(value, str):
-                value = float(value.strip().replace(",", ""))
-            return int(round(float(value)))
-        if kind == F.REAL:
-            if isinstance(value, str):
-                value = float(value.strip().replace(",", ""))
-            value = float(value)
-            prec = field.precision()
-            return round(value, prec) if prec > 0 else value
-        if kind == F.BOOL:
-            if isinstance(value, str):
-                return value.strip().lower() in ("1", "true", "t", "yes", "y")
-            return bool(value)
-        if kind == F.DATE:
-            if isinstance(value, QDateTime):
-                return value.date()
-            if isinstance(value, (QDate, datetime.date)) and not isinstance(value, datetime.datetime):
-                return value
-            if isinstance(value, datetime.datetime):
-                return value.date()
-            date = QDate.fromString(str(value)[:10], Qt.DateFormat.ISODate)
-            if not date.isValid():
-                raise ValueError(value)
-            return date
-        if kind == F.DATETIME:
-            if isinstance(value, (QDateTime, datetime.datetime)):
-                return value
-            if isinstance(value, QDate):
-                return QDateTime(value, QTime(0, 0))
-            dt = QDateTime.fromString(str(value), Qt.DateFormat.ISODate)
-            if not dt.isValid():
-                raise ValueError(value)
-            return dt
-        if kind == F.TEXT:
-            text = value if isinstance(value, str) else F.display_value(value)
-            if field.length() > 0 and len(text) > field.length():
-                raise OperationError(f"'{text[:40]}' is longer than the {field.length()} "
-                                     f"characters {name} can hold")
-            return text
-    except OperationError:
-        raise
-    except (TypeError, ValueError, OverflowError):
-        raise OperationError(f"{F.display_value(value)!s} cannot be stored in {name} "
-                             f"({field.typeName()})")
-    return value
+        return field.convertCompatible(value), None
+    except ValueError as exc:
+        if F.field_kind(field) == F.TEXT and field.length() > 0:
+            try:            # the text Qt makes of the value, cut like QGIS cuts it
+                text = QgsField(field.name(), field.type(), field.typeName()
+                                ).convertCompatible(value)
+            except ValueError:
+                text = None
+            if isinstance(text, str) and len(text) > field.length():
+                return text[:field.length()], str(exc)
+        return None, str(exc)
+
+
+def calculator_fields(layer):
+    """Names QGIS's Field Calculator offers under "Update existing field":
+    stored fields, plus joined fields from editable joins that are not
+    hidden; never virtual fields."""
+    fields = layer.fields()
+    names = []
+    for idx in range(fields.count()):
+        origin = fields.fieldOrigin(idx)
+        if origin in (Qgis.FieldOrigin.Provider, Qgis.FieldOrigin.Edit):
+            names.append(fields.at(idx).name())
+        elif origin == Qgis.FieldOrigin.Join:
+            if fields.at(idx).editorWidgetSetup().type() == "Hidden":
+                continue
+            info = layer.joinBuffer().joinForFieldIndex(idx, fields)
+            info = info[0] if isinstance(info, tuple) else info
+            if info is not None and info.isEditable():
+                names.append(fields.at(idx).name())
+    return names
 
 
 # ----------------------------------------------------------------------------
-# the QGIS field calculator's evaluation set-up
+# the QGIS field calculation (attribute table "Update All / Filtered /
+# Selected", src/app/qgsattributetabledialog.cpp runFieldCalculation)
 # ----------------------------------------------------------------------------
 
 def geometry_calculator(layer):
     """Measures like the QGIS field calculator: on the project's ellipsoid
-    (planar when the project has none)."""
+    (planar when the project has none, e.g. without a project CRS)."""
     project = QgsProject.instance()
     da = QgsDistanceArea()
     da.setSourceCrs(layer.crs(), project.transformContext())
@@ -101,19 +82,10 @@ def geometry_calculator(layer):
     return da
 
 
-def calculator_context(layer):
-    """Global, project and layer scopes plus @row_number (as in QGIS), for
-    the expression builder."""
-    ctx = layer.createExpressionContext()
-    ctx.lastScope().setVariable("row_number", 1, True)
-    ctx.setHighlightedVariables(["row_number"])
-    return ctx
-
-
 def calculator_expression(layer, expression):
-    """(expression, context) prepared the way the QGIS field calculator
-    prepares them: $area / $length / $perimeter use the project's ellipsoid
-    and distance / area units.  Raises OperationError for a bad expression."""
+    """(expression, context) prepared the way QGIS prepares them: $area /
+    $length / $perimeter use the project's ellipsoid and distance / area
+    units.  Raises OperationError for a bad expression."""
     exp = QgsExpression(expression)
     if not expression.strip() or exp.hasParserError():
         raise OperationError(exp.parserErrorString() or "Enter an expression")
@@ -123,93 +95,95 @@ def calculator_expression(layer, expression):
     exp.setAreaUnits(project.areaUnits())
     ctx = layer.createExpressionContext()
     # prepared before @row_number exists, so it is not folded into a constant
-    exp.prepare(ctx)
+    if not exp.prepare(ctx):
+        raise OperationError(exp.evalErrorString())
     return exp, ctx
 
 
-def _evaluate(exp, ctx, feat, row_number):
-    ctx.setFeature(feat)
-    ctx.lastScope().setVariable("row_number", row_number)
-    return exp.evaluate(ctx)
-
-
-def sample_value(layer, expression, fid):
-    """The expression's value for one feature (as the first row)."""
-    exp, ctx = calculator_expression(layer, expression)
-    value = _evaluate(exp, ctx, layer.getFeature(fid), 1)
-    if exp.hasEvalError():
-        raise OperationError(exp.evalErrorString())
-    return value
-
-
-def evaluate_preview(layer, idx, expression, fids, limit=6):
-    """[(fid, old, new)] for the first *limit* target features, without
-    writing anything.  Raises OperationError for a bad expression."""
-    exp, ctx = calculator_expression(layer, expression)
-    field = layer.fields().at(idx)
-    out = []
-    req = QgsFeatureRequest().setFilterFids(sorted(fids)[:limit])
+def _calculation_request(layer, exp, field):
+    """Every feature the layer provides (its Query Builder filter applies),
+    in the layer's own order, with only the attributes needed."""
+    req = QgsFeatureRequest()
     if not exp.needsGeometry():
         req.setFlags(NO_GEOMETRY)
-    for n, feat in enumerate(layer.getFeatures(req), 1):
-        value = _evaluate(exp, ctx, feat, n)
+    columns = set(exp.referencedColumns()) | {field.name()}
+    req.setSubsetOfAttributes(list(columns), layer.fields())
+    return req
+
+
+def _targets(layer, req, fids):
+    """The layer's features, skipping those not in *fids* (None = all)."""
+    for feat in layer.getFeatures(req):
+        if fids is None or feat.id() in fids:
+            yield feat
+
+
+def evaluate_preview(layer, idx, expression, fids=None, limit=6):
+    """[(fid, old, new)] for the first *limit* target features, as the
+    calculation would write them (nothing is written).  *fids*: None for
+    every feature.  Raises OperationError."""
+    exp, ctx = calculator_expression(layer, expression)
+    field = layer.fields().at(idx)
+    fids = None if fids is None else set(fids)
+    out = []
+    for n, feat in enumerate(_targets(layer, _calculation_request(layer, exp, field), fids), 1):
+        if n > limit:
+            break
+        ctx.setFeature(feat)
+        ctx.lastScope().setVariable("row_number", n)
+        value = exp.evaluate(ctx)
         if exp.hasEvalError():
             raise OperationError(exp.evalErrorString())
-        out.append((feat.id(), feat.attribute(idx), coerce(field, value)))
+        out.append((feat.id(), feat.attribute(idx), convert_like_qgis(field, value)[0]))
     return out
 
 
-def apply_expression(layer, idx, expression, fids, title, parent=None,
-                     own_command=True):
-    """Write *expression* into field *idx* of every feature in *fids* as one
-    undo command.  Returns the number of changed values; raises
-    OperationError (nothing is written) or returns None when cancelled.
-    With *own_command* False the caller holds the undo command (and
-    destroys it on an error or a cancel)."""
+def run_field_calculation(layer, idx, expression, fids, title, parent=None):
+    """QGIS's field calculation as one undo command: *fids* None updates
+    every feature the layer provides, otherwise only those ids.  Like QGIS,
+    @row_number counts the calculated features from 1, every target is
+    written (also unchanged values) and an evaluation error writes nothing.
+    Returns (calculated, problems) - problems are values QGIS writes as NULL
+    or cuts to the field length; None when cancelled.  Raises
+    OperationError."""
     exp, ctx = calculator_expression(layer, expression)
     if not layer.isEditable():
         raise OperationError("Start editing first")
     field = layer.fields().at(idx)
-    ids = sorted(fids)
-    req = QgsFeatureRequest().setFilterFids(ids)
-    if not exp.needsGeometry():
-        req.setFlags(NO_GEOMETRY)
+    fids = None if fids is None else set(fids)
+    count = len(fids) if fids is not None else max(layer.featureCount(), 0)
     progress = None
-    if len(ids) > BATCH_PROGRESS and parent is not None:
-        progress = QProgressDialog(f"{title}…", "Cancel", 0, len(ids), parent)
+    if count > BATCH_PROGRESS and parent is not None:
+        progress = QProgressDialog(f"{title}…", "Cancel", 0, count, parent)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(400)
-    if own_command:
-        layer.beginEditCommand(title)
-    changed = 0
+    layer.beginEditCommand(title)
+    rownum, problems = 1, 0
     try:
-        for n, feat in enumerate(layer.getFeatures(req)):
-            value = _evaluate(exp, ctx, feat, n + 1)      # @row_number from 1
+        for feat in _targets(layer, _calculation_request(layer, exp, field), fids):
+            ctx.setFeature(feat)
+            ctx.lastScope().setVariable("row_number", rownum)
+            value = exp.evaluate(ctx)
             if exp.hasEvalError():
-                raise OperationError(f"Feature {feat.id()}: {exp.evalErrorString()}")
-            value = coerce(field, value)
-            old = feat.attribute(idx)
-            if not (F.is_null(old) and value is None) and old != value:
-                if not layer.changeAttributeValue(feat.id(), idx, value, old):
-                    raise OperationError(f"Feature {feat.id()}: the value was not accepted")
-                changed += 1
-            if progress is not None and n % 200 == 0:
-                progress.setValue(n)
+                raise OperationError(exp.evalErrorString())
+            value, problem = convert_like_qgis(field, value)
+            problems += problem is not None
+            layer.changeAttributeValue(feat.id(), idx, value, feat.attribute(idx))
+            if progress is not None and rownum % 200 == 0:
+                progress.setValue(rownum)
                 QApplication.processEvents()
                 if progress.wasCanceled():
-                    if own_command:
-                        layer.destroyEditCommand()
+                    layer.destroyEditCommand()
                     return None
+            rownum += 1
     except OperationError:
-        if own_command:
-            layer.destroyEditCommand()
+        layer.destroyEditCommand()
         raise
     finally:
         if progress is not None:
             progress.close()
-    if own_command:
-        layer.endEditCommand()
-    return changed
+    layer.endEditCommand()
+    return rownum - 1, problems
 
 
 def add_feature_in_table(layer):

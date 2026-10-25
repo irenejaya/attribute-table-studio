@@ -93,17 +93,24 @@ attribute table and every other QGIS tool.
   **Discard**, **Undo** / **Redo** use the layer's own buffer and undo stack.
 - **Add** (table or form), **Delete** (tells you how many selected features
   are hidden), **Cut / Copy / Paste** through the QGIS feature clipboard.
-- **Field calculator** (update, new or virtual field; whole layer, filtered or
-  selected records), **Quick update** row with preview and apply, **Multi
-  edit** with the layer's form — each is one undo step. Expressions evaluate
-  as in the QGIS Field Calculator: same functions (regex included),
-  `$area` / `$length` / `$perimeter` on the project's ellipsoid in the
-  project's units, `@row_number`, and a Recent list shared with QGIS.
+- **Field calculator** opens QGIS's own Field Calculator for the layer, as
+  the native attribute table does (update a field or the geometry, new or
+  virtual field; whole layer or only the selected features; it starts editing
+  when needed).
+- **Quick update** is the native table's field calculation bar: field +
+  expression, then **Update All** (**Update Filtered** while the table is
+  filtered) and **Update Selected** (every selected feature), plus an optional
+  **Preview**. Values are calculated and stored as QGIS does it
+  (`$area` / `$length` on the project's ellipsoid, `@row_number`, rounding to
+  the field precision, unconvertible values become NULL).
+- What can be edited is what the layer provides: with the map filter (query)
+  off every record, also the ones the table filters hide; with the map filter
+  on only the records the map shows.
+- **Multi edit** with the layer's form. Field calculator, Quick update and
+  Multi edit are each one undo step.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
-  changes, field properties, native attribute table, and *Open QGIS field
-  calculator* (QGIS's own dialog — whole layer or selection; it ignores the
-  Explorer's filters unless the map filter is on).
+  changes, field properties, native attribute table.
 - The right of the status bar shows the session state and the unsaved counts
   (orange while editing, red when a save failed); disabled buttons say why in
   their tooltip.

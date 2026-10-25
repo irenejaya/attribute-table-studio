@@ -798,6 +798,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._update_edit_status()
         if self.runner.busy:
             return
+        self._update_quick_state()
         shown = len(self.model.fids)
         available = self._available_count()
         sel = len(self.model.selected)
@@ -1325,7 +1326,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             menu.addAction(icons.native(icons.SORT), f"Sort by {name}").triggered.connect(
                 lambda: self.sort_by(col, False))
             act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
-            act.setEnabled(col in self.model.editable_cols)
+            act.setEnabled(self.can_calculate(name))
             act.triggered.connect(lambda: self.open_calculator(name))
             menu.addAction(icons.native(icons.FIELD_PROPS), "Field properties…"
                            ).triggered.connect(self.open_field_properties)

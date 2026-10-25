@@ -10,8 +10,11 @@ explains itself in its tooltip when it is unavailable.
 
 from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtGui import QGuiApplication
+from qgis.PyQt.QtWidgets import QComboBox, QGroupBox
 from qgis.core import QgsFeature, QgsVectorLayerUtils
-from qgis.gui import QgsActionMenu, QgsAttributeDialog, QgsAttributeEditorContext
+from qgis.gui import (
+    QgsActionMenu, QgsAttributeDialog, QgsAttributeEditorContext, QgsFieldCalculator,
+)
 
 from ..core import fields as F
 from . import explorer_dialogs as D
@@ -21,6 +24,20 @@ from . import icons
 from .explorer_bars import EditBar, QuickUpdateBar
 
 _ADD_MODE = QgsAttributeEditorContext.AddFeatureMode
+
+
+def _preselect_field(dlg, name):
+    """Open QGIS's Field Calculator on "Update existing field" with *name*.
+    The dialog has no API for it, so this uses its widget names and quietly
+    does nothing if they ever change."""
+    box = dlg.findChild(QGroupBox, "mUpdateExistingGroupBox")
+    combo = dlg.findChild(QComboBox, "mExistingFieldComboBox")
+    if box is None or combo is None or not box.isEnabled():
+        return
+    i = combo.findText(name)
+    if i >= 0:
+        box.setChecked(True)
+        combo.setCurrentIndex(i)
 
 
 class EditingMixin:
@@ -71,7 +88,7 @@ class EditingMixin:
         b.more_menu.aboutToShow.connect(self._fill_more_menu)
         q = self.quick_bar
         q.previewRequested.connect(self.quick_preview)
-        q.applyRequested.connect(self.quick_apply)
+        q.updateRequested.connect(self.quick_update)
         q.closeRequested.connect(lambda: b.quick_btn.setChecked(False))
 
     def _wire_editing(self):
@@ -137,9 +154,11 @@ class EditingMixin:
                   self._why(editing, E.CAP_ADD, "add records"))
         editable_cols = [i for i in range(len(self.model.fields))
                          if e.field_editable(i)[0]]
-        self._tip(b.calc_btn, editing,
-                  "Field calculator: update a field, or create a new or virtual field",
-                  "Start editing first")
+        self._tip(b.calc_btn, True,
+                  "Field calculator (QGIS's own): update a field, or create a new or "
+                  "virtual field, for the whole layer or only the selected features. "
+                  "It starts editing when needed.\nTo calculate only the filtered "
+                  "records use Quick update › Update Filtered.", "")
         self._tip(b.quick_btn, editing, "Show or hide the Quick update row",
                   "Start editing first")
         if not editing and b.quick_btn.isChecked():
@@ -191,6 +210,7 @@ class EditingMixin:
     def _update_selection_commands(self):
         if self.layer is None:
             return
+        self._update_quick_state()
         e, b = self.edit, self.edit_bar
         editing = e.editing
         n, hidden = self._selection_counts()
@@ -407,102 +427,126 @@ class EditingMixin:
     # ------------------------------------------------------------------
     # bulk: calculator, Quick update, multi edit
     # ------------------------------------------------------------------
-    def target_ids(self, key):
-        layer = self.layer
-        if key == "layer":
-            return list(layer.allFeatureIds())
-        if key == "filtered":
-            return list(self.model.fids)
-        if key == "selected_layer":
-            return list(layer.selectedFeatureIds())
-        sel = self.model.selected
-        return [f for f in self.model.fids if f in sel]
+    # ------------------------------------------------------------------
+    # Field calculator (QGIS's own dialog) and Quick update (QGIS's field
+    # calculation bar)
+    # ------------------------------------------------------------------
+    def table_filtered(self):
+        """The table shows a filtered list - QGIS's attribute table is then
+        in any filter mode but "Show All" (column, expression or form
+        filters, or a scope such as selected / visible on map / edited)."""
+        return bool(self._active_filters() or self.expr_filter or self.external
+                    or self.view_scope != "all")
 
-    def target_counts(self):
-        layer = self.layer
-        sel = self.model.selected
-        return {"layer": max(layer.featureCount(), 0), "filtered": len(self.model.fids),
-                "selected_layer": len(sel),
-                "selected_shown": sum(1 for f in sel if self.model.row_of(f) is not None)}
+    def can_calculate(self, name):
+        """*name* is offered by QGIS's Field Calculator ("Update existing
+        field"), which starts editing itself when needed."""
+        return self.layer is not None and not self.layer.readOnly() \
+            and name in OPS.calculator_fields(self.layer)
 
     def open_calculator(self, field_name=None):
-        if not self.edit.editing:
+        """QGIS's own Field Calculator for this layer (as the native table's
+        button opens it): whole layer - only the records the Query Builder
+        filter lets through - or "Only update N selected features"; it
+        starts editing when needed.  *field_name* opens it on "Update
+        existing field" with that field."""
+        if self.layer is None:
             return
         self.flush_editors()
-        D.FieldCalculatorDialog(self, field_name).exec()
+        dlg = QgsFieldCalculator(self.layer, self)
+        if field_name:
+            _preselect_field(dlg, field_name)
+        dlg.exec()
+
+    def _update_quick_state(self):
+        if self.layer is None:
+            return
+        filtered = self.table_filtered()
+        n_main = len(self.model.fids) if filtered else max(self.layer.featureCount(), 0)
+        self.quick_bar.set_state(filtered, n_main, self.layer.selectedFeatureCount())
 
     def _toggle_quick(self, on):
         """Opening or closing the row never changes data."""
         self.quick_bar.setVisible(bool(on) and self.edit.editing)
         if on:
-            self.quick_bar.set_target_counts(self.target_counts())
-            editable = [self.model.fields[i].name() for i in sorted(self.model.editable_cols)]
-            if editable and self.quick_bar.field_combo.currentField() not in editable:
-                self.quick_bar.field_combo.setField(editable[0])
+            self._update_quick_state()
 
-    def _quick_plan(self):
+    def _quick_target(self, target):
+        """Feature ids for *target* as QGIS picks them: Update All = every
+        feature (None), Update Filtered = the records the table shows,
+        Update Selected = every selected feature of the layer."""
+        if target == "selected":
+            return list(self.layer.selectedFeatureIds())
+        if target == "filtered":
+            return list(self.model.fids)
+        return None
+
+    def _quick_field(self):
         q = self.quick_bar
         name = q.field_combo.currentField()
         idx = self.layer.fields().indexFromName(name)
-        if idx < 0 or idx not in self.model.editable_cols:
-            raise OPS.OperationError(f"{name or 'The field'} is not editable "
-                                     f"({self.edit.field_editable(idx)[1]})")
+        if idx < 0:
+            raise OPS.OperationError("Choose a field to update")
         if not q.expression.isValidExpression():
             raise OPS.OperationError("Enter a valid expression")
-        ids = self.target_ids(q.target())
-        return name, idx, q.expression.expression(), ids
+        return name, idx, q.expression.asExpression()
 
     def quick_preview(self):
         q = self.quick_bar
-        q.set_target_counts(self.target_counts())
+        self._update_quick_state()
+        target = "filtered" if q.filtered else "all"
+        label = "Update Filtered" if q.filtered else "Update All"
+        n_main, n_sel = q._counts
         try:
-            name, idx, expression, ids = self._quick_plan()
-            rows = OPS.evaluate_preview(self.layer, idx, expression, ids)
+            name, idx, expression = self._quick_field()
+            rows = OPS.evaluate_preview(self.layer, idx, expression, self._quick_target(target))
         except OPS.OperationError as exc:
             q.preview_title.setText("Preview not available")
             q.preview_lines.setText(str(exc))
             q.preview_note.setText("")
-            q.apply_btn.setEnabled(False)
             q.preview.setVisible(True)
             return
-        shown = set(self.model.fids)
-        outside = sum(1 for f in ids if f not in shown) if q.target() in (
-            "layer", "selected_layer") else 0
-        q.preview_title.setText(
-            f"Preview  •  {len(ids):,} targeted feature{'s' if len(ids) != 1 else ''}  •  "
-            f"{outside:,} outside this view")
+        q.preview_title.setText(f"Preview  •  {label}: {n_main:,} record{'s' if n_main != 1 else ''}"
+                                f"  •  Update Selected: {n_sel:,}")
         lines = [f"fid {fid} &nbsp; {'NULL' if F.is_null(old) else F.display_value(old)}"
-                 f" &rarr; <b>{'NULL' if new is None else F.display_value(new)}</b>"
+                 f" &rarr; <b>{'NULL' if F.is_null(new) else F.display_value(new)}</b>"
                  for fid, old, new in rows]
-        q.preview_lines.setText("<br>".join(lines) or "No features in the target")
-        q.preview_note.setText("Expression valid  •  Target IDs captured  •  One undo step")
-        self._quick_ids = (name, idx, expression, list(ids))
-        W_text = f"Apply to {len(ids):,} feature{'s' if len(ids) != 1 else ''}"
-        q.apply_btn.setText(W_text)
-        q.apply_btn.setMinimumWidth(self.metrics.bold_fm.horizontalAdvance(W_text) + 36)
-        q.apply_btn.setEnabled(bool(ids))
+        q.preview_lines.setText("<br>".join(lines) or "No records to update")
+        q.preview_note.setText("First values in the layer's order  •  nothing written yet")
         q.preview.setVisible(True)
 
-    def quick_apply(self):
-        plan = getattr(self, "_quick_ids", None)
-        if not plan:
-            return
-        name, idx, expression, ids = plan
-        self.flush_editors()
+    def quick_update(self, target):
+        """Update All / Filtered / Selected, as QGIS's field calculation bar
+        does it (one undo step)."""
+        q = self.quick_bar
         try:
-            n = OPS.apply_expression(self.layer, idx, expression, ids,
-                                     f"Quick update: {name}", self)
+            name, idx, expression = self._quick_field()
         except OPS.OperationError as exc:
             self.status.set_status(f"Quick update not applied — {exc}", "error")
             return
-        self.quick_bar.preview.setVisible(False)
-        self._quick_ids = None
-        if n is None:
+        ids = self._quick_target(target)
+        if ids is not None and not ids:
+            self.status.set_status("Quick update: no records to update", "warning")
+            return
+        self.flush_editors()
+        try:
+            result = OPS.run_field_calculation(self.layer, idx, expression, ids,
+                                               f"Quick update: {name}", self)
+        except OPS.OperationError as exc:
+            E.ask(self, "Update Attributes", "An error occurred while evaluating the "
+                  f"calculation string:\n{exc}", [("ok", "OK", "accept")], icon="warning")
+            self.status.set_status("Quick update not applied — nothing was changed", "error")
+            return
+        q.preview.setVisible(False)
+        if result is None:
             self.status.set_status("Quick update cancelled — nothing was changed", "warning")
-        else:
-            self.status.set_status(
-                f"Quick update: {name} calculated for {len(ids):,} feature(s), "
-                f"{n:,} value(s) changed (one undo step, unsaved)", "success")
+            return
+        n, problems = result
+        note = (f"; {problems:,} value{'s' if problems != 1 else ''} could not be stored in "
+                f"{name} and became NULL or were shortened (as QGIS does)" if problems else "")
+        self.status.set_status(f"Quick update: {name} calculated for {n:,} feature"
+                               f"{'s' if n != 1 else ''} (one undo step, unsaved){note}",
+                               "warning" if problems else "success")
 
     def multi_edit(self):
         ids = sorted(self.layer.selectedFeatureIds())
@@ -558,14 +602,6 @@ class EditingMixin:
         act.triggered.connect(lambda: D.ReviewChangesDialog(self).exec())
         menu.addAction(icons.native(icons.FIELD_PROPS), "Layer field properties…").triggered.connect(
             self.open_field_properties)
-        act = menu.addAction(icons.native(icons.CALCULATE), "Open QGIS field calculator…")
-        act.setToolTip("QGIS's own Field Calculator for this layer. It calculates the whole "
-                       "layer, or only the selected features when you tick that option.\n"
-                       "It ignores the Explorer's filters unless the map filter is on "
-                       "(then only the records shown on the map are calculated).\n"
-                       "Use the Explorer's Field calculator to target the filtered records.")
-        act.setEnabled(self._qgis_calculator_action() is not None)
-        act.triggered.connect(self.open_qgis_calculator)
         menu.addAction(icons.native(icons.TABLE), "Open native attribute table").triggered.connect(
             lambda: self.iface.showAttributeTable(self.layer))
         menu.addAction(icons.native(icons.HELP), "Help").triggered.connect(self.show_help)
@@ -599,20 +635,6 @@ class EditingMixin:
         if row < 0 or col < 0:
             return
         self.model.setData(self.model.index(row, col), None)
-
-    def _qgis_calculator_action(self):
-        getter = getattr(self.iface, "actionOpenFieldCalculator", None)
-        return getter() if getter is not None else None
-
-    def open_qgis_calculator(self):
-        """QGIS's Field Calculator works on the active layer: make it this
-        one, write any open cell editor first, then open it."""
-        action = self._qgis_calculator_action()
-        if action is None:
-            return
-        self.flush_editors()
-        self.iface.setActiveLayer(self.layer)
-        action.trigger()
 
     def open_field_properties(self):
         try:

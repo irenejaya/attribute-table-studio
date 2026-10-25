@@ -97,25 +97,30 @@ fails the edits are kept and the provider's message is shown.
 are not shown. <b>Cut</b>, <b>Copy</b> and <b>Paste</b> use the QGIS feature
 clipboard. A status link <i>Show edited and new</i> switches to that
 scope.</li>
-<li><b>Field calculator</b> updates a field, or creates a new or virtual
-field, for the whole layer, the filtered records or the selection (shown or
-all). <b>Quick update</b> shows a row under the edit row: pick a field, an
-expression and a target, <b>Preview</b> a few values, then <b>Apply</b>.
-<b>Multi edit</b> opens the form for the selected features: only fields you
-change are written. Each of these is one undo step. Expressions evaluate
-exactly as in the QGIS Field Calculator: the same functions (including
-<i>regexp_replace</i>, <i>regexp_match</i> and the other regex functions),
-<i>$area</i>, <i>$length</i> and <i>$perimeter</i> measured on the project's
-ellipsoid in the project's units, <i>@row_number</i> counting the calculated
-features from 1, and a <i>Recent</i> list shared with QGIS's own
-calculator.</li>
+<li><b>Field calculator</b> opens QGIS's own Field Calculator for this
+layer, exactly as the native attribute table does: update a field (or the
+geometry), or create a new or virtual field, for the whole layer or only the
+selected features. It starts editing when needed.</li>
+<li><b>Quick update</b> is the native attribute table's field calculation
+bar: pick a field and an expression, then <b>Update All</b> - or
+<b>Update Filtered</b> while the table is filtered (column, expression or
+form filters, or a scope such as selected / visible on map) - or
+<b>Update Selected</b> (every selected feature, shown or not).
+<b>Preview</b> shows the first values without writing. Values are calculated
+and stored as QGIS does it (<i>$area</i> / <i>$length</i> on the project's
+ellipsoid, <i>@row_number</i>, rounding to the field precision, values that
+cannot be stored become NULL).</li>
+<li>What can be edited is what the layer provides: with the <b>map
+filter</b> (query) off, every record - even <b>Update All</b> and the Field
+calculator reach records the table filters hide; with the map filter on,
+only the records the map shows.</li>
+<li><b>Multi edit</b> opens the form for the selected features: only fields
+you change are written. Field calculator, Quick update and Multi edit are
+each one undo step.</li>
 <li><b>New field</b> / <b>Delete field</b> change the layer's schema (stored
 or virtual fields); <b>Reload</b> re-reads the data source. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review unsaved
-changes</i>, field properties, the native attribute table and <i>Open QGIS
-field calculator</i> (QGIS's own dialog: it calculates the whole layer or the
-selected features and ignores the Explorer's filters unless the map filter
-is on).</li>
+changes</i>, field properties and the native attribute table.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
 close, close and keep the layer's edits, or cancel. Nothing is discarded
 without asking.</li>

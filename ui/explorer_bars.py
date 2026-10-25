@@ -8,14 +8,16 @@ Attribute Explorer editing rows.
   in the status bar.  In a narrow window the lower-priority groups move into
   the More menu, so the row never wraps.
 - :class:`QuickUpdateBar` is the optional third row, shown only while
-  editing AND its separate Quick update toggle is on.
+  editing AND its separate Quick update toggle is on; it works like the
+  native attribute table's field calculation bar.
 """
 
 from qgis.PyQt.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout,
+    QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout,
     QWidget,
 )
+from qgis.core import QgsFieldProxyModel
 from qgis.gui import QgsFieldComboBox, QgsFieldExpressionWidget
 
 from . import icons
@@ -173,20 +175,20 @@ class EditBar(QWidget):
 
 
 class QuickUpdateBar(QFrame):
-    """Optional third row: field, expression, target, preview and apply.
-    Opening or closing it never changes data."""
+    """Optional row while editing - the native attribute table's field
+    calculation bar: a field (read-only fields hidden), an expression, then
+    "Update All" ("Update Filtered" while the table is filtered) and
+    "Update Selected".  Preview shows the first values; it never writes."""
 
     previewRequested = pyqtSignal()
-    applyRequested = pyqtSignal()
+    updateRequested = pyqtSignal(str)        # "all", "filtered" or "selected"
     closeRequested = pyqtSignal()
-
-    TARGETS = (("layer", "All layer records"), ("filtered", "All filtered records"),
-               ("selected_layer", "Selected layer records"),
-               ("selected_shown", "Selected shown records"))
 
     def __init__(self, metrics, theme, parent=None):
         super().__init__(parent)
         m = metrics
+        self.metrics = m
+        self.filtered = False
         self.setObjectName("gtsBand")
         outer = QVBoxLayout(self)
         outer.setContentsMargins(10, 6, 6, 6)
@@ -199,24 +201,23 @@ class QuickUpdateBar(QFrame):
         self.field_combo = QgsFieldComboBox()
         self.field_combo.setFixedHeight(m.control_h)
         self.field_combo.setMinimumWidth(170)
-        self.field_combo.setToolTip("Existing field to update")
+        self.field_combo.setToolTip("Field to update")
+        proxy = getattr(QgsFieldProxyModel, "Filter", QgsFieldProxyModel)
+        self.field_combo.setFilters(proxy.AllTypes | proxy.HideReadOnly)
         row.addWidget(self.field_combo)
         row.addWidget(W.label("Expression", "dim"))
         self.expression = QgsFieldExpressionWidget()
         self.expression.setFixedHeight(m.control_h)
         self.expression.setToolTip("QGIS expression giving the new value")
         row.addWidget(self.expression, 1)
-        row.addWidget(W.label("Target", "dim"))
-        self.target_combo = QComboBox()
-        self.target_combo.setFixedHeight(m.control_h)
-        self.target_combo.setMinimumWidth(210)
-        for key, text in self.TARGETS:
-            self.target_combo.addItem(text, key)
-        self.target_combo.setCurrentIndex(3)
-        row.addWidget(self.target_combo)
-        self.preview_btn = W.button(m, "Preview update", icons.native(icons.QUICK_UPDATE),
-                                    "Show what would change; nothing is written yet")
+        self.preview_btn = W.button(m, "Preview", icons.native(icons.QUICK_UPDATE),
+                                    "Show the first values; nothing is written")
         row.addWidget(self.preview_btn)
+        self.run_btn = W.button(m, "Update All")
+        self.selected_btn = W.button(m, "Update Selected")
+        for btn in (self.run_btn, self.selected_btn):
+            btn.setMinimumWidth(m.fm.horizontalAdvance("Update Filtered") + 28)
+            row.addWidget(btn)
         self.close_btn = W.square_button(m, icons.glyph("cross", theme.text_dim),
                                          "Close the Quick update row (the draft is kept)")
         row.addWidget(self.close_btn)
@@ -238,18 +239,20 @@ class QuickUpdateBar(QFrame):
         pv.addLayout(left, 1)
         self.preview_note = QLabel("")
         self.preview_note.setObjectName("gtsDim")
-        pv.addWidget(self.preview_note)
-        self.apply_btn = W.action_button(m, "Apply", "Write the values (one undo step)")
-        pv.addWidget(self.apply_btn, 0, Qt.AlignmentFlag.AlignBottom)
+        pv.addWidget(self.preview_note, 0, Qt.AlignmentFlag.AlignBottom)
         self.preview.setVisible(False)
         outer.addWidget(self.preview)
 
         self.preview_btn.clicked.connect(self.previewRequested.emit)
-        self.apply_btn.clicked.connect(self.applyRequested.emit)
+        self.run_btn.clicked.connect(
+            lambda: self.updateRequested.emit("filtered" if self.filtered else "all"))
+        self.selected_btn.clicked.connect(lambda: self.updateRequested.emit("selected"))
         self.close_btn.clicked.connect(self.closeRequested.emit)
-        for sig in (self.field_combo.fieldChanged, self.expression.fieldChanged,
-                    self.target_combo.currentIndexChanged):
+        self.expression.fieldChanged[str, bool].connect(lambda *_: self._sync())
+        for sig in (self.field_combo.fieldChanged, self.expression.fieldChanged):
             sig.connect(lambda *_: self.preview.setVisible(False))
+        self._counts = (0, 0)
+        self._sync()
 
     def set_layer(self, layer):
         self.field_combo.setLayer(layer)
@@ -258,10 +261,26 @@ class QuickUpdateBar(QFrame):
             self.expression.setGeomCalculator(geometry_calculator(layer))
         self.preview.setVisible(False)
 
-    def target(self):
-        return self.target_combo.currentData()
+    def set_state(self, filtered, n_main, n_selected):
+        """*filtered*: the table shows a filtered list (QGIS: any filter
+        mode but "Show All"); *n_main*: records Update All / Filtered
+        calculates; *n_selected*: selected features of the layer."""
+        self.filtered = bool(filtered)
+        self._counts = (n_main, n_selected)
+        W.set_button_text(self.run_btn, "Update Filtered" if filtered else "Update All")
+        self._sync()
 
-    def set_target_counts(self, counts):
-        for i, (key, text) in enumerate(self.TARGETS):
-            n = counts.get(key)
-            self.target_combo.setItemText(i, f"{text} ({n:,})" if n is not None else text)
+    def _sync(self):
+        n_main, n_selected = self._counts
+        valid = self.expression.isValidExpression()
+        what = "filtered record" if self.filtered else "record"
+        self.run_btn.setEnabled(valid and n_main > 0)
+        self.run_btn.setToolTip(
+            f"Calculate the field for the {n_main:,} {what}{'s' if n_main != 1 else ''}"
+            + (" shown in the table" if self.filtered else " of the layer")
+            + " (one undo step)" + ("" if valid else "\nEnter a valid expression first"))
+        self.selected_btn.setEnabled(n_selected > 0)
+        self.selected_btn.setToolTip(
+            f"Calculate the field for the {n_selected:,} selected feature"
+            f"{'s' if n_selected != 1 else ''} (shown or not; one undo step)"
+            if n_selected else "Select features first")

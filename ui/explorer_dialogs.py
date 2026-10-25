@@ -8,7 +8,7 @@ look.
 from qgis.PyQt.QtCore import QMetaType, Qt
 from qgis.PyQt.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-    QFormLayout, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
+    QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QScrollArea,
     QSpinBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
@@ -18,7 +18,7 @@ from qgis.core import (
 )
 from qgis.gui import (
     QgsAttributeEditorContext, QgsAttributeForm, QgsExpressionBuilderWidget,
-    QgsFieldComboBox, QgsFieldConditionalFormatWidget, QgsFieldExpressionWidget,
+    QgsFieldConditionalFormatWidget, QgsFieldExpressionWidget,
 )
 
 from ..core import fields as F
@@ -89,246 +89,14 @@ class _Dialog(QDialog):
         return lbl
 
 
-def _expression_builder(layer, text="", calculator=False):
-    """*calculator*: set up like the QGIS field calculator's builder
-    (@row_number, ellipsoidal measures in the preview, its Recent list)."""
+def _expression_builder(layer, text=""):
     builder = QgsExpressionBuilderWidget()
     builder.setLayer(layer)
-    builder.setExpressionContext(OPS.calculator_context(layer) if calculator
-                                 else layer.createExpressionContext())
+    builder.setExpressionContext(layer.createExpressionContext())
     builder.loadFieldNames()
-    if calculator:
-        builder.setGeomCalculator(OPS.geometry_calculator(layer))
-        builder.loadRecent(OPS.RECENT)
     if text:
         builder.setExpressionText(text)
     return builder
-
-
-# ============================================================================
-# FIELD CALCULATOR
-# ============================================================================
-
-class FieldCalculatorDialog(_Dialog):
-    """Update an existing field, or create a new stored or virtual field,
-    from an expression, for a chosen target - with a count before Apply."""
-
-    def __init__(self, panel, field_name=None):
-        super().__init__(panel, f"Field calculator — {panel.layer.name()}", icons.CALCULATE)
-        self.resize(760, 640)
-        layer = panel.layer
-        m = self.metrics
-        modes = QHBoxLayout()
-        self.mode_group = QButtonGroup(self)
-        self.mode_update = QRadioButton("Update existing field")
-        self.mode_new = QRadioButton("Create a new field")
-        self.mode_virtual = QRadioButton("Create a virtual field")
-        for i, rb in enumerate((self.mode_update, self.mode_new, self.mode_virtual)):
-            self.mode_group.addButton(rb, i)
-            modes.addWidget(rb)
-        modes.addStretch()
-        self.lay.addLayout(modes)
-
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(8)
-        grid.setVerticalSpacing(6)
-        self.field_combo = QgsFieldComboBox()
-        self.field_combo.setLayer(layer)
-        self.field_combo.setFixedHeight(m.control_h)
-        editable = [layer.fields().at(i).name() for i in range(layer.fields().count())
-                    if panel.edit.field_editable(i)[0]]
-        self._editable = editable
-        grid.addWidget(QLabel("Field"), 0, 0)
-        grid.addWidget(self.field_combo, 0, 1, 1, 5)
-        self.name_edit = QLineEdit()
-        self.name_edit.setFixedHeight(m.control_h)
-        self.name_edit.setPlaceholderText("new_field")
-        self.type_combo = QComboBox()
-        self.type_combo.setFixedHeight(m.control_h)
-        self.length_spin = QSpinBox()
-        self.length_spin.setRange(0, 100000)
-        self.length_spin.setValue(10)
-        self.prec_spin = QSpinBox()
-        self.prec_spin.setRange(0, 30)
-        self.prec_spin.setValue(3)
-        for w in (self.length_spin, self.prec_spin):
-            w.setFixedHeight(m.control_h)
-        grid.addWidget(QLabel("Name"), 1, 0)
-        grid.addWidget(self.name_edit, 1, 1)
-        grid.addWidget(QLabel("Type"), 1, 2)
-        grid.addWidget(self.type_combo, 1, 3)
-        lp = QHBoxLayout()
-        lp.addWidget(QLabel("Length"))
-        lp.addWidget(self.length_spin)
-        lp.addWidget(QLabel("Precision"))
-        lp.addWidget(self.prec_spin)
-        grid.addLayout(lp, 1, 4, 1, 2)
-        self.target_combo = QComboBox()
-        self.target_combo.setFixedHeight(m.control_h)
-        counts = panel.target_counts()
-        for key, text in (("layer", "All layer records"),
-                          ("filtered", "All filtered records"),
-                          ("selected_layer", "Selected layer records"),
-                          ("selected_shown", "Selected shown records")):
-            self.target_combo.addItem(f"{text} ({counts[key]:,})", key)
-        self.target_combo.setCurrentIndex(2 if counts["selected_layer"] else 1)
-        grid.addWidget(QLabel("Target"), 2, 0)
-        grid.addWidget(self.target_combo, 2, 1, 1, 5)
-        self.lay.addLayout(grid)
-
-        self.builder = _expression_builder(layer, calculator=True)
-        self.lay.addWidget(self.builder, 1)
-        self.preview = QLabel("")
-        self.preview.setObjectName("gtsDim")
-        self.preview.setWordWrap(True)
-        self.lay.addWidget(self.preview)
-        box = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
-        self.apply_btn = box.addButton("Apply", QDialogButtonBox.ButtonRole.AcceptRole)
-        box.rejected.connect(self.reject)
-        self.apply_btn.clicked.connect(self._apply)
-        self.lay.addWidget(box)
-
-        can_change = panel.edit.editing and bool(editable)
-        can_add = panel.edit.editing and panel.edit.capable(E.CAP_ADD_FIELD)
-        self.mode_update.setEnabled(can_change)
-        self.mode_new.setEnabled(can_add)
-        if not can_change:
-            self.mode_update.setToolTip("Start editing (and have an editable field) first")
-        if not can_add:
-            self.mode_new.setToolTip("Start editing a layer whose data source can add fields")
-        (self.mode_update if can_change else self.mode_new if can_add
-         else self.mode_virtual).setChecked(True)
-        if field_name and field_name in editable:
-            self.field_combo.setField(field_name)
-        elif editable:
-            self.field_combo.setField(editable[0])
-        self.mode_group.idClicked.connect(self._on_mode) if hasattr(
-            self.mode_group, "idClicked") else self.mode_group.buttonClicked.connect(
-            lambda *_: self._on_mode())
-        self.builder.expressionParsed.connect(lambda *_: self._update_preview())
-        self.target_combo.currentIndexChanged.connect(lambda *_: self._update_preview())
-        self.field_combo.fieldChanged.connect(lambda *_: self._update_preview())
-        self._on_mode()
-
-    def mode(self):
-        return ("update", "new", "virtual")[max(self.mode_group.checkedId(), 0)]
-
-    def _on_mode(self, *_args):
-        mode = self.mode()
-        self.field_combo.setEnabled(mode == "update")
-        for w in (self.name_edit, self.type_combo, self.length_spin, self.prec_spin):
-            w.setEnabled(mode != "update")
-        self.target_combo.setEnabled(mode != "virtual")
-        self.type_combo.clear()
-        if mode == "virtual":
-            for text, mtype, tname in VIRTUAL_TYPES:
-                self.type_combo.addItem(text, (mtype, tname, 0, 0))
-        else:
-            for nt in self.panel.layer.dataProvider().nativeTypes():
-                self.type_combo.addItem(nt.mTypeDesc, (nt.mType, nt.mTypeName,
-                                                       nt.mMaxLen, nt.mMaxPrec))
-        self._update_preview()
-
-    def target_ids(self):
-        return self.panel.target_ids(self.target_combo.currentData())
-
-    def _update_preview(self):
-        text = self.builder.expressionText()
-        mode = self.mode()
-        if not text.strip():
-            self.preview.setText("Enter an expression.")
-            self.apply_btn.setEnabled(False)
-            return
-        if not self.builder.isExpressionValid():
-            self.preview.setText("Expression is invalid.")
-            self.apply_btn.setEnabled(False)
-            return
-        layer = self.panel.layer
-        ids = self.target_ids() if mode != "virtual" else list(layer.allFeatureIds())[:1]
-        sample = ""
-        if ids:
-            try:
-                value = OPS.sample_value(layer, text, sorted(ids)[0])
-                sample = ("Output preview: "
-                          f"{F.display_value(value) if not F.is_null(value) else 'NULL'}")
-            except OPS.OperationError as exc:
-                sample = f"Evaluation error: {exc}"
-        if mode == "virtual":
-            self.preview.setText(f"{sample}  •  A virtual field is calculated for every "
-                                 "record and stored in the project (save the project to keep it).")
-        else:
-            self.preview.setText(f"{sample}  •  {len(ids):,} feature(s) will be calculated "
-                                 "as one undo step.")
-        self.apply_btn.setEnabled(mode == "virtual" or bool(ids))
-
-    def _new_field(self):
-        name = self.name_edit.text().strip()
-        if not name:
-            raise OPS.OperationError("Enter a field name")
-        if self.panel.layer.fields().indexFromName(name) >= 0:
-            raise OPS.OperationError(f"{name} already exists")
-        mtype, tname, max_len, max_prec = self.type_combo.currentData()
-        length = self.length_spin.value() if max_len else 0
-        prec = self.prec_spin.value() if max_prec else 0
-        return QgsField(name, mtype, tname, length, prec)
-
-    def _apply(self):
-        layer = self.panel.layer
-        text = self.builder.expressionText()
-        mode = self.mode()
-        try:
-            if mode == "virtual":
-                fld = self._new_field()
-                layer.addExpressionField(text, fld)
-                self._remember(text)
-                self.panel.status.set_status(
-                    f"Virtual field {fld.name()} added — it is stored in the project, "
-                    "so save the project to keep it", "success")
-                self.accept()
-                return
-            ids = self.target_ids()
-            if mode == "update":
-                idx = layer.fields().indexFromName(self.field_combo.currentField())
-                if idx < 0:
-                    raise OPS.OperationError("Choose a field")
-                n = OPS.apply_expression(layer, idx, text, ids,
-                                         f"Field calculator: {self.field_combo.currentField()}",
-                                         self)
-                name = self.field_combo.currentField()
-            else:
-                fld = self._new_field()
-                layer.beginEditCommand(f"Field calculator: new field {fld.name()}")
-                if not layer.addAttribute(fld):
-                    layer.destroyEditCommand()
-                    raise OPS.OperationError(f"{fld.name()} could not be added")
-                idx = layer.fields().indexFromName(fld.name())
-                try:
-                    n = OPS.apply_expression(layer, idx, text, ids, "", self,
-                                             own_command=False)
-                except OPS.OperationError:
-                    layer.destroyEditCommand()
-                    raise
-                if n is None:
-                    layer.destroyEditCommand()
-                else:
-                    layer.endEditCommand()
-                name = fld.name()
-        except OPS.OperationError as exc:
-            E.ask(self, "Field calculator", str(exc), [("ok", "OK", "accept")], icon="warning")
-            return
-        if n is None:
-            self.panel.status.set_status("Calculation cancelled — nothing was changed",
-                                         "warning")
-        else:
-            self._remember(text)
-            self.panel.status.set_status(
-                f"Calculated {name} for {len(ids):,} feature(s) ({n:,} value(s) changed, "
-                "unsaved — Save edits writes them)", "success")
-        self.accept()
-
-    def _remember(self, text):
-        """Into the Recent list shared with QGIS's own field calculator."""
-        self.builder.expressionTree().saveToRecent(text, OPS.RECENT)
 
 
 # ============================================================================

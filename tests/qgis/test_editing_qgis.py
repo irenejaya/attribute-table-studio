@@ -13,7 +13,7 @@ APP = H.start_qgis()
 H.plugin_package()
 
 from qgis.PyQt import sip  # noqa: E402
-from qgis.PyQt.QtCore import QEvent, QModelIndex, QPoint, Qt  # noqa: E402
+from qgis.PyQt.QtCore import QEvent, QPoint, Qt  # noqa: E402
 from qgis.PyQt.QtGui import QColor, QKeyEvent, QKeySequence  # noqa: E402
 from qgis.PyQt.QtWidgets import QMenu, QMessageBox  # noqa: E402
 from qgis.core import (Qgis, QgsConditionalStyle, QgsFeatureRequest, QgsField,  # noqa: E402
@@ -119,10 +119,13 @@ class EditingTests(unittest.TestCase):
         extra = p.status.extra
         self.assertEqual(extra.fullText(), "Read only")
         self.assertEqual(extra.property("level"), "info")                # dim
-        for btn in (b.save_btn, b.discard_btn, b.undo_btn, b.add_btn, b.calc_btn,
+        for btn in (b.save_btn, b.discard_btn, b.undo_btn, b.add_btn,
                     b.quick_btn, b.multi_btn, b.new_field_btn):
             self.assertFalse(btn.isEnabled(), btn.toolTip())
             self.assertIn("Unavailable", btn.toolTip())
+        # QGIS's Field Calculator button is never disabled (it starts editing)
+        self.assertTrue(b.calc_btn.isEnabled())
+        self.assertIn("QGIS", b.calc_btn.toolTip())
         self.assertTrue(b.edit_btn.isEnabled())
         self.assertTrue(b.reload_btn.isEnabled())
         self.assertFalse(p.quick_bar.isVisibleTo(p))
@@ -315,63 +318,95 @@ class EditingTests(unittest.TestCase):
         dlg._apply()
         self.assertLess(self.layer.fields().indexFromName("HALF_MAX"), 0)
 
-    def test_09_field_calculator_targets(self):
-        p = self.panel
-        self.start()
-        self.layer.selectByIds(p.model.fids[:3])
-        H.settle(0.1)
-        counts = p.target_counts()
-        self.assertEqual(counts["selected_layer"], 3)
-        self.assertEqual(counts["layer"], self.layer.featureCount())
-        dlg = D.FieldCalculatorDialog(p, "FL_1_PCT_MAX")
-        self.assertEqual(dlg.mode(), "update")
-        dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
-        dlg.builder.setExpressionText("7")
-        dlg._update_preview()
-        self.assertIn("3 feature(s)", dlg.preview.text())
-        depth = self.layer.undoStack().count()
-        dlg._apply()
-        self.assertEqual(self.layer.undoStack().count(), depth + 1)   # one step
-        for fid in p.model.fids[:3]:
-            self.assertEqual(self.layer.getFeature(fid)["FL_1_PCT_MAX"], 7)
-        dlg = D.FieldCalculatorDialog(p)
-        dlg.mode_new.setChecked(True)
-        dlg._on_mode()
-        dlg.name_edit.setText("CALC")
-        dlg.type_combo.setCurrentIndex(max(0, dlg.type_combo.findText("Decimal number (double)")))
-        dlg.builder.setExpressionText('"FL_1_PCT_MAX" + 1')
-        dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
-        dlg._apply()
-        calc = self.layer.fields().indexFromName("CALC")
-        self.assertGreaterEqual(calc, 0)
-        first = sorted(self.layer.selectedFeatureIds())[0]
-        self.assertEqual(self.layer.getFeature(first)["CALC"], 8)
+    def test_09_field_calculator_is_qgis_dialog(self):
+        """The button opens QGIS's own Field Calculator on this layer; it
+        starts editing itself, pre-ticks "Only update selected" and uses
+        @row_number - all QGIS's code."""
+        from qgis.gui import QgsFieldCalculator
+        from qgis.PyQt.QtWidgets import QCheckBox, QComboBox, QGroupBox
+        p, layer = self.panel, self.layer
+        self.assertFalse(layer.isEditable())
+        ids = sorted(p.model.fids[:3])
+        layer.selectByIds(ids)
+        seen = {}
 
-    def test_10_quick_update_preview_apply_undo(self):
+        def run(dlg):
+            seen["title"] = dlg.windowTitle()
+            seen["update"] = dlg.findChild(QGroupBox, "mUpdateExistingGroupBox").isChecked()
+            seen["field"] = dlg.findChild(QComboBox, "mExistingFieldComboBox").currentText()
+            seen["only"] = dlg.findChild(QCheckBox, "mOnlyUpdateSelectedCheckBox").isChecked()
+            self._calc_builder(dlg).setExpressionText("@row_number * 10")
+            dlg.accept()
+            return 1
+
+        original = QgsFieldCalculator.exec
+        QgsFieldCalculator.exec = run
+        try:
+            p.open_calculator("ZONE_CODE")        # header menu: "Calculate ZONE_CODE…"
+        finally:
+            QgsFieldCalculator.exec = original
+        self.assertIn(layer.name(), seen["title"])
+        self.assertEqual((seen["update"], seen["field"], seen["only"]), (True, "ZONE_CODE", True))
+        self.assertTrue(layer.isEditable())                     # QGIS started editing
+        self.assertEqual([layer.getFeature(f)["ZONE_CODE"] for f in ids], [10, 20, 30])
+        settle(p)
+        self.assertTrue(p.edit_bar.edit_btn.isChecked())        # the Explorer follows
+        self.assertTrue(p.can_calculate("ZONE_CODE"))
+        layer.addExpressionField('"ZONE_CODE" * 2', QgsField("TWICE", D._MT.Int))
+        self.assertFalse(p.can_calculate("TWICE"))             # QGIS never lists virtual fields
+        layer.removeExpressionField(layer.fields().indexFromName("TWICE"))
+
+    @staticmethod
+    def _calc_builder(dlg):
+        """The expression builder inside QGIS's Field Calculator (PyQGIS
+        returns it as a plain QWidget)."""
+        from qgis.gui import QgsExpressionBuilderWidget
+        from qgis.PyQt.QtWidgets import QWidget
+        widget = dlg.findChild(QWidget, "builder")
+        assert widget.metaObject().className() == "QgsExpressionBuilderWidget"
+        return sip.cast(widget, QgsExpressionBuilderWidget)
+
+    def _quick(self, field, expression):
         p = self.panel
-        self.start()
-        self.layer.selectByIds(p.model.fids[:4])
-        H.settle(0.1)
-        p.edit_bar.quick_btn.click()
+        if not p.edit_bar.quick_btn.isChecked():
+            p.edit_bar.quick_btn.click()
         q = p.quick_bar
-        q.field_combo.setField("FL_1_PCT_MAX")
-        q.expression.setExpression('"FL_1_PCT_MAX" + 1000')
-        q.target_combo.setCurrentIndex(q.target_combo.findData("selected_shown"))
-        before = {f: self.layer.getFeature(f)["FL_1_PCT_MAX"] for f in p.model.fids[:4]}
+        q.field_combo.setField(field)
+        q.expression.setExpression(expression)
+        p._update_quick_state()
+        return q
+
+    def test_10_quick_update_all_and_selected(self):
+        """Not filtered: "Update All" and "Update Selected", as in QGIS."""
+        p, layer = self.panel, self.layer
+        self.start()
+        q = self._quick("FL_1_PCT_MAX", '"FL_1_PCT_MAX" + 1000')
+        self.assertEqual(q.run_btn.text(), "Update All")
+        self.assertFalse(q.selected_btn.isEnabled())            # nothing selected
+        self.assertTrue(q.run_btn.isEnabled())
+        ids = sorted(p.model.fids[:4])
+        layer.selectByIds(ids)
+        H.settle(0.1)
+        self.assertTrue(q.selected_btn.isEnabled())
+        before = {f: f_["FL_1_PCT_MAX"] for f_ in layer.getFeatures() for f in [f_.id()]}
         p.quick_preview()
         self.assertTrue(q.preview.isVisibleTo(p))
-        self.assertIn("4 targeted features", q.preview_title.text())
-        self.assertEqual(q.apply_btn.text(), "Apply to 4 features")
-        self.assertEqual({f: self.layer.getFeature(f)["FL_1_PCT_MAX"] for f in before},
-                         before)                              # preview writes nothing
-        depth = self.layer.undoStack().count()
-        p.quick_apply()
-        self.assertEqual(self.layer.undoStack().count(), depth + 1)
+        self.assertIn(f"Update All: {layer.featureCount():,} records", q.preview_title.text())
+        self.assertIn("Update Selected: 4", q.preview_title.text())
+        self.assertEqual({f.id(): f["FL_1_PCT_MAX"] for f in layer.getFeatures()}, before)
+        depth = layer.undoStack().count()
+        q.selected_btn.click()
+        self.assertEqual(layer.undoStack().count(), depth + 1)  # one undo step
+        after = {f.id(): f["FL_1_PCT_MAX"] for f in layer.getFeatures()}
         for f, v in before.items():
-            self.assertAlmostEqual(self.layer.getFeature(f)["FL_1_PCT_MAX"], v + 1000)
+            self.assertAlmostEqual(after[f], v + 1000 if f in ids else v)
         p.edit.undo()
-        self.assertEqual({f: self.layer.getFeature(f)["FL_1_PCT_MAX"] for f in before},
-                         before)
+        self.assertEqual({f.id(): f["FL_1_PCT_MAX"] for f in layer.getFeatures()}, before)
+        # Update All: every feature, @row_number in the layer's order
+        q = self._quick("ZONE_CODE", "@row_number")
+        q.run_btn.click()
+        values = [f["ZONE_CODE"] for f in layer.getFeatures()]
+        self.assertEqual(values, list(range(1, layer.featureCount() + 1)))
 
     def test_11_multi_edit(self):
         p = self.panel
@@ -644,16 +679,128 @@ class EditingTests(unittest.TestCase):
         self.assertNotEqual(layer.getFeature(p.model.fid(2))["LAND_USE_TYPE"], "CANCELLED")
         self.assertEqual(layer.getFeature(fid)["LAND_USE_TYPE"], "TYPED")
 
-    # ---- the Field calculator evaluates like QGIS's own -------------------
-    @staticmethod
-    def _pick_type(dlg, names):
-        for i in range(dlg.type_combo.count()):
-            if dlg.type_combo.itemData(i)[1].upper() in names:
-                dlg.type_combo.setCurrentIndex(i)
-                return
-        raise AssertionError(f"no {names} type")
+    # ---- Quick update: QGIS's rules for what is updated --------------------
+    def test_23_quick_update_filtered_without_query(self):
+        """Table filtered, map filter (query) off: "Update Filtered" changes
+        only the shown records, "Update Selected" every selected feature,
+        and once the filters are cleared "Update All" reaches every record."""
+        p, layer = self.panel, self.layer
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+                                                           "RESIDENTIAL"))
+        p.refresh()
+        settle(p)
+        self.start()
+        shown = set(p.model.fids)
+        self.assertLess(len(shown), layer.featureCount())
+        q = self._quick("ZONE_CODE", "99")
+        self.assertEqual(q.run_btn.text(), "Update Filtered")
+        q.run_btn.click()
+        zone = {f.id(): f["ZONE_CODE"] for f in layer.getFeatures()}
+        self.assertTrue(all(zone[f] == 99 for f in shown))
+        self.assertTrue(all(zone[f] != 99 for f in zone if f not in shown))
+        hidden = next(f for f in zone if f not in shown)
+        layer.selectByIds([hidden])
+        H.settle(0.1)
+        q = self._quick("ZONE_CODE", "77")
+        q.selected_btn.click()                       # selected but not shown: updated too
+        self.assertEqual(layer.getFeature(hidden)["ZONE_CODE"], 77)
+        p.clear_filters()
+        settle(p)
+        q = self._quick("ZONE_CODE", "55")
+        self.assertEqual(q.run_btn.text(), "Update All")
+        q.run_btn.click()
+        self.assertEqual({f["ZONE_CODE"] for f in layer.getFeatures()}, {55})
+        self.assertEqual(sum(1 for _ in layer.getFeatures()), layer.featureCount())
 
-    def test_23_calculator_measures_like_qgis(self):
+    def test_24_quick_update_with_query_on(self):
+        """Map filter (query) on: only what the query shows can be edited -
+        even "Update All" and QGIS's own calculator stop at the query."""
+        from qgis.gui import QgsFieldCalculator
+        from qgis.PyQt.QtWidgets import QCheckBox
+        p, layer = self.panel, self.layer
+        everything = set(layer.allFeatureIds())
+        p.header.cells[self.lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq",
+                                                           "RESIDENTIAL"))
+        p.refresh()
+        settle(p)
+        p.query_btn.setChecked(True)
+        settle(p)
+        queried = set(layer.allFeatureIds())                 # what the map shows
+        self.assertLess(len(queried), len(everything))
+        self.start()
+        # a narrower table filter while editing: Update Filtered stays inside it
+        fl = p.header.cells[self.fl]
+        fl.set_filter(FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "gt", "80"))
+        p.refresh()
+        settle(p)
+        narrower = set(p.model.fids)
+        self.assertTrue(narrower < queried)
+        q = self._quick("ZONE_CODE", "42")
+        self.assertEqual(q.run_btn.text(), "Update Filtered")
+        q.run_btn.click()
+        changed = set(layer.editBuffer().changedAttributeValues().keys())
+        self.assertEqual(changed, narrower)
+        # no table filter left: Update All = every record the query shows
+        p.clear_filters()
+        settle(p)
+        self.assertEqual(set(p.model.fids), queried)            # map filter frozen
+        q = self._quick("ZONE_CODE", "43")
+        self.assertEqual(q.run_btn.text(), "Update All")
+        q.run_btn.click()
+        changed = set(layer.editBuffer().changedAttributeValues().keys())
+        self.assertEqual(changed, queried)                      # nothing outside the query
+        # QGIS's own calculator (whole layer) also stops at the query
+        layer.removeSelection()
+
+        def run(dlg):
+            dlg.findChild(QCheckBox, "mOnlyUpdateSelectedCheckBox").setChecked(False)
+            self._calc_builder(dlg).setExpressionText("44")
+            dlg.accept()
+            return 1
+
+        original = QgsFieldCalculator.exec
+        QgsFieldCalculator.exec = run
+        try:
+            p.open_calculator("ZONE_CODE")
+        finally:
+            QgsFieldCalculator.exec = original
+        changed = set(layer.editBuffer().changedAttributeValues().keys())
+        self.assertEqual(changed, queried)
+        self.assertEqual({f["ZONE_CODE"] for f in layer.getFeatures()}, {44})
+        layer.rollBack()
+        p.query_btn.setChecked(False)
+
+    def test_25_quick_update_converts_values_like_qgis(self):
+        """Values are converted with QgsField.convertCompatible as QGIS
+        does: halves round away from zero, failures become NULL, long text
+        is cut to the field length."""
+        from attribute_table_studio.ui import explorer_ops as OPS
+        p, layer = self.panel, self.layer
+        self.start()
+        # a decimal field with a precision (GeoPackage keeps none for REAL, and
+        # QGIS then rounds nothing - the same here)
+        layer.addAttribute(QgsField("P2", D._MT.Double, "double", 10, 2))
+        settle(p)
+        fid = sorted(p.model.fids)[0]
+        layer.selectByIds([fid])
+        H.settle(0.1)
+        cases = [("P2", "0.125", 0.13),                    # double(10,2); Python round: 0.12
+                 ("FL_1_PCT_MAX", "0.125", 0.125),         # no precision: not rounded
+                 ("ZONE_CODE", "2.5", 3),                   # integer; Python round: 2
+                 ("ZONE_CODE", "'abc'", None),              # cannot convert: NULL
+                 ("PARCEL_VIEW_PFI", "'ABCDEFGHIJKLMNOPQRSTUVWXYZ'", "ABCDEFGHIJKLMNOPQRST")]
+        for field, expression, expected in cases:
+            q = self._quick(field, expression)
+            q.selected_btn.click()
+            got = layer.getFeature(fid)[field]
+            self.assertEqual(None if F.is_null(got) else got, expected, (field, expression))
+        self.assertIn("could not be stored", p.status.message.fullText())
+        fld = layer.fields().field("ZONE_CODE")
+        self.assertEqual(OPS.convert_like_qgis(fld, -2.5), (-3, None))
+
+    def test_26_quick_update_measures_like_qgis(self):
+        """$area / $perimeter on the project's ellipsoid in the project's
+        units, as QGIS's calculation bar does."""
         from qgis.core import QgsDistanceArea, QgsProject
         from attribute_table_studio.ui import explorer_ops as OPS
         project = QgsProject.instance()
@@ -666,17 +813,12 @@ class EditingTests(unittest.TestCase):
         try:
             p, layer = self.panel, self.layer
             self.start()
+            layer.addAttribute(QgsField("AREA_HA", D._MT.Double, "REAL"))
+            settle(p)
             ids = sorted(p.model.fids[:2])
             layer.selectByIds(ids)
-            dlg = D.FieldCalculatorDialog(p)
-            dlg.mode_new.setChecked(True)
-            dlg._on_mode()
-            dlg.name_edit.setText("AREA_HA")
-            self._pick_type(dlg, ("REAL", "DOUBLE"))
-            dlg.builder.setExpressionText("$area")
-            dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
-            dlg._update_preview()
-            dlg._apply()
+            H.settle(0.1)
+            self._quick("AREA_HA", "$area").selected_btn.click()
             da = QgsDistanceArea()
             da.setSourceCrs(layer.crs(), project.transformContext())
             da.setEllipsoid("EPSG:7030")
@@ -687,7 +829,6 @@ class EditingTests(unittest.TestCase):
                                                      Qgis.AreaUnit.Hectares)
                 self.assertAlmostEqual(got, expected, places=9)
                 self.assertNotAlmostEqual(got, geom.area() / 10000, places=7)  # not planar
-            # the Quick update preview uses the same set-up ($perimeter in km)
             idx = layer.fields().indexFromName("AREA_HA")
             for fid, _old, new in OPS.evaluate_preview(layer, idx, "$perimeter", ids):
                 geom = layer.getFeature(fid).geometry()
@@ -699,72 +840,6 @@ class EditingTests(unittest.TestCase):
             project.setEllipsoid(saved[1])
             project.setAreaUnits(saved[2])
             project.setDistanceUnits(saved[3])
-
-    def test_24_calculator_row_number(self):
-        from attribute_table_studio.ui import explorer_ops as OPS
-        p, layer = self.panel, self.layer
-        self.start()
-        ids = sorted(p.model.fids[:3])
-        layer.selectByIds(ids)
-        dlg = D.FieldCalculatorDialog(p, "ZONE_CODE")
-        self.assertIn("row_number", dlg.builder.expressionContext().highlightedVariables())
-        dlg.builder.setExpressionText("@row_number * 10")
-        dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
-        dlg._update_preview()
-        self.assertIn("Output preview: 10", dlg.preview.text())
-        dlg._apply()
-        self.assertEqual([layer.getFeature(f)["ZONE_CODE"] for f in ids], [10, 20, 30])
-        zone = layer.fields().indexFromName("ZONE_CODE")
-        preview = OPS.evaluate_preview(layer, zone, "@row_number", ids)
-        self.assertEqual([new for _f, _o, new in preview], [1, 2, 3])
-
-    def test_25_calculator_recent_shared_with_qgis(self):
-        from qgis.core import QgsSettings
-        key = "expressions/recent/fieldcalc"       # read by QGIS's own calculator
-        settings_ = QgsSettings()
-        saved = settings_.value(key)
-        try:
-            settings_.remove(key)
-            p, layer = self.panel, self.layer
-            self.start()
-            layer.selectByIds(p.model.fids[:1])
-            dlg = D.FieldCalculatorDialog(p, "FL_1_PCT_MAX")
-            dlg.builder.setExpressionText('"FL_1_PCT_MAX" * 3')
-            dlg.target_combo.setCurrentIndex(dlg.target_combo.findData("selected_layer"))
-            dlg._apply()
-            recent = QgsSettings().value(key) or []
-            recent = [recent] if isinstance(recent, str) else list(recent)
-            self.assertEqual(recent[0], '"FL_1_PCT_MAX" * 3')
-            # and the next calculator lists it under Recent
-            texts = []
-            model = D.FieldCalculatorDialog(p).builder.expressionTree().model()
-
-            def walk(parent):
-                for r in range(model.rowCount(parent)):
-                    i = model.index(r, 0, parent)
-                    texts.append(model.data(i))
-                    walk(i)
-            walk(QModelIndex())
-            self.assertIn('"FL_1_PCT_MAX" * 3', texts)
-        finally:
-            if saved is None:
-                QgsSettings().remove(key)
-            else:
-                QgsSettings().setValue(key, saved)
-
-    def test_26_open_qgis_field_calculator(self):
-        p = self.panel
-        self.iface.setActiveLayer(None)
-        p._fill_more_menu()
-        act = next(a for a in p.edit_bar.more_menu.actions()
-                   if a.text() == "Open QGIS field calculator…")
-        self.assertTrue(act.isEnabled())
-        self.assertIn("ignores the Explorer's filters unless the map filter is on",
-                      act.toolTip())
-        self.assertTrue(p.edit_bar.more_menu.toolTipsVisible())
-        act.trigger()
-        self.assertIs(self.iface.activeLayer(), self.layer)    # QGIS uses the active layer
-        self.assertEqual(self.iface.calls[-1], ("field_calculator", self.layer.id()))
 
     def test_21_replacement_keys(self):
         from qgis.gui import QgsGui

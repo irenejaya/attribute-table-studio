@@ -151,18 +151,6 @@ class FakeIface:
     def showLayerProperties(self, layer, page=""):
         self.calls.append(("properties", page))
 
-    def actionOpenFieldCalculator(self):
-        """QGIS's Field Calculator action (opens on the active layer)."""
-        if getattr(self, "_calc_action", None) is None:
-            try:
-                from qgis.PyQt.QtGui import QAction
-            except ImportError:
-                from qgis.PyQt.QtWidgets import QAction
-            self._calc_action = QAction("Open Field Calculator…", self._main)
-            self._calc_action.triggered.connect(lambda *_: self.calls.append(
-                ("field_calculator", self._active.id() if self._active else None)))
-        return self._calc_action
-
 
 LAND_USES = (["RESIDENTIAL"] * 93 + ["INDUSTRIAL"] * 4 + ["COMMERCIAL"] * 2
              + ["RURAL"] + ["OTHER"])

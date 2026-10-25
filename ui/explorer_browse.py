@@ -421,7 +421,7 @@ class BrowseMixin:
             self._choose_columns)
         menu.addSeparator()
         act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
-        act.setEnabled(logical in self.model.editable_cols)
+        act.setEnabled(self.can_calculate(name))
         act.triggered.connect(lambda: self.open_calculator(name))
         act = menu.addAction(icons.native(icons.DELETE_FIELD), f"Delete field {name}…")
         act.setEnabled(self.edit.editing)
