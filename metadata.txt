@@ -20,7 +20,7 @@ repository=https://github.com/irenejaya/attribute-table-studio
 tracker=https://github.com/irenejaya/attribute-table-studio/issues
 
 category=Vector
-tags=attribute table,attributes,editing,field calculator,statistics,profile,filter,pivot,pivot table,cross tab,summary,compare,diff,change detection,data quality,QA,geometry,geopackage
+tags=attribute table,attributes,statistics,stats,editing,field calculator,statistics,profile,filter,pivot,pivot table,cross tab,summary,compare,diff,change detection,data quality,QA,geometry,geopackage
 
 icon=icon.svg
 
