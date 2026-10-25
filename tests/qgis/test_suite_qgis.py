@@ -118,27 +118,27 @@ class SuiteTests(unittest.TestCase):
         for logical, prof in panel.profiles.items():
             self.assertEqual(prof.count, len(panel.model.fids))
             self.assertEqual(prof.missing + prof.non_null, prof.count)
-        idx = self.layer.fields().indexOf("PARCEL_MASTER_FID")
+        idx = self.layer.fields().indexOf("OWNER_ID")
         self.assertEqual(panel.profiles[idx].missing, self.layer.featureCount())
         # table values come from the layer
         first = next(self.layer.getFeatures(QgsFeatureRequest().setFilterFid(
             panel.model.fids[0])))
-        lu = self.layer.fields().indexOf("LAND_USE_TYPE")
-        self.assertEqual(panel.model.raw_value(0, lu), first["LAND_USE_TYPE"])
+        lu = self.layer.fields().indexOf("LAND_USE")
+        self.assertEqual(panel.model.raw_value(0, lu), first["LAND_USE"])
 
     def test_03_explorer_filters(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))
         fields = self.layer.fields()
-        lu = fields.indexOf("LAND_USE_TYPE")
-        fl = fields.indexOf("FL_1_PCT_MAX")
+        lu = fields.indexOf("LAND_USE")
+        fl = fields.indexOf("SCORE_MAX")
         panel.header.cells[lu].set_filter(
-            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
         panel.header.cells[fl].set_filter(
-            FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "gt", "60"))
+            FL.ColumnFilter("SCORE_MAX", F.REAL, "gt", "60"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        expr = "\"LAND_USE_TYPE\" = 'RESIDENTIAL' AND \"FL_1_PCT_MAX\" > 60"
+        expr = "\"LAND_USE\" = 'RESIDENTIAL' AND \"SCORE_MAX\" > 60"
         n = expected_count(self.layer, expr)
         self.assertGreater(n, 0)
         self.assertEqual(len(panel.model.fids), n)
@@ -184,12 +184,12 @@ class SuiteTests(unittest.TestCase):
 
     def test_05_sort(self):
         panel = self.plugin.open_explorer(self.layer)
-        fl = self.layer.fields().indexOf("FL_1_PCT_MAX")
+        fl = self.layer.fields().indexOf("SCORE_MAX")
         panel._on_sort_clicked(fl)            # ascending
         panel._on_sort_clicked(fl)            # descending
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         top = panel.model.raw_value(0, fl)
-        self.assertEqual(top, max(f["FL_1_PCT_MAX"] for f in self.layer.getFeatures()))
+        self.assertEqual(top, max(f["SCORE_MAX"] for f in self.layer.getFeatures()))
         sd = self.layer.fields().indexOf("SURVEY_DATE")
         panel._on_sort_clicked(sd)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
@@ -202,9 +202,9 @@ class SuiteTests(unittest.TestCase):
     def test_06_dock_round_trip_keeps_state(self):
         panel = self.plugin.open_explorer(self.layer)
         host = self.plugin.explorers[self.layer.id()]
-        lu = self.layer.fields().indexOf("LAND_USE_TYPE")
+        lu = self.layer.fields().indexOf("LAND_USE")
         panel.header.cells[lu].set_filter(
-            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "INDUSTRIAL"))
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "INDUSTRIAL"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         n = len(panel.model.fids)
@@ -243,14 +243,14 @@ class SuiteTests(unittest.TestCase):
     def test_08_live_edits_refresh(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))
-        lu = self.layer.fields().indexOf("LAND_USE_TYPE")
+        lu = self.layer.fields().indexOf("LAND_USE")
         panel.header.cells[lu].set_filter(
-            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RURAL"))
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RURAL"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         before = len(panel.model.fids)
         target = next(f for f in self.layer.getFeatures()
-                      if f["LAND_USE_TYPE"] == "RESIDENTIAL")
+                      if f["LAND_USE"] == "RESIDENTIAL")
         self.layer.startEditing()
         self.layer.changeAttributeValue(target.id(), lu, "RURAL")
         self.assertTrue(H.wait_for(
@@ -290,24 +290,24 @@ class SuiteTests(unittest.TestCase):
     def test_11_pivot_from_explorer_and_drill(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))
-        fl = self.layer.fields().indexOf("FL_1_PCT_MAX")
+        fl = self.layer.fields().indexOf("SCORE_MAX")
         panel.header.cells[fl].set_filter(
-            FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "ge", "50"))
+            FL.ColumnFilter("SCORE_MAX", F.REAL, "ge", "50"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         panel._open_pivot()
         pivot = self.plugin.pivot_host.panel
         self.assertEqual(pivot.input["kind"], "explorer")
         self.assertEqual(len(pivot.input["fids"]), len(panel.model.fids))
-        pivot.set_spec(P.PivotSpec(["LAND_USE_TYPE"], [], [
-            P.Measure("FL_1_PCT_MAX", "mean"), P.Measure(None, "count")]))
+        pivot.set_spec(P.PivotSpec(["LAND_USE"], [], [
+            P.Measure("SCORE_MAX", "mean"), P.Measure(None, "count")]))
         pivot.build()
         self.assertTrue(H.wait_for(lambda: pivot.model.result is not None
                                    and not pivot.runner.busy, 30))
         result = pivot.model.result
-        vals = [f["FL_1_PCT_MAX"] for f in self.layer.getFeatures(
+        vals = [f["SCORE_MAX"] for f in self.layer.getFeatures(
             QgsFeatureRequest().setFilterExpression(
-                "\"LAND_USE_TYPE\" = 'RESIDENTIAL' AND \"FL_1_PCT_MAX\" >= 50"))]
+                "\"LAND_USE\" = 'RESIDENTIAL' AND \"SCORE_MAX\" >= 50"))]
         self.assertTrue(math.isclose(result.value(("RESIDENTIAL",), (), 0),
                                      sum(vals) / len(vals)))
         self.assertEqual(result.record_count(P.TOTAL, P.TOTAL), len(panel.model.fids))
@@ -328,14 +328,14 @@ class SuiteTests(unittest.TestCase):
     def test_12_pivot_cross_tab_layouts_export(self):
         pivot = self.plugin.open_pivot(self.layer)
         pivot._capture("all")
-        pivot.set_spec(P.PivotSpec(["LAND_USE_TYPE"], ["ZONE_CODE"], [
-            P.Measure("FL_1_PCT_MAX", "mean")]),
-            [FL.ColumnFilter("IN_FLOOD_ZONE", F.BOOL, "true")])
+        pivot.set_spec(P.PivotSpec(["LAND_USE"], ["ZONE_CODE"], [
+            P.Measure("SCORE_MAX", "mean")]),
+            [FL.ColumnFilter("IS_VACANT", F.BOOL, "true")])
         pivot.build()
         self.assertTrue(H.wait_for(lambda: not pivot.runner.busy, 30))
         r = pivot.model.result
         self.assertTrue(r.has_cols)
-        n_true = expected_count(self.layer, '"IN_FLOOD_ZONE" = TRUE')
+        n_true = expected_count(self.layer, '"IS_VACANT" = TRUE')
         self.assertEqual(r.n_input, n_true)
         # stale after an edit
         self.layer.startEditing()
@@ -372,7 +372,7 @@ class SuiteTests(unittest.TestCase):
         panel.old_table_combo.setLayer(base)
         panel.new_table_combo.setLayer(new)
         panel.join_field_combo.setCurrentIndex(
-            panel.join_field_combo.findText("PARCEL_VIEW_PFI"))
+            panel.join_field_combo.findText("PARCEL_ID"))
         panel.compare_tables()
         counts = panel._compare_info["counts"]
         self.assertEqual(counts["Added"], 12)
@@ -389,7 +389,7 @@ class SuiteTests(unittest.TestCase):
     def test_13b_round2_ui_rules(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))
-        fl = self.layer.fields().indexOf("FL_1_PCT_MAX")
+        fl = self.layer.fields().indexOf("SCORE_MAX")
         cell = panel.header.cells[fl]
         texts = [a.text() for a in cell.op_menu.actions()
                  if not a.isSeparator() and a.data()]
@@ -417,9 +417,9 @@ class SuiteTests(unittest.TestCase):
             self.assertEqual(p.layout().contentsMargins().bottom(), p.metrics.margin)
         # pivot filters show as chips
         pivot = self.plugin.open_pivot(self.layer)
-        pivot.set_spec(P.PivotSpec(["LAND_USE_TYPE"], [], [P.Measure(None, "count")]),
+        pivot.set_spec(P.PivotSpec(["LAND_USE"], [], [P.Measure(None, "count")]),
                        [FL.ColumnFilter("ZONE_CODE", F.INTEGER, "gt", "2"),
-                        FL.ColumnFilter("IN_FLOOD_ZONE", F.BOOL, "true")])
+                        FL.ColumnFilter("IS_VACANT", F.BOOL, "true")])
         self.assertEqual(pivot.chips_flow.count(), 2)
         self.assertFalse(pivot.filters_empty.isVisibleTo(pivot))
         pivot._remove_filter(pivot.filters[0])
@@ -430,7 +430,7 @@ class SuiteTests(unittest.TestCase):
         H.wait_for(lambda: idle(panel))
         t = panel.theme
         date = self.layer.fields().indexOf("SURVEY_DATE")
-        flag = self.layer.fields().indexOf("IN_FLOOD_ZONE")
+        flag = self.layer.fields().indexOf("IS_VACANT")
         # dates: one blue for both themes; booleans purple
         self.assertEqual(t.data_temporal, "#3A80EA")
         self.assertEqual(t.data_bool, "#C9A0DC" if t.dark else "#7B1FA2")
@@ -445,7 +445,7 @@ class SuiteTests(unittest.TestCase):
         self.assertGreaterEqual(panel.header.sectionSize(date),
                                 cell._between_width())
         cell.set_filter(None)
-        num = panel.header.cells[self.layer.fields().indexOf("FL_1_PCT_MAX")]
+        num = panel.header.cells[self.layer.fields().indexOf("SCORE_MAX")]
         num.set_op("between")
         self.assertEqual((num.edit.placeholderText(), num.edit2.placeholderText()),
                          ("from", "to"))
@@ -489,7 +489,7 @@ class SuiteTests(unittest.TestCase):
         # layer pickers list each layer with its CRS, in a list wide enough
         combo = panel.layer_combo
         self.assertTrue(combo.showCrs())
-        self.assertIn("[EPSG:28355]", combo.currentText())
+        self.assertIn("[EPSG:3857]", combo.currentText())
         combo.showPopup()
         H.settle(0.1)
         self.assertGreaterEqual(combo.view().minimumWidth(),
@@ -516,10 +516,10 @@ class SuiteTests(unittest.TestCase):
         self.layer.removeSelection()
 
         # the clear button empties an 'is one of' filter
-        pfi = self.layer.fields().indexOf("PARCEL_VIEW_PFI")
-        value = next(self.layer.getFeatures())["PARCEL_VIEW_PFI"]
-        cell = panel.header.cells[pfi]
-        cell.set_filter(FL.ColumnFilter("PARCEL_VIEW_PFI", F.TEXT, "in",
+        pid = self.layer.fields().indexOf("PARCEL_ID")
+        value = next(self.layer.getFeatures())["PARCEL_ID"]
+        cell = panel.header.cells[pid]
+        cell.set_filter(FL.ColumnFilter("PARCEL_ID", F.TEXT, "in",
                                         values=[value]), emit=True)
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
@@ -534,8 +534,8 @@ class SuiteTests(unittest.TestCase):
 
         # the value list sorts by value or by records, NULL kept on top
         from attribute_table_studio.ui.explorer_header import ValuePicker
-        lu = self.layer.fields().indexOf("LAND_USE_TYPE")
-        picker = ValuePicker("LAND_USE_TYPE", panel._values_for(lu), [],
+        lu = self.layer.fields().indexOf("LAND_USE")
+        picker = ValuePicker("LAND_USE", panel._values_for(lu), [],
                              panel.theme, panel.metrics, panel)
         tree = picker.tree
 
@@ -558,7 +558,7 @@ class SuiteTests(unittest.TestCase):
         base = H.demo_layer(n=600, name="Review baseline")
         new = H.demo_updated_layer(base)
         flds = new.fields()
-        i1, i2 = flds.indexOf("FL_1_PCT_MIN"), flds.indexOf("LAND_USE_TYPE")
+        i1, i2 = flds.indexOf("SCORE_MIN"), flds.indexOf("LAND_USE")
         new.dataProvider().changeAttributeValues({
             f.id(): {i1: (f[i1] or 0) + 1.5, i2: "COMMERCIAL"}
             for k, f in enumerate(new.getFeatures()) if k % 50 == 7})
@@ -566,7 +566,7 @@ class SuiteTests(unittest.TestCase):
         panel.old_table_combo.setLayer(base)
         panel.new_table_combo.setLayer(new)
         panel.join_field_combo.setCurrentIndex(
-            panel.join_field_combo.findText("PARCEL_VIEW_PFI"))
+            panel.join_field_combo.findText("PARCEL_ID"))
 
         # Help, clear validation, Validate Data, Compare OLD -> NEW (no icon)
         row = (panel.help_btn, panel.clear_validation_btn, panel.validate_btn,
@@ -629,7 +629,7 @@ class SuiteTests(unittest.TestCase):
         with open(path, newline="", encoding="utf-8") as fh:
             records = list(csv.DictReader(fh))
         key = tbl.item(r, 0).data(user)
-        rec = next(d for d in records if d["PARCEL_VIEW_PFI"] == str(key))
+        rec = next(d for d in records if d["PARCEL_ID"] == str(key))
         name = [tbl.horizontalHeaderItem(it.column()).text() for it in values]
         self.assertEqual(rec[name[0]], new0)
         self.assertEqual(rec[name[1]], values[1].data(user)[0])
@@ -687,7 +687,7 @@ class SuiteTests(unittest.TestCase):
         self.assertFalse(panel.edit_bar.more_btn.icon().isNull())
         self.assertIn("padding-right: 0px", panel.edit_bar.more_btn.styleSheet())
         # the value list's Apply is as tall as All / None
-        picker = ValuePicker("LAND_USE_TYPE", [("RESIDENTIAL", "RESIDENTIAL", 5)], [],
+        picker = ValuePicker("LAND_USE", [("RESIDENTIAL", "RESIDENTIAL", 5)], [],
                              panel.theme, panel.metrics, panel)
         buttons = {b.text().strip(): b for b in picker.findChildren(QToolButton)}
         self.assertEqual(buttons["Apply"].height() or buttons["Apply"].maximumHeight(),
@@ -801,11 +801,11 @@ class SuiteTests(unittest.TestCase):
                          ["Excel (.xlsx)…", "CSV (.csv)…", "Copy Selected Rows"])
         self.assertFalse(btn.isEnabled())            # no filter yet
         total = layer.featureCount()
-        lu = layer.fields().indexOf("LAND_USE_TYPE")
-        fl = layer.fields().indexOf("FL_1_PCT_MAX")
+        lu = layer.fields().indexOf("LAND_USE")
+        fl = layer.fields().indexOf("SCORE_MAX")
         cells = panel.header.cells
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
-        cells[fl].set_filter(FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "gt", "60"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
+        cells[fl].set_filter(FL.ColumnFilter("SCORE_MAX", F.REAL, "gt", "60"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         shown = len(panel.model.fids)
@@ -815,7 +815,7 @@ class SuiteTests(unittest.TestCase):
         btn.setChecked(True)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         self.assertEqual(layer.subsetString(),
-                         '("LAND_USE_TYPE" = \'RESIDENTIAL\') AND ("FL_1_PCT_MAX" > 60)')
+                         '("LAND_USE" = \'RESIDENTIAL\') AND ("SCORE_MAX" > 60)')
         self.assertEqual(layer.featureCount(), shown)
         self.assertEqual(len(panel.model.fids), shown)
         self.assertIn(f"{shown:,} shown / {total:,} available",
@@ -843,23 +843,23 @@ class SuiteTests(unittest.TestCase):
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         self.assertGreater(len(panel.model.fids), shown)
-        self.assertEqual(layer.subsetString(), '"LAND_USE_TYPE" = \'RESIDENTIAL\'')
+        self.assertEqual(layer.subsetString(), '"LAND_USE" = \'RESIDENTIAL\'')
         self.assertEqual(layer.featureCount(), len(panel.model.fids))
         self.assertEqual(panel.model.raw_value(0, lu), "RESIDENTIAL")
         self.assertIn("INDUSTRIAL", [e[1] for e in panel._values_for(lu)])
 
         # case-insensitive contains: SQL when exact, the ids otherwise
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "contains", "dent"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "contains", "dent"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        self.assertEqual(layer.subsetString(), '"LAND_USE_TYPE" LIKE \'%dent%\'')
+        self.assertEqual(layer.subsetString(), '"LAND_USE" LIKE \'%dent%\'')
         self.assertEqual(layer.featureCount(), len(panel.model.fids))
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "contains", "dÉnt"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "contains", "dÉnt"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         self.assertEqual(len(panel.model.fids), 0)
         self.assertEqual(layer.subsetString(), "1 = 0")
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "contains", "dent"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "contains", "dent"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         kept = len(panel.model.fids)
@@ -882,7 +882,7 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: idle(panel) and not panel._data_timer.isActive()))
         btn.setChecked(True)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        mapped = '("ZONE_CODE" > 1) AND ("LAND_USE_TYPE" LIKE \'%dent%\')'
+        mapped = '("ZONE_CODE" > 1) AND ("LAND_USE" LIKE \'%dent%\')'
         self.assertEqual(layer.subsetString(), mapped)
         path = os.path.join(tempfile.mkdtemp(), "map_filter.qgs")
         self.assertTrue(QgsProject.instance().write(path))
@@ -906,7 +906,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(len(panel.model.fids), layer.featureCount())
 
         # switching the explorer to another layer gives the filter back too
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "INDUSTRIAL"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "INDUSTRIAL"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         btn.setChecked(True)
@@ -924,7 +924,7 @@ class SuiteTests(unittest.TestCase):
         cells = panel.header.cells               # rebuilt for the layer
 
         # a Query Builder change made while it is on wins ...
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "INDUSTRIAL"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "INDUSTRIAL"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         btn.setChecked(True)
@@ -940,7 +940,7 @@ class SuiteTests(unittest.TestCase):
         btn.setChecked(True)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         old = layer.subsetString()
-        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         current = layer.subsetString()
@@ -972,7 +972,7 @@ class SuiteTests(unittest.TestCase):
 
         # memory layers take the table's own QGIS expression
         from qgis.core import QgsFeature, QgsGeometry, QgsPointXY
-        mem = QgsVectorLayer("Point?crs=EPSG:28355&field=name:string&field=v:double",
+        mem = QgsVectorLayer("Point?crs=EPSG:3857&field=name:string&field=v:double",
                              "Map filter points", "memory")
         feats = []
         for i in range(40):
@@ -1023,9 +1023,9 @@ class SuiteTests(unittest.TestCase):
     def test_14b_schema_change_keeps_filters(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))
-        lu = self.layer.fields().indexOf("LAND_USE_TYPE")
+        lu = self.layer.fields().indexOf("LAND_USE")
         panel.header.cells[lu].set_filter(
-            FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "OTHER"))
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "OTHER"))
         panel.refresh()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         n = len(panel.model.fids)
@@ -1042,7 +1042,7 @@ class SuiteTests(unittest.TestCase):
             lambda: idle(panel) and len(panel.model.fields) == self.layer.fields().count(),
             10))
         self.assertEqual(len(panel.model.fids), n)
-        idx = self.layer.fields().indexOf("LAND_USE_TYPE")
+        idx = self.layer.fields().indexOf("LAND_USE")
         self.assertIsNotNone(panel.header.cells[idx].current_filter())
         self.layer.rollBack()
         self.assertTrue(H.wait_for(

@@ -254,10 +254,10 @@ class ColumnFilter:
             else self.value != ""
 
     def describe(self):
-        """Short human text, e.g. 'FL_1_PCT_MAX > 60'."""
+        """Short human text, e.g. 'AREA_M2 > 500'."""
         label = operator_label(self.kind, self.op)
         if self.kind in F.NUMERIC and self.op in COMPARISON_OPS:
-            label = OP_SYMBOLS[self.op]          # 'FL_1_PCT_MAX > 60'
+            label = OP_SYMBOLS[self.op]          # 'AREA_M2 > 500'
         if self.op in NO_VALUE_OPS:
             return f"{self.field} {label}"
         if self.op == "in":

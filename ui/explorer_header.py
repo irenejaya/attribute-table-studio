@@ -1167,8 +1167,18 @@ class ProfileDetails(QFrame):
         tree.setHeaderLabels(self.dist.shown_header)
         tree.setMaximumHeight(220)
         self._fill_dist(tree)
-        tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._size_dist_columns(tree)
         return tree
+
+    @staticmethod
+    def _size_dist_columns(tree):
+        """Records and Share as wide as their numbers, the value or bin
+        column gets the rest (so "[1,074.275, 1,153.6)" is not cut)."""
+        header = tree.header()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        for col in range(1, tree.columnCount()):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
 
     def _fill_dist(self, tree):
         tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -1203,7 +1213,7 @@ class ProfileDetails(QFrame):
             item = tree.topLevelItem(i)
             if item.text(0) != item.data(0, Qt.ItemDataRole.UserRole):
                 item.setForeground(0, dim)
-        tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self._size_dist_columns(tree)
         tree.setToolTip("Double-click a value to filter the column to it")
         tree.itemDoubleClicked.connect(self._on_value)
 

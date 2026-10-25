@@ -172,7 +172,8 @@ PIVOT_HELP = """
 <h3>Pivot Table</h3>
 <p>A pivot table <b>groups records</b> by the values of one or more fields
 and <b>summarises</b> each group - for example the number of parcels and the
-average flood depth for every land use, or for every land use and zone.</p>
+average land value for every land use, or for every land use and owner
+type.</p>
 <h4>Build one in five steps</h4>
 <ol>
 <li><b>Layer and input.</b> Pick the <b>Layer</b> at the top left, then
@@ -182,7 +183,7 @@ and filter first) or the <i>Selected records</i>. The line next to the layer
 says which input is in use.</li>
 <li><b>Rows</b> (on the left, under <i>Build your table</i>): choose the field
 to group by - one result row per value. <b>Add row</b> groups by a second
-field inside the first (e.g. land use, then zone).</li>
+field inside the first (e.g. land use, then owner type).</li>
 <li><b>Columns</b> (optional): choose a field to spread across the top. The
 result becomes a cross tab - one column per value of that field. Leave it at
 <i>None</i> for a simple grouped list.</li>
@@ -195,10 +196,10 @@ max).</li>
 <li>Optionally <b>Add filter</b> to use only part of the input (all filters
 must match), then press <b>Build Pivot</b>.</li>
 </ol>
-<p><b>Example:</b> Rows = <i>LAND_USE_TYPE</i>, Columns = <i>ZONE_CODE</i>,
-Values = <i>Count records</i> and <i>FL_1_PCT_MAX - Mean</i> gives, for every
-land use, the number of parcels and their mean flood depth in each zone, with
-totals.</p>
+<p><b>Example:</b> Rows = <i>LAND_USE</i>, Columns = <i>OWNER_TYPE</i>,
+Values = <i>Count records</i> and <i>LAND_VALUE - Mean</i> gives, for every
+land use, the number of parcels and their mean land value for each owner
+type, with totals.</p>
 <h4>Reading the result</h4>
 <ul>
 <li>The header shows how many records were used. <i>Show record count</i>

@@ -185,12 +185,12 @@ class FilterTests(unittest.TestCase):
         self.assertEqual(self.expr(F.BOOL, "true"), '"F" = TRUE')
 
     def test_combine_and_errors(self):
-        a = FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL")
-        b = FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "gt", "60")
+        a = FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL")
+        b = FL.ColumnFilter("SCORE_MAX", F.REAL, "gt", "60")
         c = FL.ColumnFilter("X", F.REAL, "gt", "oops")
         expr, errors = FL.combine([a, b, c])
         self.assertEqual(
-            expr, "(\"LAND_USE_TYPE\" = 'RESIDENTIAL') AND (\"FL_1_PCT_MAX\" > 60)")
+            expr, "(\"LAND_USE\" = 'RESIDENTIAL') AND (\"SCORE_MAX\" > 60)")
         self.assertIn("X", errors)
 
     def test_value_hints(self):
@@ -221,9 +221,9 @@ class SubsetTests(unittest.TestCase):
         return SUB.filter_sql(flt, dialect)
 
     def test_numbers_and_lists(self):
-        f = FL.ColumnFilter("FL_1", F.REAL, "between", "60", "10")
+        f = FL.ColumnFilter("SCORE", F.REAL, "between", "60", "10")
         for d in ("sqlite", "ogr", "postgres"):
-            self.assertEqual(self.sql(f, d), '("FL_1" >= 10 AND "FL_1" <= 60)')
+            self.assertEqual(self.sql(f, d), '("SCORE" >= 10 AND "SCORE" <= 60)')
         f = FL.ColumnFilter("CODE", F.INTEGER, "in", values=[3, None, 1])
         self.assertEqual(self.sql(f, "sqlite"), '("CODE" IN (3, 1) OR "CODE" IS NULL)')
 
