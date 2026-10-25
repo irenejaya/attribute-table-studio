@@ -808,6 +808,13 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(item("SCORE_5Y").data(W.FIELD_HIDDEN))
         self.assertFalse(item("LAND_USE").data(W.FIELD_HIDDEN))
         self.assertIn(f"{fields.count()} fields", box.list.count_label.text())
+        # hovering a row makes it current (blue); the footer keys are not cut
+        lst = box.list
+        QTest.mouseMove(lst.viewport(), lst.visualRect(model.index(3, 0)).center())
+        self.assertEqual(lst.currentIndex().row(), 3)
+        keys = lst.keys_label
+        self.assertGreaterEqual(keys.width(), keys.sizeHint().width())
+        self.assertLessEqual(keys.geometry().right(), lst.footer.width())
         # typing narrows it (anywhere in the name, any case)
         box.edit.setText("score")
         box.show_list("score")

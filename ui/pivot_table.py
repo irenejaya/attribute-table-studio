@@ -452,7 +452,7 @@ class PivotPanel(QWidget):
     # ====================================================================
 
     def _build_ui(self):
-        m, t = self.metrics, self.theme
+        m = self.metrics
         root = QVBoxLayout(self)
         root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)

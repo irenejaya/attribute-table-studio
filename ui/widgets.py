@@ -870,6 +870,8 @@ class _FieldList(QListView):
         self.total = 0
         self.footer_h = metrics.font_h + 10
         self.setUniformItemSizes(True)
+        self.setMouseTracking(True)              # the row under the mouse lights up
+        self.viewport().setMouseTracking(True)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setViewportMargins(0, 0, 0, self.footer_h)
         self.setStyleSheet(
@@ -886,13 +888,34 @@ class _FieldList(QListView):
         self.count_label = QLabel(self.footer)
         row.addWidget(self.count_label)
         row.addStretch(1)
-        row.addWidget(QLabel("↑↓ choose  •  Enter go", self.footer))
+        self.keys_label = QLabel("↑↓ choose  •  Enter go", self.footer)
+        row.addWidget(self.keys_label)
 
     def setModel(self, model):
         super().setModel(model)
         for signal in (model.modelReset, model.layoutChanged, model.rowsInserted,
                        model.rowsRemoved):
             signal.connect(self._update_count)
+
+    def mouseMoveEvent(self, event):
+        """Hovering makes the row current (blue, and what Enter picks), as
+        in QGIS's own drop-down lists."""
+        pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+        index = self.indexAt(pos)
+        if index.isValid() and index != self.currentIndex():
+            self.setCurrentIndex(index)
+        super().mouseMoveEvent(event)
+
+    def footer_width(self):
+        """Width the footer needs (count, keys, margins and a gap),
+        measured from the text so nothing is cut."""
+        for label in (self.count_label, self.keys_label):
+            label.ensurePolished()               # the style sheet's font, not the default
+        # the arrows and bullet come from a fallback font that Qt measures a
+        # little narrow: give the keys some room, or "Enter go" is cut
+        keys = self.keys_label.sizeHint().width() + 16
+        self.keys_label.setMinimumWidth(keys)
+        return self.count_label.sizeHint().width() + keys + 16 + 32
 
     def _update_count(self, *_args):
         shown = self.model().rowCount() if self.model() is not None else 0
@@ -905,6 +928,9 @@ class _FieldList(QListView):
         r = self.contentsRect()
         self.footer.setGeometry(r.left(), r.bottom() - self.footer_h + 1,
                                 r.width(), self.footer_h)
+        # the vertical scroll bar spans the whole height: keep the footer
+        # on top of its lower end, or it hides the end of "Enter go"
+        self.footer.raise_()
 
 
 class FieldFinder(QFrame):
@@ -958,10 +984,10 @@ class FieldFinder(QFrame):
         self.edit.installEventFilter(self)
 
     def sizeHint(self):
-        return QSize(230, self.metrics.control_h)
+        return QSize(155, self.metrics.control_h)
 
     def minimumSizeHint(self):
-        return QSize(150, self.metrics.control_h)
+        return QSize(120, self.metrics.control_h)
 
     def _fill(self):
         self.model.clear()
@@ -974,7 +1000,8 @@ class FieldFinder(QFrame):
             item.setData(type_name, FIELD_TYPE)
             item.setData(bool(hidden), FIELD_HIDDEN)
             item.setData(f"{name} {alias}" if alias else name, FIELD_SEARCH)
-            item.setToolTip(f"{name} ({alias})" if alias else name)
+            if alias:
+                item.setToolTip(f"{name} ({alias})")
             item.setEditable(False)
             self.model.appendRow(item)
         self.list.total = self.model.rowCount()
@@ -985,7 +1012,7 @@ class FieldFinder(QFrame):
             self._fill()
         self.completer.setCompletionPrefix(self.edit.text() if text is None else text)
         self.list._update_count()
-        width = max(self.width(), 300, self.list.footer.sizeHint().width() + 4)
+        width = max(self.width(), 270, self.list.footer_width())
         rect = QRect(-self.edit.x(), 0, width,
                      self.edit.height() + (self.height() - self.edit.height()) // 2 + 2)
         self.completer.complete(rect)

@@ -1491,6 +1491,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         h = self.header
         if self.layer is None or h.isSectionHidden(logical):
             return
+        # the table updates its scroll range on a timer of its own: bring it
+        # up to date first, or a column just shown again is out of reach
+        self.view.updateGeometries()
         bar = self.view.horizontalScrollBar()
         bar.setValue(min(h.sectionPosition(logical), bar.maximum()))
         h.flash(logical)
