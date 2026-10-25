@@ -24,7 +24,8 @@ filter together.
 import datetime
 
 from qgis.PyQt.QtCore import (
-    QDate, QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer, pyqtSignal,
+    QDate, QEasingCurve, QEvent, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer,
+    QVariantAnimation, pyqtSignal,
 )
 from qgis.PyQt.QtGui import (
     QColor, QFont, QFontMetrics, QGuiApplication, QKeySequence, QPainter, QPen,
@@ -700,7 +701,7 @@ class ValuePicker(QFrame):
         self.setObjectName("gtsPopup")
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.setMinimumSize(300, 340)
+        self.setMinimumWidth(300)
         self.setStyleSheet(
             f"QFrame#gtsPopup {{ background: {theme.card}; border: 1px solid "
             f"{theme.border}; border-radius: 4px; }}"
@@ -758,7 +759,13 @@ class ValuePicker(QFrame):
         self.tree.header().setSortIndicatorShown(True)
         self.tree.setSortingEnabled(True)
         self.tree.itemDoubleClicked.connect(lambda *_: self._apply())
-        lay.addWidget(self.tree, 1)
+        # a fixed, compact list: about six and a half rows, then it scrolls
+        self.tree.ensurePolished()
+        row_h = (self.tree.sizeHintForRow(0) if self.tree.topLevelItemCount()
+                 else metrics.control_h)
+        self.tree.setFixedHeight(self.tree.header().sizeHint().height()
+                                 + int(row_h * 6.5) + 2 * self.tree.frameWidth())
+        lay.addWidget(self.tree)
         if len(entries) >= 5000:
             note = QLabel("Showing the first 5,000 values — search to narrow.")
             note.setObjectName("gtsDim")
@@ -828,6 +835,49 @@ class CalendarPopup(QFrame):
 # HEADER
 # ============================================================================
 
+class _ColumnFlash(QWidget):
+    """A fading tint over one column of the header, so the eye finds the
+    column Go to field scrolled to."""
+
+    def __init__(self, colour, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.colour = QColor(colour)
+        self.logical = -1
+        self.level = 0.0
+        self.anim = QVariantAnimation(self)
+        self.anim.setStartValue(1.0)
+        self.anim.setEndValue(0.0)
+        self.anim.setDuration(1400)
+        self.anim.setEasingCurve(QEasingCurve.Type.InQuad)
+        self.anim.valueChanged.connect(self._on_value)
+        self.anim.finished.connect(self.hide)
+        self.hide()
+
+    def _on_value(self, value):
+        self.level = float(value)
+        self.update()
+
+    def start(self, logical):
+        self.logical = logical
+        self.anim.stop()
+        self.level = 1.0
+        self.raise_()
+        self.show()
+        self.anim.start()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        fill = QColor(self.colour)
+        fill.setAlphaF(0.35 * self.level)
+        p.fillRect(self.rect(), fill)
+        edge = QColor(self.colour)
+        edge.setAlphaF(self.level)
+        p.setPen(QPen(edge, 2))
+        p.drawRect(self.rect().adjusted(1, 1, -1, -1))
+        p.end()
+
+
 class ExplorerHeader(QHeaderView):
     """Horizontal header with profile, name and filter bands."""
 
@@ -863,6 +913,7 @@ class ExplorerHeader(QHeaderView):
         self._panel = QColor(theme.panel)
         self._band = QColor(theme.header)
         self._line = QColor(theme.border)
+        self._flash = None
 
     # ------------------------------------------------------------------
     def rebuild(self, fields, kinds):
@@ -1013,7 +1064,26 @@ class ExplorerHeader(QHeaderView):
         self.relayout()
         self.layoutChanged.emit()
 
+    def flash(self, logical):
+        """Briefly tint a column's profile, name and filter (Go to field)."""
+        if self._flash is None:
+            self._flash = _ColumnFlash(self.theme.accent, self.viewport())
+        self._flash.start(logical)
+        self._place_flash()
+
+    def _place_flash(self):
+        flash = getattr(self, "_flash", None)    # relayout runs during __init__
+        if flash is None or not flash.isVisible():
+            return
+        if self.isSectionHidden(flash.logical):
+            flash.hide()
+            return
+        flash.setGeometry(self.sectionViewportPosition(flash.logical), 0,
+                          self.sectionSize(flash.logical), self.viewport().height())
+        flash.raise_()
+
     def relayout(self):
+        self._place_flash()
         top = self.name_top()
         filt_y = top + self.name_h + 3
         width = self.viewport().width()

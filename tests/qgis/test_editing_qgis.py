@@ -100,12 +100,12 @@ class EditingTests(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_01_rows_icons_and_quick_update_visibility(self):
         p, b = self.panel, self.panel.edit_bar
-        top = p.columns_btn.mapTo(p, QPoint(0, 0)).y()
+        top = p.field_box.mapTo(p, QPoint(0, 0)).y()
         self.assertGreater(b.mapTo(p, QPoint(0, 0)).y(), top)
-        # View and Select sit before Columns, layer info stays left
+        # View and Select sit before Go to field, layer info stays left
         x = lambda w: w.mapTo(p, QPoint(0, 0)).x()
         self.assertLess(x(p.view_btn), x(p.select_btn))
-        self.assertLess(x(p.select_btn), x(p.columns_btn))
+        self.assertLess(x(p.select_btn), x(p.field_box))
         self.assertLess(x(p.layer_combo), x(p.view_btn))
         # both rows end at the same right edge (Dock / More)
         right = lambda w: w.mapTo(p, QPoint(w.width(), 0)).x()

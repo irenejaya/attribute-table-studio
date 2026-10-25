@@ -779,6 +779,68 @@ class SuiteTests(unittest.TestCase):
             self.assertGreater(dlg.width(), 560)
             dlg.close()
 
+    def test_13i_go_to_field_and_value_list(self):
+        from qgis.PyQt.QtTest import QTest
+        from qgis.PyQt.QtWidgets import QApplication
+        from attribute_table_studio.ui import widgets as W
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.plugin.explorers[self.layer.id()]._window.resize(900, 700)
+        H.settle(0.3)
+        box = panel.field_box
+        # a filter-cell look, as tall as the top row buttons
+        self.assertEqual(box.objectName(), "gtsFilterCell")
+        self.assertEqual(box.height(), panel.summary_btn.height())
+        # every field with its QGIS type; a hidden column is listed, flagged
+        fields = self.layer.fields()
+        target = fields.indexOf("SCORE_5Y")
+        panel._hide_column(target)
+        box.edit.setFocus()
+        box.show_list("")
+        self.assertTrue(box.list.isVisible())
+        model = box.list.model()
+        self.assertEqual(model.rowCount(), fields.count())
+
+        def item(name):
+            return next(model.index(i, 0) for i in range(model.rowCount())
+                        if model.index(i, 0).data() == name)
+        self.assertEqual(item("SCORE_5Y").data(W.FIELD_TYPE), fields.at(target).typeName())
+        self.assertTrue(item("SCORE_5Y").data(W.FIELD_HIDDEN))
+        self.assertFalse(item("LAND_USE").data(W.FIELD_HIDDEN))
+        self.assertIn(f"{fields.count()} fields", box.list.count_label.text())
+        # typing narrows it (anywhere in the name, any case)
+        box.edit.setText("score")
+        box.show_list("score")
+        self.assertEqual(model.rowCount(), 4)
+        self.assertIn(f"4 of {fields.count()} fields", box.list.count_label.text())
+        # choosing: the hidden column is shown again, scrolled to the left
+        # edge and flashed; the box clears
+        box.choose(item("SCORE_5Y"))
+        H.settle(0.2)
+        h, bar = panel.header, panel.view.horizontalScrollBar()
+        self.assertFalse(h.isSectionHidden(target))
+        self.assertGreater(bar.value(), 0)
+        self.assertEqual(bar.value(), min(h.sectionPosition(target), bar.maximum()))
+        self.assertTrue(h._flash.isVisible())
+        self.assertEqual(box.edit.text(), "")
+        self.assertFalse(box.list.isVisible())
+        # Enter without opening the list: the first field that matches
+        bar.setValue(0)
+        box.edit.setText("land")
+        QTest.keyClick(box.edit, Qt.Key.Key_Return)
+        H.settle(0.2)
+        lu = fields.indexOf("LAND_USE")
+        self.assertEqual(bar.value(), min(h.sectionPosition(lu), bar.maximum()))
+        # the value list of a column is a fixed, compact ~6.5 rows
+        panel.header.cells[fields.indexOf("PARCEL_ID")]._pick_values()
+        H.settle(0.3)
+        pick = [w for w in QApplication.topLevelWidgets()
+                if type(w).__name__ == "ValuePicker" and w.isVisible()][-1]
+        row_h, head = pick.tree.sizeHintForRow(0), pick.tree.header().height()
+        self.assertGreaterEqual(pick.tree.height(), head + 6 * row_h)
+        self.assertLessEqual(pick.tree.height(), head + 7 * row_h + 4)
+        pick.close()
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)
@@ -788,15 +850,15 @@ class SuiteTests(unittest.TestCase):
         def x(widget):
             return widget.mapTo(panel, QPoint(0, 0)).x()
         # top row, right aligned: View | Zoom | Selected only | Deselect |
-        # Select | Columns | Summary | Pivot Table | Clear filters | Export |
-        # query | dock
+        # Select | Go to field | Summary | Pivot Table | Clear filters |
+        # Columns | Export | query | dock
         order = [panel.view_btn, panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
-                 panel.select_btn, panel.columns_btn, panel.summary_btn, panel.pivot_btn,
-                 panel.clear_btn, panel.export_btn, btn, panel.dock_btn]
+                 panel.select_btn, panel.field_box, panel.summary_btn, panel.pivot_btn,
+                 panel.clear_btn, panel.columns_btn, panel.export_btn, btn, panel.dock_btn]
         xs = [x(w) for w in order]
         self.assertEqual(xs, sorted(xs))
         for icon_only in (panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
-                          panel.export_btn):
+                          panel.clear_btn, panel.columns_btn, panel.export_btn):
             self.assertEqual(icon_only.text().strip(), "")
         self.assertEqual(panel.pivot_btn.text().strip(), "Pivot Table")
         self.assertEqual([a.text() for a in panel.export_btn.menu().actions()

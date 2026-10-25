@@ -80,16 +80,21 @@ proposed and only assigned when no other command uses it; change it in
   ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
   reorder; layouts are saved with the layer in the project.
+- **Go to field**: type part of a field name (or alias) and pick it from the
+  list — type icon, name and QGIS type on each line, hidden columns marked —
+  to scroll the table so that column is at the left edge, with its heading
+  briefly highlighted. A hidden column is shown again. ↑ / ↓ and Enter work
+  too; Enter without the list goes to the first match.
 - The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*
-  and *Deselect features from the current layer* (icons), *Select ▾*,
-  *Columns*, *Summary*, *Pivot Table*, *Clear filters*, *Export ▾* (icon), the
-  map filter and *Dock*.
+  and *Deselect features from the current layer* (icons), *Select ▾*, *Go to
+  field*, *Summary*, *Pivot Table*, then *Clear filters*, *Columns* and
+  *Export ▾* (icons), the map filter and *Dock*.
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
   rows (*Ctrl+C*); *Pivot Table* hands the filtered records to the Pivot
   Table.
 - Menus are written the way QGIS writes them (Title Case; "…" when the entry
   opens a dialog).
-- **View ▾** (before *Columns*): *Table View* or *Form View*; the scopes with
+- **View ▾** (before *Select ▾*): *Table View* or *Form View*; the scopes with
   the names and icons of the QGIS attribute table (*Show All Features*, *Show
   Selected Features*, *Show Features Visible on Map*, *Show Features with
   Failing Constraints*, *Show Edited and New Features*); *Advanced Filter

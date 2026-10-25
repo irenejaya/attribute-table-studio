@@ -31,9 +31,10 @@ booleans <i>true, false, NULL</i>.</li>
 one column combine with <b>OR</b> (use ▾ to pick values).</li>
 <li>Typing applies after a short pause; <b>Enter</b> applies at once. An
 invalid value is outlined red and the last valid result stays on screen.</li>
-<li><b>Clear filters</b> removes every filter; <i>Clear this filter</i> in an
-operator menu or the ✕ in a filter box clears one column. In the value list
-(▾), click <i>Value</i> or <i>Records</i> to sort it.</li>
+<li><b>Clear filters</b> (the funnel with a cross, top right) removes every
+filter; <i>Clear this filter</i> in an operator menu or the ✕ in a filter box
+clears one column. In the value list (▾), click <i>Value</i> or
+<i>Records</i> to sort it.</li>
 </ul>
 <h4>Statistics</h4>
 <p>Profiles describe exactly the records in scope (all filtered rows, not
@@ -163,9 +164,13 @@ does not allow filter changes during editing); stop editing to change it or
 turn it off. An explorer closed during editing gives the layer its own
 filter back as soon as editing stops.</p>
 <h4>Columns, sorting, export</h4>
+<p><b>Go to field</b> in the top row: type part of a field name and pick
+it (or press Enter for the first match) to scroll the table to that column;
+its heading is highlighted for a moment, and a hidden column is shown
+again. The list shows each field's type icon, name and QGIS type.</p>
 <p>Click a column name to sort (again for descending, a third time to
-reset). Drag names to reorder, drag edges to resize, and use
-<b>Columns</b> to show, hide and reorder; the layout is saved with the
+reset). Drag names to reorder, drag edges to resize, and use the
+<b>Columns</b> icon to show, hide and reorder; the layout is saved with the
 layer in the project. <b>Export</b> writes the filtered records to Excel
 or CSV with the scope recorded; <b>Ctrl+C</b> copies the selected rows.
 <b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>
