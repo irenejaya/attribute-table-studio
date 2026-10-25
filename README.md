@@ -17,7 +17,7 @@ extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
 
 ## Install
 
-1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.0.0.zip`
+1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.0.zip`
 2. QGIS → *Plugins › Manage and Install Plugins › Install from ZIP*.
 3. If the standalone *Geometry and Table Compare* plugin is installed, disable
    it — Attribute Table Studio includes it (the plugin warns when both are enabled).

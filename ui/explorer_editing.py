@@ -24,7 +24,7 @@ from . import icons
 from . import widgets as W
 from .explorer_bars import EditBar, QuickUpdateBar
 
-_ADD_MODE = QgsAttributeEditorContext.AddFeatureMode
+_ADD_MODE = QgsAttributeEditorContext.Mode.AddFeatureMode
 
 
 def _preselect_field(dlg, name):

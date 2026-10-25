@@ -16,11 +16,15 @@ layer edits: Save and close / Close and keep layer edits / Cancel);
 programmatic closes (plugin unload, layer removed) never ask.
 """
 
+import traceback
+
 from qgis.PyQt.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import QApplication, QVBoxLayout, QWidget
+from qgis.core import QgsMessageLog
 from qgis.gui import QgsDockWidget
 
 from ..core import settings
+from ..core.compat import MSG_WARNING
 
 APP_TITLE = "Attribute Table Studio"
 
@@ -249,8 +253,9 @@ class ToolHost(QObject):
                              self._window.saveGeometry())
         try:
             self.panel.shutdown()
-        except Exception:
-            pass
+        except Exception:                # never block closing; keep the trace
+            QgsMessageLog.logMessage(traceback.format_exc(), "Attribute Table Studio",
+                                     MSG_WARNING)
         self._take_from_window()
         self._take_from_dock()
         self.panel.deleteLater()

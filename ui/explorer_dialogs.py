@@ -38,9 +38,9 @@ VIRTUAL_TYPES = (("Whole number (integer)", _MT.Int, "integer"),
                  ("Date", _MT.QDate, "date"),
                  ("Date and time", _MT.QDateTime, "datetime"),
                  ("Boolean", _MT.Bool, "boolean"))
-_SEARCH = QgsAttributeEditorContext.SearchMode
-_MULTI = QgsAttributeEditorContext.MultiEditMode
-_SINGLE = QgsAttributeEditorContext.SingleEditMode
+_SEARCH = QgsAttributeEditorContext.Mode.SearchMode
+_MULTI = QgsAttributeEditorContext.Mode.MultiEditMode
+_SINGLE = QgsAttributeEditorContext.Mode.SingleEditMode
 _EMBED = QgsAttributeEditorContext.FormMode.Embed
 _FILTER_TYPE = QgsAttributeForm.FilterType
 
@@ -50,16 +50,16 @@ def form_context(panel):
     ctx = QgsAttributeEditorContext()
     try:
         ctx.setMapCanvas(panel.iface.mapCanvas())
-    except Exception:
-        pass
+    except (AttributeError, RuntimeError, TypeError):
+        pass                             # no map canvas
     tools = getattr(panel.iface, "vectorLayerTools", None)
     if callable(tools):
         try:
             t = tools()
             if t is not None:
                 ctx.setVectorLayerTools(t)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            pass                         # no vector layer tools
     ctx.setFormMode(_EMBED)
     return ctx
 
@@ -292,7 +292,8 @@ class DeleteFieldDialog(_Dialog):
         for name in names:
             deps += [d for d in OPS.field_dependents(layer, name)
                      if d.split(" (")[0] not in names]
-        text = f"Delete {', '.join(names)} from <b>{layer.name()}</b>?"
+        text = (f"Delete the field{'s' if len(names) > 1 else ''} "
+                f"<b>{', '.join(names)}</b> from <b>{layer.name()}</b>?")
         if deps:
             text += ("<br><br>These refer to it and may stop working:<br>"
                      + "<br>".join(deps))

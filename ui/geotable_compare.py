@@ -32,7 +32,7 @@ from qgis.PyQt.QtWidgets import (
     QStyleOptionViewItem,
 )
 from qgis.core import (
-    Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature,
+    Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature, QgsCsException,
     QgsVectorLayer, QgsProject, QgsRectangle, QgsCoordinateTransform,
     QgsSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest, QgsSpatialIndex,
     QgsVectorFileWriter, QgsCategorizedSymbolRenderer, QgsRendererCategory,
@@ -56,22 +56,12 @@ except ImportError:
     HAS_OPENPYXL = False
 
 # ----------------------------------------------------------------------------
-# QGIS 3.x / 4.x enum compatibility
+# Enums (QGIS 3.40+ and 4.x both have the scoped Qgis enums)
 # ----------------------------------------------------------------------------
-try:
-    _VECTOR_FILTER = Qgis.LayerFilter.VectorLayer
-except AttributeError:
-    from qgis.core import QgsMapLayerProxyModel
-    _VECTOR_FILTER = QgsMapLayerProxyModel.VectorLayer
-
-try:
-    _GEOM_POINT = Qgis.GeometryType.Point
-    _GEOM_LINE = Qgis.GeometryType.Line
-    _GEOM_POLYGON = Qgis.GeometryType.Polygon
-except AttributeError:
-    _GEOM_POINT = QgsWkbTypes.PointGeometry
-    _GEOM_LINE = QgsWkbTypes.LineGeometry
-    _GEOM_POLYGON = QgsWkbTypes.PolygonGeometry
+_VECTOR_FILTER = Qgis.LayerFilter.VectorLayer
+_GEOM_POINT = Qgis.GeometryType.Point
+_GEOM_LINE = Qgis.GeometryType.Line
+_GEOM_POLYGON = Qgis.GeometryType.Polygon
 
 _ROLE_USER = Qt.ItemDataRole.UserRole
 _ROLE_KIND = Qt.ItemDataRole.UserRole + 1     # "changed" for pink cells
@@ -173,8 +163,8 @@ def _topo_equal(a, b):
     if fn is not None:
         try:
             return bool(fn(b))
-        except Exception:
-            pass
+        except (TypeError, ValueError):
+            pass                         # fall back to isGeosEqual
     return bool(a.isGeosEqual(b))
 
 
@@ -306,8 +296,8 @@ def _part_score(a, b, gtype):
         if gtype == _GEOM_LINE and a.intersects(b):
             h = a.hausdorffDistance(b)
             return 1.0 / (1.0 + max(h, 0.0))
-    except Exception:
-        pass
+    except (TypeError, ValueError, ZeroDivisionError):
+        pass                             # unusable geometry: no match
     return 0.0
 
 
@@ -2086,8 +2076,8 @@ class GeoTableCompareDialog(QWidget):
         for geoms, crs in flashes:
             try:
                 canvas.flashGeometries(geoms, crs)
-            except Exception:
-                pass
+            except (RuntimeError, TypeError):
+                pass                     # flashing is only a visual hint
         self._set_status(
             f"Selected and zoomed to {n:,} row(s) — {len(new_ids):,} in NEW, "
             f"{len(old_ids):,} in OLD", "success")
@@ -2241,8 +2231,8 @@ class GeoTableCompareDialog(QWidget):
                 self._geom_crs, canvas.mapSettings().destinationCrs(),
                 QgsProject.instance())
             extent = to_canvas.transformBoundingBox(extent)
-        except Exception:
-            pass
+        except QgsCsException:
+            pass                         # keep the extent in the layer CRS
         if extent.width() == 0 or extent.height() == 0:
             pad = max(extent.width(), extent.height(), 1e-4) * 0.5
             extent.grow(pad)
@@ -2253,8 +2243,8 @@ class GeoTableCompareDialog(QWidget):
             geoms = [f.geometry() for lyr in layers
                      for f in lyr.getFeatures()][:200]
             canvas.flashGeometries(geoms, self._geom_crs)
-        except Exception:
-            pass
+        except (RuntimeError, TypeError):
+            pass                         # flashing is only a visual hint
 
     # ====================================================================
     # EXPORT
@@ -2784,11 +2774,7 @@ class GeoTableCompareDialog(QWidget):
                 options.actionOnExistingFile = action.CreateOrOverwriteLayer
         result = QgsVectorFileWriter.writeAsVectorFormatV3(
             layer, path, QgsProject.instance().transformContext(), options)
-        try:
-            no_error = QgsVectorFileWriter.WriterError.NoError
-        except AttributeError:
-            no_error = QgsVectorFileWriter.NoError
-        return result[0] == no_error, (result[1] or "")
+        return result[0] == QgsVectorFileWriter.WriterError.NoError, (result[1] or "")
 
     def _create_review_points(self, geom_diffs):
         """Build the review-point layer (temporary or saved) and add it to

@@ -11,7 +11,7 @@ about=Attribute Table Studio adds three tools to one QGIS toolbar.
     Geometry and Table Compare - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
     Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
 
-version=1.0.0
+version=1.0
 author=Irene Jaya
 email=irenejaya1@gmail.com
 
@@ -30,7 +30,7 @@ hasProcessingProvider=no
 server=False
 
 changelog=
-    1.0.0 - Attribute Table Studio
+    1.0 - Attribute Table Studio
         * One plugin, one toolbar with three tools: Attribute Explorer, Pivot Table, Geometry and Table Compare
         * New: Attribute Explorer - column profiles attached above the table, permanent typed filters (AND across columns, OR within a value list), map selection sync, Selected only, layouts saved per layer, exact background statistics, CSV / Excel export with scope
         * Attribute Explorer editing mode: shared layer edit session, edit row with status, save / discard / undo / redo, QGIS cell editors with constraint checks, add / delete / cut / copy / paste, QGIS's Field Calculator, Quick update row (Update All / Filtered / Selected as in the native table), multi edit, new / delete / virtual fields, form view, View and Select menus (scopes, expression and form filters, stored expressions, sort by expression, selected to top, conditional formatting), close prompts that never discard edits, optional F6 / Shift+F6 / Ctrl+F6

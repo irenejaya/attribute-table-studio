@@ -26,7 +26,7 @@ from . import icons
 from . import widgets as W
 from .explorer_dialogs import form_context
 
-_SINGLE = QgsAttributeEditorContext.SingleEditMode
+_SINGLE = QgsAttributeEditorContext.Mode.SingleEditMode
 
 
 class FeatureListModel(QAbstractListModel):

@@ -166,8 +166,8 @@ class AttributeTableStudioPlugin:
         for action in self.actions.values():
             try:
                 self.iface.unregisterMainWindowAction(action)
-            except Exception:
-                pass
+            except (AttributeError, RuntimeError, TypeError):
+                pass                     # not registered / already deleted
             self.iface.removePluginMenu(MENU, action)
             if self.toolbar is not None:
                 self.toolbar.removeAction(action)

@@ -300,8 +300,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._wire_editing()
         try:
             self.iface.mapCanvas().extentsChanged.connect(self._on_canvas_extent)
-        except Exception:
-            pass
+        except (AttributeError, RuntimeError, TypeError):
+            pass                         # no map canvas (Visible on Map stays off)
 
         visible = settings.value("explorer/summaryVisible")
         self.summary_btn.blockSignals(True)
