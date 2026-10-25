@@ -53,6 +53,15 @@ proposed and only assigned when no other command uses it; change it in
   tick boxes). A feature selected on the map scrolls its row into view.
   *Selected only* limits table and statistics to the selection. Filtering
   never changes the map selection.
+- **Map filter** (the ε-funnel button next to *Dock*): while it is on, the
+  layer's own Query Builder filter follows the table filters, so the map shows
+  the same records as the table. It is written as readable SQL where the
+  layer's format answers exactly like the table (otherwise as a list of
+  feature ids), and it is combined with any filter the layer already has.
+  Turning it off — or closing the explorer — gives the layer its own filter
+  back; the table keeps its filters until *Clear filters*.
+
+  ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
   reorder; layouts are saved with the layer in the project.
 - *Export* to Excel or CSV with the scope recorded; *Ctrl+C* copies rows;

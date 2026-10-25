@@ -30,6 +30,7 @@ from attribute_table_studio import classFactory  # noqa: E402
 from attribute_table_studio.core import filters as FL  # noqa: E402
 from attribute_table_studio.core import fields as F  # noqa: E402
 from attribute_table_studio.core import pivot as P  # noqa: E402
+from attribute_table_studio.core import subset as SUB  # noqa: E402
 from attribute_table_studio.core.compat import QAction, SELECT_SET  # noqa: E402
 
 OUT = tempfile.mkdtemp(prefix="gts_out_")
@@ -653,6 +654,117 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(base.selectedFeatureIds(), [panel._fid_maps["old"][key]])
         canvas_extent = self.iface.mapCanvas().extent()
         self.assertFalse(canvas_extent.isEmpty())
+
+    def test_13f_map_filter(self):
+        layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        btn = panel.query_btn
+
+        def x(widget):
+            return widget.mapTo(panel, QPoint(0, 0)).x()
+        self.assertLess(x(panel.clear_btn), x(btn))
+        self.assertLess(x(btn), x(panel.dock_btn))
+        self.assertFalse(btn.isEnabled())            # no filter yet
+        total = layer.featureCount()
+        lu = layer.fields().indexOf("LAND_USE_TYPE")
+        fl = layer.fields().indexOf("FL_1_PCT_MAX")
+        cells = panel.header.cells
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "eq", "RESIDENTIAL"))
+        cells[fl].set_filter(FL.ColumnFilter("FL_1_PCT_MAX", F.REAL, "gt", "60"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        shown = len(panel.model.fids)
+        self.assertTrue(btn.isEnabled())
+
+        # on: the layer's Query Builder filter is the table filter, readable
+        btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(layer.subsetString(),
+                         '("LAND_USE_TYPE" = \'RESIDENTIAL\') AND ("FL_1_PCT_MAX" > 60)')
+        self.assertEqual(layer.featureCount(), shown)
+        self.assertEqual(len(panel.model.fids), shown)
+        self.assertIn(f"{shown:,} shown / {total:,} available",
+                      panel.status.message.fullText())
+        self.assertEqual(layer.customProperty(SUB.PROPERTY), "")
+
+        # the table still reaches every record: loosening a filter works
+        cells[fl].set_filter(None)
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertGreater(len(panel.model.fids), shown)
+        self.assertEqual(layer.subsetString(), '"LAND_USE_TYPE" = \'RESIDENTIAL\'')
+        self.assertEqual(layer.featureCount(), len(panel.model.fids))
+        self.assertEqual(panel.model.raw_value(0, lu), "RESIDENTIAL")
+        self.assertIn("INDUSTRIAL", [e[1] for e in panel._values_for(lu)])
+
+        # case-insensitive contains: SQL when exact, the ids otherwise
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "contains", "dent"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(layer.subsetString(), '"LAND_USE_TYPE" LIKE \'%dent%\'')
+        self.assertEqual(layer.featureCount(), len(panel.model.fids))
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "contains", "dÉnt"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(len(panel.model.fids), 0)
+        self.assertEqual(layer.subsetString(), "1 = 0")
+        cells[lu].set_filter(FL.ColumnFilter("LAND_USE_TYPE", F.TEXT, "contains", "dent"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        kept = len(panel.model.fids)
+
+        # off: the layer is back, the table keeps its filters
+        btn.setChecked(False)
+        self.assertEqual(layer.subsetString(), "")
+        self.assertEqual(layer.featureCount(), total)
+        self.assertEqual(len(panel.model.fids), kept)
+        self.assertIsNotNone(cells[lu].current_filter())
+        self.assertIsNone(layer.customProperty(SUB.PROPERTY))
+
+        # the layer's own filter stays underneath and comes back on close
+        layer.setSubsetString('"ZONE_CODE" > 1')
+        self.assertTrue(H.wait_for(lambda: idle(panel) and not panel._data_timer.isActive()))
+        btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(layer.subsetString(),
+                         '("ZONE_CODE" > 1) AND ("LAND_USE_TYPE" LIKE \'%dent%\')')
+        self.plugin.explorers[layer.id()].close()
+        H.settle(0.2)
+        self.assertEqual(layer.subsetString(), '"ZONE_CODE" > 1')
+        self.assertIsNone(layer.customProperty(SUB.PROPERTY))
+
+        # a project saved with the map filter on gets the layer filter back
+        layer.setCustomProperty(SUB.PROPERTY, "")
+        layer.setSubsetString('"ZONE_CODE" = 3')
+        self.plugin._restore_forgotten_filters([layer])
+        self.assertEqual(layer.subsetString(), "")
+        self.assertIsNone(layer.customProperty(SUB.PROPERTY))
+
+        # memory layers take the table's own QGIS expression
+        from qgis.core import QgsFeature, QgsGeometry, QgsPointXY
+        mem = QgsVectorLayer("Point?crs=EPSG:28355&field=name:string&field=v:double",
+                             "Map filter points", "memory")
+        feats = []
+        for i in range(40):
+            f = QgsFeature(mem.fields())
+            f.setAttributes([f"p{i}", float(i)])
+            f.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(i, i)))
+            feats.append(f)
+        mem.dataProvider().addFeatures(feats)
+        QgsProject.instance().addMapLayer(mem)
+        panel2 = self.plugin.open_explorer(mem)
+        self.assertTrue(H.wait_for(lambda: idle(panel2)))
+        panel2.header.cells[1].set_filter(FL.ColumnFilter("v", F.REAL, "gt", "29"))
+        panel2.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel2)))
+        panel2.query_btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: idle(panel2)))
+        self.assertEqual(mem.subsetString(), '"v" > 29')
+        self.assertEqual(mem.featureCount(), 10)
+        self.plugin.explorers[mem.id()].close()
+        H.settle(0.2)
+        self.assertEqual(mem.subsetString(), "")
 
     def test_14a_attribute_only_table(self):
         table = QgsVectorLayer("None?field=name:string&field=v:double",

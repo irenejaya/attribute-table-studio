@@ -15,6 +15,7 @@ from qgis.PyQt.QtGui import QKeySequence
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.core import QgsMessageLog, QgsProject, QgsVectorLayer
 
+from .core import subset as SUB
 from .core.compat import LAYER_TYPE_VECTOR, MSG_INFO, MSG_WARNING, QAction
 from .ui import icons
 
@@ -94,7 +95,9 @@ class AttributeTableStudioPlugin:
         project = QgsProject.instance()
         self._connect(project.layersWillBeRemoved, self._on_layers_removed)
         self._connect(project.cleared, self._on_project_cleared)
+        self._connect(project.layersAdded, self._restore_forgotten_filters)
         self._connect(QApplication.instance().aboutToQuit, self._close_all)
+        self._restore_forgotten_filters(list(project.mapLayers().values()))
         self._warn_standalone_compare()
 
     def _connect(self, signal, slot):
@@ -314,6 +317,17 @@ class AttributeTableStudioPlugin:
             panel = self.pivot_host.panel
             if panel.layer is not None and panel.layer.id() in layer_ids:
                 panel.set_layer(None)
+
+    def _restore_forgotten_filters(self, layers):
+        """A project saved while an explorer's map filter was on: give those
+        layers their own filter back (the map filter only lives while the
+        explorer is open)."""
+        for layer in layers:
+            if isinstance(layer, QgsVectorLayer) and SUB.restore_forgotten(layer):
+                QgsMessageLog.logMessage(
+                    f"Restored the original filter of '{layer.name()}' "
+                    "(an Attribute Explorer map filter was saved with the "
+                    "project)", PLUGIN_NAME, MSG_INFO)
 
     def _on_project_cleared(self):
         for host in list(self.explorers.values()):

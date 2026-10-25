@@ -47,6 +47,14 @@ on the map scrolls the table to the first of them. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
 double-click a row to zoom to one feature.</p>
+<h4>Map filter</h4>
+<p>The ε-funnel button next to <b>Dock</b> turns the <b>map filter</b> on:
+the layer's own Query Builder filter then follows the table filters, so the
+map (and every other tool) shows the same records as the table. Change a
+filter and the map follows. Any filter the layer already had is kept
+underneath. Click again - or close the explorer - to give the layer its own
+filter back; the table keeps its filters until <b>Clear filters</b>. It is
+not available while the layer is being edited.</p>
 <h4>Columns, sorting, export</h4>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use

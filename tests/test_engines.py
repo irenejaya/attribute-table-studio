@@ -16,6 +16,7 @@ from core import fields as F  # noqa: E402
 from core import filters as FL  # noqa: E402
 from core import pivot as P  # noqa: E402
 from core import stats as S  # noqa: E402
+from core import subset as SUB  # noqa: E402
 
 
 class FieldTests(unittest.TestCase):
@@ -211,6 +212,52 @@ class FilterTests(unittest.TestCase):
 
 def _records(rows):
     return [(i, r) for i, r in enumerate(rows)]
+
+
+class SubsetTests(unittest.TestCase):
+    """Table filters written as a layer filter in each provider's SQL."""
+
+    def sql(self, flt, dialect):
+        return SUB.filter_sql(flt, dialect)
+
+    def test_numbers_and_lists(self):
+        f = FL.ColumnFilter("FL_1", F.REAL, "between", "60", "10")
+        for d in ("sqlite", "ogr", "postgres"):
+            self.assertEqual(self.sql(f, d), '("FL_1" >= 10 AND "FL_1" <= 60)')
+        f = FL.ColumnFilter("CODE", F.INTEGER, "in", values=[3, None, 1])
+        self.assertEqual(self.sql(f, "sqlite"), '("CODE" IN (3, 1) OR "CODE" IS NULL)')
+
+    def test_text(self):
+        eq = FL.ColumnFilter("NAME", F.TEXT, "eq", "O'Brien")
+        self.assertEqual(self.sql(eq, "sqlite"), '"NAME" = \'O\'\'Brien\'')
+        has = FL.ColumnFilter("NAME", F.TEXT, "contains", "dent")
+        self.assertEqual(self.sql(has, "sqlite"), '"NAME" LIKE \'%dent%\'')
+        self.assertEqual(self.sql(has, "postgres"), '"NAME" ILIKE \'%dent%\'')
+        self.assertEqual(self.sql(has, "ogr"), '"NAME" ILIKE \'%dent%\'')
+        wild = FL.ColumnFilter("NAME", F.TEXT, "contains", "50%")
+        self.assertEqual(self.sql(wild, "sqlite"), 'instr(lower("NAME"), \'50%\') > 0')
+        self.assertIsNone(self.sql(wild, "ogr"))
+        # SQLite folds ASCII letters only: leave non-ASCII to the id list
+        self.assertIsNone(self.sql(FL.ColumnFilter("NAME", F.TEXT, "contains", "É"), "sqlite"))
+
+    def test_dates_bools_and_qgis(self):
+        d = FL.ColumnFilter("D", F.DATE, "ge", "2024-01-02")
+        self.assertEqual(self.sql(d, "sqlite"), '"D" >= \'2024-01-02\'')
+        self.assertEqual(self.sql(d, "postgres"), '"D" >= DATE \'2024-01-02\'')
+        self.assertIsNone(self.sql(d, "ogr"))
+        dt = FL.ColumnFilter("T", F.DATETIME, "lt", "2024-01-02")
+        self.assertEqual(self.sql(dt, "sqlite"), 'substr("T", 1, 10) < \'2024-01-02\'')
+        b = FL.ColumnFilter("B", F.BOOL, "true")
+        self.assertEqual(self.sql(b, "sqlite"), '"B" = 1')
+        self.assertEqual(self.sql(b, "postgres"), '"B" = TRUE')
+        # memory / delimited text layers use the table's own expression
+        self.assertEqual(self.sql(d, "qgis"), d.build())
+
+    def test_base_filter(self):
+        self.assertEqual(SUB.with_base("", "a"), "a")
+        self.assertEqual(SUB.with_base("x > 1", "a"), "(x > 1) AND (a)")
+        self.assertEqual(SUB.with_base("x > 1", ""), "x > 1")
+        self.assertIsNone(SUB.with_base("SELECT * FROM t", "a"))
 
 
 class PivotTests(unittest.TestCase):

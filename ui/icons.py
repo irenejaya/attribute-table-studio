@@ -57,6 +57,7 @@ XLSX = "/mActionSharingExport.svg"
 GPKG = "/mActionNewGeoPackageLayer.svg"
 WARNING = "/mIconWarning.svg"
 CLEAR = "/console/iconClearConsole.svg"
+QUERY = "/mIconExpressionFilter.svg"
 GEOM_DIFF = "/algorithms/mAlgorithmSymmetricalDifference.svg"
 
 FIELD_ICONS = {
@@ -108,6 +109,37 @@ def tinted(icon, color):
         p.end()
         out.addPixmap(pm)
     return out
+
+
+def lightened(icon, amount=0.55):
+    """*icon* blended toward white (alpha and hues kept), so a dark native
+    icon stays readable on a dark theme."""
+    out = QIcon()
+    veil = QColor(255, 255, 255, int(255 * amount))
+    for size in _SIZES:
+        src = icon.pixmap(QSize(size, size))
+        if src.isNull():
+            continue
+        pm = QPixmap(src.size())
+        pm.setDevicePixelRatio(src.devicePixelRatio())
+        pm.fill(Qt.GlobalColor.transparent)
+        p = QPainter(pm)
+        p.drawPixmap(0, 0, src)
+        p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceAtop)
+        p.fillRect(pm.rect(), veil)
+        p.end()
+        out.addPixmap(pm)
+    return out
+
+
+def native_for(name, theme):
+    """Native icon, lightened on a dark theme (for dark artwork such as the
+    expression filter icon)."""
+    key = ("native_for", name, theme.dark)
+    if key not in _cache:
+        icon = native(name)
+        _cache[key] = lightened(icon) if theme.dark else icon
+    return _cache[key]
 
 
 def field(kind, theme):
