@@ -295,10 +295,12 @@ class BrowseMixin:
                        ).triggered.connect(self.select_all)
         menu.addAction(icons.native(icons.SELECT_ALL), "Select all available layer records"
                        ).triggered.connect(self.select_layer_all)
-        menu.addAction(icons.native(icons.INVERT), "Invert shown selection"
+        menu.addAction(icons.native(icons.INVERT), "Invert selection (filtered records)"
                        ).triggered.connect(self.invert_selection)
-        menu.addAction(icons.native(icons.INVERT), "Invert layer selection"
-                       ).triggered.connect(self.invert_layer_selection)
+        count = self.layer.featureCount()
+        if count < 0 or len(self.model.fids) < count:     # only differs when filtered
+            menu.addAction(icons.native(icons.INVERT), "Invert selection (whole layer)"
+                           ).triggered.connect(self.invert_layer_selection)
         menu.addAction(icons.native(icons.DESELECT), "Deselect features from all layers"
                        ).triggered.connect(self.deselect_all_layers)
         menu.addSeparator()

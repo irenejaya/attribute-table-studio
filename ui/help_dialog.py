@@ -57,9 +57,10 @@ the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
 double-click a row to zoom to one feature. The icon left of <b>Select ▾</b>
 deselects the features of this layer. <b>Select ▾</b> adds select all
-(shown or whole layer), invert, deselect features from all layers, select by
-expression, select by value / form and pan to selection; its first line says
-how many selected features are outside the current view.</p>
+(shown or whole layer), invert selection (the filtered records, or the whole
+layer while the table is filtered), deselect features from all layers,
+select by expression, select by value / form and pan to selection; its first
+line says how many selected features are outside the current view.</p>
 <h4>View</h4>
 <ul>
 <li><b>View ▾</b> switches between <b>Table view</b> and <b>Form view</b>
@@ -141,16 +142,20 @@ off.</li>
 <b>Shift+F6</b> (selected) and <b>Ctrl+F6</b> (visible on map) instead of the
 native attribute table; turning it off gives the keys back.</p>
 <h4>Map filter</h4>
-<p>The ε-funnel button next to <b>Dock</b> turns the <b>map filter</b> on:
-the layer's own Query Builder filter then follows the table filters, so the
-map (and every other tool) shows the same records as the table. Change a
-filter and the map follows. Any filter the layer already had is kept
-underneath. Like a Query Builder filter it stays when you close the
-explorer (and is saved with the project); opening the explorer again turns
-the button back on with the filters that made it. Click the button to give
-the layer its own filter back; the table keeps its filters until <b>Clear
-filters</b>. While the layer is being edited the map filter is frozen as it
-is; stop editing to change it or turn it off.</p>
+<p>The funnel button next to <b>Dock</b> (the mark QGIS shows beside a filtered
+layer) turns the <b>map filter</b> on: the map (and every other tool) then
+shows only the records of the table filters. Change a filter and the map
+follows. The map filter is temporary: click the button again, close the
+explorer or switch it to another layer and every feature is shown again,
+while the table keeps its filters until <b>Clear filters</b>. A filter the
+layer already has (Layer Properties &gt; Source &gt; Query Builder) is kept
+underneath and comes back untouched; saving the project while the map
+filter is on saves only that filter. If the Query Builder filter is changed
+while the map filter is on, that change wins and the map filter goes off.
+While the layer is being edited the map filter is frozen as it is (QGIS
+does not allow filter changes during editing); stop editing to change it or
+turn it off. An explorer closed during editing gives the layer its own
+filter back as soon as editing stops.</p>
 <h4>Columns, sorting, export</h4>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use

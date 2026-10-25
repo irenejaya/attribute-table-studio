@@ -60,15 +60,19 @@ proposed and only assigned when no other command uses it; change it in
   also while editing). A feature selected on the map scrolls its row into view.
   *Selected only* limits table and statistics to the selection. Filtering
   never changes the map selection.
-- **Map filter** (the ε-funnel button next to *Dock*): while it is on, the
-  layer's own Query Builder filter follows the table filters, so the map shows
-  the same records as the table. It is written as readable SQL where the
-  layer's format answers exactly like the table (otherwise as a list of
-  feature ids), and it is combined with any filter the layer already has.
-  Like a Query Builder filter it stays when the explorer closes (and is saved
-  with the project); reopening the explorer turns the button back on with the
-  same filters. Turning it off gives the layer its own filter back; the table
-  keeps its filters until *Clear filters*.
+- **Map filter** (the outline funnel next to *Dock*, the mark QGIS shows beside
+  a filtered layer): a quick, temporary filter of the map. While it is on, the
+  map shows only the records of the table filters and follows them as they
+  change. It is written as readable SQL where the layer's format answers
+  exactly like the table (otherwise as a list of feature ids), on top of any
+  Query Builder filter the layer already has. Turning it off, closing the
+  explorer or switching it to another layer shows every feature again and
+  gives the layer exactly its own filter back; the table keeps its filters
+  until *Clear filters*. A project saved meanwhile keeps only the layer's own
+  filter, and a Query Builder change made while it is on wins (the map filter
+  goes off). It is frozen while the layer is being edited, since QGIS allows
+  no filter changes then; an explorer closed during editing gives the filter
+  back as soon as editing stops.
 
   ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
@@ -86,9 +90,10 @@ proposed and only assigned when no other command uses it; change it in
   expressions, filter by form, case-sensitive text filters, selected to top,
   sort by expression, conditional formatting, autosize. Column filters always
   apply on top of the scope.
-- **Select ▾**: select all shown / all layer records, invert (shown or
-  layer), deselect features from all layers, select by expression, select by
-  value / form, pan or zoom to the selection.
+- **Select ▾**: select all shown / all layer records, invert selection (the
+  filtered records, or the whole layer while the table is filtered), deselect
+  features from all layers, select by expression, select by value / form, pan
+  or zoom to the selection.
 
 ### Editing
 

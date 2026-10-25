@@ -81,10 +81,13 @@ class EditBar(QWidget):
         self.reload_btn = sq(m, icons.native(icons.RELOAD), "Reload the layer")
         self.more_menu = QMenu(self)
         self.more_menu.setToolTipsVisible(True)
-        self.more_btn = sq(m, icons.native(icons.MORE), "More")
+        # drawn in the text colour: QGIS's hamburger icon is too faint here
+        self.more_btn = sq(m, icons.glyph("menu", theme.text), "More")
         self.more_btn.setMenu(self.more_menu)
         self.more_btn.setPopupMode(W.QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.more_btn.setStyleSheet("QToolButton::menu-indicator { image: none; width: 0px; }")
+        # no arrow, so no room kept for one: the icon stays centred
+        self.more_btn.setStyleSheet("QToolButton { padding-right: 0px; }"
+                                    "QToolButton::menu-indicator { image: none; width: 0px; }")
 
         # groups, left to right; the first is never moved into More
         self.groups = [

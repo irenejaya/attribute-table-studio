@@ -100,6 +100,9 @@ class AttributeTableStudioPlugin:
         self._connect(project.layersWillBeRemoved, self._on_layers_removed)
         self._connect(project.cleared, self._on_project_cleared)
         self._connect(project.layersAdded, self._restore_forgotten_filters)
+        # a project saved while a map filter is on keeps the layer's own filter
+        self._connect(project.writeMapLayer, SUB.write_layer)
+        self._connect(project.writeProject, SUB.write_project)
         self._connect(QApplication.instance().aboutToQuit, self._close_all)
         self._restore_forgotten_filters(list(project.mapLayers().values()))
         self.apply_table_keys()
@@ -392,15 +395,16 @@ class AttributeTableStudioPlugin:
             host = self.explorers.pop(lid, None)
             if host is not None:
                 host.close()
+            SUB.release(lid)
         if self.pivot_host is not None:
             panel = self.pivot_host.panel
             if panel.layer is not None and panel.layer.id() in layer_ids:
                 panel.set_layer(None)
 
     def _restore_forgotten_filters(self, layers):
-        """A project saved while an explorer's map filter was on: give those
-        layers their own filter back (the map filter only lives while the
-        explorer is open)."""
+        """Projects saved by earlier versions while an explorer's map filter
+        was on: give those layers their own filter back (the map filter only
+        lives while the explorer is open)."""
         for layer in layers:
             if isinstance(layer, QgsVectorLayer) and SUB.restore_forgotten(layer):
                 QgsMessageLog.logMessage(

@@ -73,7 +73,6 @@ MULTI_EDIT = "/mActionMultiEdit.svg"
 NEW_FIELD = "/mActionNewAttribute.svg"
 DELETE_FIELD = "/mActionDeleteAttribute.svg"
 RELOAD = "/mActionReload.svg"
-MORE = "/mIconHamburgerMenu.svg"
 FORM_VIEW = "/mActionFormView.svg"
 EXPRESSION = "/mIconExpression.svg"
 EXPR_SELECT = "/mIconExpressionSelect.svg"
@@ -88,7 +87,7 @@ ACTION = "/mAction.svg"
 FIELD_PROPS = "/propertyicons/attributes.svg"
 STORED = "/mIconStoredQueries.svg"
 HISTORY = "/mActionHistory.svg"
-QUERY = "/mIconExpressionFilter.svg"
+QUERY = "/mIndicatorFilter.svg"      # the Layers panel's "filtered" mark
 GEOM_DIFF = "/algorithms/mAlgorithmSymmetricalDifference.svg"
 
 FIELD_ICONS = {
@@ -230,6 +229,11 @@ def _paint(kind, color, size):
         p.drawLine(pt(.18, .42), pt(.82, .42))
         p.drawLine(pt(.36, .16), pt(.36, .30))
         p.drawLine(pt(.64, .16), pt(.64, .30))
+    elif kind == "menu":                 # "More": three bars on whole pixels
+        bar, gap, edge = max(2, round(s / 8)), round(s * 3 / 16), size // 8
+        top = (size - 3 * bar - 2 * gap) // 2
+        for i in range(3):
+            p.fillRect(QRectF(edge, top + i * (bar + gap), size - 2 * edge, bar), col)
     p.end()
     return pm
 
