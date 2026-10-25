@@ -173,10 +173,13 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         top.addWidget(self.count_label)
         top.addSpacing(m.group_gap)
 
-        # right aligned: Zoom | Selected only | View | Select | Columns |
-        # Summary | Pivot Table | Clear filters | Export, then query and dock
+        # right aligned: View | Zoom | Selected only | Deselect | Select |
+        # Columns | Summary | Pivot Table | Clear filters | Export, then query
+        # and dock
         row = W.ButtonRow(m)
         row.add_stretch()
+        self._build_view_select(row)
+        row.add(self.view_btn)
         self.zoom_btn = row.add(W.square_button(
             m, icons.native(icons.ZOOM_SELECTED), "Zoom to selection\n"
             "Zoom the map to the selected features"))
@@ -184,7 +187,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             m, icons.native(icons.SELECTED_ONLY), "Selected only\n"
             "Show only the features selected on the map (statistics follow "
             "the same records)", checkable=True))
-        self._build_view_select(row)
+        self.deselect_btn = row.add(W.square_button(
+            m, icons.native(icons.DESELECT_LAYER), "Deselect features from the "
+            "current layer\n(Select ▾ also deselects features from all layers)"))
+        row.add(self.select_btn)
         self.columns_btn = row.add(W.button(
             m, "Columns", icons.native(icons.COLUMNS),
             "Show, hide and reorder columns"))
@@ -263,6 +269,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         # ---- signals ----
         self.columns_btn.clicked.connect(self._choose_columns)
         self.zoom_btn.clicked.connect(self.zoom_to_selection)
+        self.deselect_btn.clicked.connect(self.deselect_all)
         self.selected_btn.toggled.connect(self._on_selected_only)
         self.summary_btn.toggled.connect(self._on_summary_toggled)
         self.pivot_btn.clicked.connect(self._open_pivot)

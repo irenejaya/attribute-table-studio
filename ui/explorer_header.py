@@ -769,6 +769,7 @@ class ValuePicker(QFrame):
             row.addWidget(b)
         row.addStretch()
         ok = W.primary_button(metrics, "Apply", theme)
+        ok.setFixedHeight(metrics.control_h)     # as tall as All / None
         ok.setIcon(icons.native(icons.FILTER))
         ok.clicked.connect(self._apply)
         row.addWidget(ok)

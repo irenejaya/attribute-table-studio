@@ -508,11 +508,15 @@ class PivotPanel(QWidget):
                                                  "Copy table")
         if not X.HAS_OPENPYXL:
             self.export_xlsx.setEnabled(False)
-        self.export_btn = row.add(W.button(
-            m, "Export", icons.native(icons.EXPORT),
-            "Export the built pivot with its layout and scope", menu=export_menu))
+        self.export_btn = row.add(W.menu_square(
+            m, icons.native(icons.EXPORT), "Export\nThe built pivot (with its layout "
+            "and scope) to Excel, CSV or a GeoPackage table, or copy it", export_menu))
         top.addWidget(row, 1)
         top.addSpacing(m.gap)
+        self.help_btn = W.square_button(m, icons.native(icons.HELP),
+                                        "Help\nHow to build a pivot table, step by step")
+        self.help_btn.clicked.connect(self.show_help)
+        top.addWidget(self.help_btn)
         self.dock_btn = W.dock_button(m)
         top.addWidget(self.dock_btn)
         root.addLayout(top)
@@ -1335,6 +1339,16 @@ class PivotPanel(QWidget):
         with open(path, "w", encoding="utf-8") as fh:
             json.dump(self._recipe(), fh, indent=2)
         self.status.set_status(f"Layout saved to {path}", "success")
+
+    def show_help(self):
+        """How to build a pivot, in its own window (as the other tools do)."""
+        from .help_dialog import HelpDialog
+        dlg = getattr(self, "_help_dialog", None)
+        if dlg is None:
+            dlg = self._help_dialog = HelpDialog(self, topic="pivot")
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
 
     def _fill_load_menu(self):
         menu = self.load_menu

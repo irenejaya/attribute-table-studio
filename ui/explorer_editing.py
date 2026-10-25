@@ -211,6 +211,7 @@ class EditingMixin:
         if self.layer is None:
             return
         self._update_quick_state()
+        self.deselect_btn.setEnabled(self.layer.selectedFeatureCount() > 0)
         e, b = self.edit, self.edit_bar
         editing = e.editing
         n, hidden = self._selection_counts()

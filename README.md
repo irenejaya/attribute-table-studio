@@ -73,9 +73,10 @@ proposed and only assigned when no other command uses it; change it in
   ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
   reorder; layouts are saved with the layer in the project.
-- The top row, right aligned: *Zoom to selection* and *Selected only* (icons),
-  *View ▾*, *Select ▾*, *Columns*, *Summary*, *Pivot Table*, *Clear filters*,
-  *Export ▾* (icon), the map filter and *Dock*.
+- The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*
+  and *Deselect features from the current layer* (icons), *Select ▾*,
+  *Columns*, *Summary*, *Pivot Table*, *Clear filters*, *Export ▾* (icon), the
+  map filter and *Dock*.
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
   rows (*Ctrl+C*); *Pivot Table* hands the filtered records to the Pivot
   Table.
@@ -86,8 +87,8 @@ proposed and only assigned when no other command uses it; change it in
   sort by expression, conditional formatting, autosize. Column filters always
   apply on top of the scope.
 - **Select ▾**: select all shown / all layer records, invert (shown or
-  layer), deselect, select by expression, select by value / form, pan or zoom
-  to the selection.
+  layer), deselect features from all layers, select by expression, select by
+  value / form, pan or zoom to the selection.
 
 ### Editing
 

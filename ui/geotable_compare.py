@@ -605,7 +605,9 @@ class GeoTableCompareDialog(QWidget):
         self.LABEL_COLUMN = max(
             150, bold.horizontalAdvance("NEW  Updated") + 30,
             fm.horizontalAdvance("Compare geometry") + 34)
-        self.setMinimumSize(1000, 380)       # still fits a bottom dock
+        # the width comes from the layout: the Results and Review rows never
+        # get narrower than their buttons and legends need
+        self.setMinimumHeight(380)
 
         # Data storage
         self.decisions = {}            # join id -> row decision
@@ -951,8 +953,8 @@ class GeoTableCompareDialog(QWidget):
         # ---- Filter by field value (field picker + suggestions) ----
         self.filter_field_combo = QComboBox()
         self.filter_field_combo.setFixedHeight(m.control_h)
-        self.filter_field_combo.setMinimumWidth(170)
-        self.filter_field_combo.setMaximumWidth(240)
+        self.filter_field_combo.setFixedWidth(
+            m.fm.horizontalAdvance("All fields") + m.icon + 44)
         self.filter_field_combo.setIconSize(QSize(m.icon, m.icon))
         self.filter_field_combo.setMaxVisibleItems(16)
         self.filter_field_combo.view().setMinimumWidth(280)
@@ -990,10 +992,9 @@ class GeoTableCompareDialog(QWidget):
             self.export_xlsx_action.setEnabled(False)
             self.export_xlsx_action.setToolTip(
                 "Excel export needs the 'openpyxl' Python package")
-        self.export_btn = W.button(
-            m, "Export", icons.native(icons.EXPORT),
-            "Export the rows shown in the table to Excel or CSV",
-            menu=export_menu)
+        self.export_btn = W.menu_square(
+            m, icons.native(icons.EXPORT),
+            "Export\nThe rows shown in the table to Excel or CSV", export_menu)
         self.export_btn.setEnabled(False)
         lay.addWidget(self.export_btn)
         return bar
@@ -1719,6 +1720,10 @@ class GeoTableCompareDialog(QWidget):
         self.value_model.setStringList(sorted(values, key=str.lower))
 
     def _on_filter_field_changed(self, *_args):
+        # the box is narrow: its tooltip names the whole field
+        self.filter_field_combo.setToolTip(
+            f"Filter field: {self.filter_field_combo.currentText()}\n"
+            "Choose the field the filter text is matched against")
         self._refresh_value_suggestions()
         self.apply_filters()
 
