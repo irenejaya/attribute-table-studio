@@ -831,8 +831,11 @@ class GeoTableCompareDialog(QWidget):
         join_row = QHBoxLayout()
         join_row.setSpacing(m.gap)
         join_row.addWidget(self.join_field_combo)
-        join_row.addWidget(self.column_filter_btn)
-        join_row.addStretch()
+        fields_row = W.ButtonRow(m)              # icon-only when narrow
+        self.column_filter_btn.setProperty("gtsNameTip", True)
+        fields_row.add(self.column_filter_btn)
+        fields_row.add_stretch()
+        join_row.addWidget(fields_row, 1)
         join_row.addWidget(self.help_btn)
         join_row.addWidget(self.clear_validation_btn)
         join_row.addSpacing(m.gap)
@@ -902,12 +905,7 @@ class GeoTableCompareDialog(QWidget):
         self.filter_buttons = {}
         self.filter_boxes = {}
         self.filter_counts = {}
-        labels = {
-            "Added": "Added (In NEW Only)",
-            "Deleted": "Deleted (In OLD Only)",
-            "Modified": "Modified",
-            "Unchanged": "Unchanged",
-        }
+        labels = {status: status for status in STATUSES}
         tips = {
             "Added": "Features that exist only in the NEW version",
             "Deleted": "Features that exist in OLD but are missing from NEW",
@@ -947,8 +945,8 @@ class GeoTableCompareDialog(QWidget):
         # ---- Filter by field value (field picker + suggestions) ----
         self.filter_field_combo = QComboBox()
         self.filter_field_combo.setFixedHeight(m.control_h)
-        self.filter_field_combo.setFixedWidth(
-            m.fm.horizontalAdvance("All fields") + m.icon + 44)
+        field_w = m.fm.horizontalAdvance("All fields") + m.icon + 44
+        self.filter_field_combo.setFixedWidth(field_w)
         self.filter_field_combo.setIconSize(QSize(m.icon, m.icon))
         self.filter_field_combo.setMaxVisibleItems(16)
         self.filter_field_combo.view().setMinimumWidth(280)
@@ -961,7 +959,8 @@ class GeoTableCompareDialog(QWidget):
         self.search_edit.setPlaceholderText("Filter by value")
         self.search_edit.setClearButtonEnabled(True)
         self.search_edit.setFixedHeight(m.control_h)
-        self.search_edit.setMinimumWidth(150)
+        # shrinks with the panel, never below the field picker beside it
+        self.search_edit.setMinimumWidth(field_w)
         self.search_edit.setMaximumWidth(300)
         self.search_edit.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -1050,6 +1049,8 @@ class GeoTableCompareDialog(QWidget):
         self.review_scope.setToolTip("Which rows the buttons apply to")
         lay.addWidget(self.review_scope)
 
+        # the buttons turn icon-only when the panel is too narrow for them
+        buttons = W.ButtonRow(m)
         self.accept_btn = self._review_button(
             "Accept", icons.SUCCESS, "accept",
             "Mark the Added / Modified rows as accepted")
@@ -1059,7 +1060,7 @@ class GeoTableCompareDialog(QWidget):
         self.reset_btn = self._review_button(
             "Reset", icons.UNDO, "reset", "Return the rows to Pending")
         for b in (self.accept_btn, self.reject_btn, self.reset_btn):
-            lay.addWidget(b)
+            buttons.add(b)
 
         self.zoom_btn = W.button(
             m, "Zoom to selection", icons.native(icons.ZOOM_SELECTED),
@@ -1074,11 +1075,14 @@ class GeoTableCompareDialog(QWidget):
             "map, and zoom to it.\n"
             "Needs 'Compare geometry' to be ticked when comparing.")
         self.map_btn.setEnabled(False)
-        lay.addSpacing(m.gap)
-        lay.addWidget(self.zoom_btn)
-        lay.addWidget(self.map_btn)
-        lay.addStretch(1)
-        self.changed_field_legend = QLabel("Changed value")
+        buttons.add_spacing(m.gap)
+        for b in (self.zoom_btn, self.map_btn):
+            b.setProperty("gtsNameTip", True)
+            buttons.add(b)
+        buttons.add_stretch()
+        self.review_buttons = buttons
+        lay.addWidget(buttons, 1)
+        self.changed_field_legend = QLabel("Changed")
         self.changed_field_legend.setObjectName("legendChanged")
         self.changed_field_legend.setFixedHeight(m.compact_h)
         self.changed_field_legend.setToolTip(
@@ -1087,11 +1091,11 @@ class GeoTableCompareDialog(QWidget):
             "(blank = empty / NULL).\nRight-click it to accept or reject it."
         )
         lay.addWidget(self.changed_field_legend)
-        self.accepted_legend = QLabel("Accepted value")
+        self.accepted_legend = QLabel("Accepted")
         self.accepted_legend.setObjectName("legendAccepted")
         self.accepted_legend.setToolTip(
             "An accepted change: the NEW value is kept (and exported)")
-        self.rejected_legend = QLabel("Rejected value")
+        self.rejected_legend = QLabel("Rejected")
         self.rejected_legend.setObjectName("legendRejected")
         self.rejected_legend.setToolTip(
             "A rejected change: the OLD value is kept (and exported)")
@@ -1115,6 +1119,7 @@ class GeoTableCompareDialog(QWidget):
     def _review_button(self, text, icon_name, role, tip):
         btn = W.button(self.metrics, text, icons.native(icon_name), tip)
         btn.setProperty("role", role)
+        btn.setProperty("gtsNameTip", True)       # icon-only: name in the tooltip
         btn.setMinimumWidth(96)
         return btn
 
@@ -1504,31 +1509,27 @@ class GeoTableCompareDialog(QWidget):
         self._update_geom_mode()
 
     def _update_geom_options(self):
-        """Auto-configure geometry checkboxes based on layer geometry type."""
-        if not self.geom_compare_cb.isChecked():
-            for cb in self._geom_checkboxes():
-                cb.setEnabled(False)
-            return
-
+        """Tick the geometry checks that suit the OLD layer's geometry type.
+        They are active only while 'Compare geometry' is ticked; otherwise
+        they stay greyed but ticked, showing what would be compared."""
+        on = self.geom_compare_cb.isChecked()
         old_layer = self.old_table_combo.currentLayer()
         if not old_layer:
+            if not on:
+                for cb in self._geom_checkboxes():
+                    cb.setEnabled(False)
             return
 
         gt = old_layer.geometryType()
         is_line = (gt == _GEOM_LINE)
         is_polygon = (gt == _GEOM_POLYGON)
 
-        self.geom_length_cb.setEnabled(is_line or is_polygon)
-        self.geom_length_cb.setChecked(is_line or is_polygon)
-
-        self.geom_area_cb.setEnabled(is_polygon)
-        self.geom_area_cb.setChecked(is_polygon)
-
-        self.geom_centroid_cb.setEnabled(True)
-        self.geom_centroid_cb.setChecked(True)
-
-        self.geom_vertices_cb.setEnabled(is_line or is_polygon)
-        self.geom_vertices_cb.setChecked(is_line or is_polygon)
+        for cb, applies in ((self.geom_length_cb, is_line or is_polygon),
+                            (self.geom_area_cb, is_polygon),
+                            (self.geom_centroid_cb, True),
+                            (self.geom_vertices_cb, is_line or is_polygon)):
+            cb.setEnabled(on and applies)
+            cb.setChecked(applies)
 
     def _get_geom_field_names(self):
         """Return list of virtual geometry field names currently enabled."""
@@ -1972,9 +1973,9 @@ class GeoTableCompareDialog(QWidget):
         self.review_tally.setText("Rows: " + text + f"  ·  Pending {pend:,}")
         values = Counter(self.cell_decisions.values())
         pending = max(self._value_total - values["Accepted"] - values["Rejected"], 0)
-        self.changed_field_legend.setText(f"Changed value · {pending:,}")
-        self.accepted_legend.setText(f"Accepted value · {values['Accepted']:,}")
-        self.rejected_legend.setText(f"Rejected value · {values['Rejected']:,}")
+        self.changed_field_legend.setText(f"Changed · {pending:,}")
+        self.accepted_legend.setText(f"Accepted · {values['Accepted']:,}")
+        self.rejected_legend.setText(f"Rejected · {values['Rejected']:,}")
 
     # ------------------------------------------------------------------
     # Right-click menu on the results
