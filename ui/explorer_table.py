@@ -20,7 +20,9 @@ Attribute Explorer table: model, delegate, row header and view.
   field's configured QGIS editor widget (F2, typing or double click).  A
   value is validated against the field's constraints, written to the
   layer's edit buffer as one undo command, and the cell gets an amber
-  corner until it is saved.  A single click only focuses the cell.
+  corner until it is saved.
+- A single click only frames the cell, browsing or editing (Ctrl+C copies
+  its value); features are selected with the row tick boxes / numbers.
 """
 
 from collections import OrderedDict
@@ -49,6 +51,7 @@ _ALIGN_LEFT = enum_int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCente
 _ALIGN_RIGHT = enum_int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
 
+COPY_ROWS_KEY = QKeySequence("Ctrl+Shift+C")   # Ctrl+C copies the framed cell
 _HARD = QgsFieldConstraints.ConstraintStrength.ConstraintStrengthHard
 _SOFT = QgsFieldConstraints.ConstraintStrength.ConstraintStrengthSoft
 
@@ -429,10 +432,12 @@ class RowDelegate(QStyledItemDelegate):
                 painter.drawPolygon(QPolygonF([
                     QPointF(r.left(), r.top()), QPointF(r.left() + self.CORNER, r.top()),
                     QPointF(r.left(), r.top() + self.CORNER)]))
-            if opt.state & QStyle.StateFlag.State_HasFocus:
-                painter.setPen(QPen(self._focus, 1.5))
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawRect(QRectF(opt.rect).adjusted(1, 1, -1, -1))
+        if opt.state & QStyle.StateFlag.State_HasFocus:
+            # the framed cell (Ctrl+C copies it), browsing or editing; on a
+            # selected row in the selection's text colour, to stand out
+            painter.setPen(QPen(self._sel_fg if selected else self._focus, 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(QRectF(opt.rect).adjusted(1, 1, -1, -1))
         painter.restore()
 
     def sizeHint(self, option, index):
@@ -514,9 +519,10 @@ class RowDelegate(QStyledItemDelegate):
 class RowHeader(QHeaderView):
     """Left gutter: a tick box showing whether the feature is selected,
     then the row number.  Clicking selects that feature (Ctrl+click adds
-    or removes it, Shift+click selects a range)."""
+    or removes it, Shift+click or a drag selects a range)."""
 
     rowPressed = pyqtSignal(int, object)       # row, keyboard modifiers
+    rowDragged = pyqtSignal(int)               # row under the mouse
 
     BOX = 13
 
@@ -533,6 +539,7 @@ class RowHeader(QHeaderView):
         self._bg = QColor(theme.base)
         self._alt = QColor(theme.base_alt)
         self._line = QColor(theme.border_soft)
+        self._drag_row = -1
 
     def sizeHint(self):
         model = self.model()
@@ -586,13 +593,22 @@ class RowHeader(QHeaderView):
             else event.pos()
         row = self.logicalIndexAt(pos)
         if row >= 0 and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_row = row
             self.rowPressed.emit(row, event.modifiers())
         event.accept()
 
     def mouseMoveEvent(self, event):
+        if self._drag_row >= 0 and event.buttons() & Qt.MouseButton.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") \
+                else event.pos()
+            row = self.logicalIndexAt(pos)
+            if row >= 0 and row != self._drag_row:
+                self._drag_row = row
+                self.rowDragged.emit(row)
         event.accept()
 
     def mouseReleaseEvent(self, event):
+        self._drag_row = -1
         event.accept()
 
     def mouseDoubleClickEvent(self, event):
@@ -604,18 +620,18 @@ class RowHeader(QHeaderView):
 # ============================================================================
 
 class ExplorerTableView(QTableView):
-    """Grid that reports clicks / drags / keys so the panel can update the
-    QGIS selection.  While editing, a click only focuses the cell, F2 /
-    typing / double click open the editor, Tab moves between editable
-    columns, and outside an editor the editing keys (undo, redo, cut,
-    paste, delete) go to the panel instead of QGIS."""
+    """Grid that reports keys and double clicks to the panel.  A click only
+    frames the cell, browsing or editing (features are selected with the
+    row header's tick boxes); Ctrl+C copies the framed cell, Ctrl+Shift+C
+    the selected rows.  While editing, F2 / typing / double click open the
+    editor, Tab moves between editable columns, and outside an editor the
+    editing keys (undo, redo, cut, paste, delete) go to the panel instead
+    of QGIS."""
 
-    rowPressed = pyqtSignal(int, object)        # row, modifiers
-    rowDragged = pyqtSignal(int)                # row under the mouse
     rowActivated = pyqtSignal(int)              # double click (browsing)
-    currentMoved = pyqtSignal(int, object)      # keyboard navigation
     selectAllRequested = pyqtSignal()
-    copyRequested = pyqtSignal()
+    copyCellRequested = pyqtSignal()            # Ctrl+C
+    copyRowsRequested = pyqtSignal()            # Ctrl+Shift+C
     toggleRequested = pyqtSignal(int)
     contextRequested = pyqtSignal(object, int, int)   # global pos, row, col
     editKeyRequested = pyqtSignal(str)          # undo / redo / cut / paste / delete
@@ -648,10 +664,7 @@ class ExplorerTableView(QTableView):
         self.customContextMenuRequested.connect(self._context)
         self.verticalHeader().setDefaultSectionSize(metrics.font_h + 9)
         self.verticalHeader().setMinimumSectionSize(metrics.font_h + 4)
-        self.row_header.rowPressed.connect(self.rowPressed.emit)
         self.editing = False
-        self._dragging = False
-        self._last_drag_row = -1
         self._theme = theme
         self._corner = self.findChild(QAbstractButton)
         if self._corner is not None:
@@ -725,29 +738,6 @@ class ExplorerTableView(QTableView):
         super().closeEditor(editor, hint)
         self.editorClosed.emit()
 
-    def mousePressEvent(self, event):
-        super().mousePressEvent(event)
-        if event.button() != Qt.MouseButton.LeftButton or self.editing:
-            return                       # editing: a click only focuses
-        idx = self.indexAt(self._pos(event))
-        if idx.isValid():
-            self._dragging = True
-            self._last_drag_row = idx.row()
-            self.rowPressed.emit(idx.row(), event.modifiers())
-
-    def mouseMoveEvent(self, event):
-        if self._dragging and event.buttons() & Qt.MouseButton.LeftButton:
-            idx = self.indexAt(self._pos(event))
-            if idx.isValid() and idx.row() != self._last_drag_row:
-                self._last_drag_row = idx.row()
-                self.rowDragged.emit(idx.row())
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        self._dragging = False
-        super().mouseReleaseEvent(event)
-
     def mouseDoubleClickEvent(self, event):
         if self.editing:
             super().mouseDoubleClickEvent(event)  # opens the editor
@@ -762,12 +752,20 @@ class ExplorerTableView(QTableView):
                 return name
         return None
 
+    @staticmethod
+    def _is_copy(event):
+        """Ctrl+C or Ctrl+Shift+C."""
+        return event.key() == Qt.Key.Key_C and bool(
+            event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+
     def event(self, event):
-        # while editing, these keys belong to the Explorer (not QGIS's own
-        # undo / paste / delete commands) when no cell editor is open
-        if event.type() == QEvent.Type.ShortcutOverride and self.editing \
+        # outside a cell editor these keys belong to the Explorer, not to
+        # QGIS's own commands (Copy Features; while editing undo / paste /
+        # delete too)
+        if event.type() == QEvent.Type.ShortcutOverride \
                 and self.state() != QAbstractItemView.State.EditingState \
-                and self._edit_key(event):
+                and (self._is_copy(event)
+                     or (self.editing and self._edit_key(event))):
             event.accept()
             return True
         return super().event(event)
@@ -784,20 +782,16 @@ class ExplorerTableView(QTableView):
         if ctrl and key == Qt.Key.Key_A:
             self.selectAllRequested.emit()
             return
-        if ctrl and key == Qt.Key.Key_C:
-            self.copyRequested.emit()
+        if self._is_copy(event):
+            if mods & Qt.KeyboardModifier.ShiftModifier:
+                self.copyRowsRequested.emit()
+            else:
+                self.copyCellRequested.emit()
             return
         if key == Qt.Key.Key_Space and self.currentIndex().isValid() and not self.editing:
             self.toggleRequested.emit(self.currentIndex().row())
             return
-        before = self.currentIndex().row()
-        super().keyPressEvent(event)
-        after = self.currentIndex().row()
-        if not self.editing and key in (
-                Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_PageUp,
-                Qt.Key.Key_PageDown, Qt.Key.Key_Home, Qt.Key.Key_End) \
-                and after >= 0 and after != before:
-            self.currentMoved.emit(after, mods)
+        super().keyPressEvent(event)           # the arrows move the frame
 
     def moveCursor(self, action, modifiers):
         """Tab / Shift+Tab move to the next editable shown column."""

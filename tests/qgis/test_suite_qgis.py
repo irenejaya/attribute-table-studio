@@ -896,6 +896,56 @@ class SuiteTests(unittest.TestCase):
         self.assertLessEqual(pick.tree.height(), head + 7 * row_h + 4)
         pick.close()
 
+    def test_13j_cell_frame_and_copy_while_browsing(self):
+        from qgis.PyQt.QtCore import QEvent, QPointF
+        from qgis.PyQt.QtGui import QGuiApplication, QKeyEvent, QMouseEvent
+        from qgis.PyQt.QtTest import QTest
+        from qgis.PyQt.QtWidgets import QApplication
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        view, layer, model = panel.view, self.layer, panel.model
+        layer.removeSelection()
+        col = layer.fields().indexOf("LAND_USE")
+        # a click on a cell only frames it, as while editing
+        rect = view.visualRect(model.index(2, col))
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+        self.assertEqual(layer.selectedFeatureCount(), 0)
+        self.assertEqual((view.currentIndex().row(), view.currentIndex().column()),
+                         (2, col))
+        # the arrow keys move the frame, still without selecting
+        QTest.keyClick(view, Qt.Key.Key_Down)
+        self.assertEqual(view.currentIndex().row(), 3)
+        self.assertEqual(layer.selectedFeatureCount(), 0)
+        # Ctrl+C copies the framed cell (the Explorer's key, not QGIS's
+        # Copy Features)
+        override = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_C,
+                             Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(view.event(override))
+        clip = QGuiApplication.clipboard()
+        clip.setText("")
+        QTest.keyClick(view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(clip.text(), model.display_text(3, col))
+        self.assertTrue(clip.text())
+        # the row numbers select: a click, then a drag extends the range
+        header = view.row_header
+
+        def mouse(kind, row, buttons):
+            y = header.sectionViewportPosition(row) + header.sectionSize(row) // 2
+            QApplication.sendEvent(header.viewport(), QMouseEvent(
+                kind, QPointF(8, y), Qt.MouseButton.LeftButton, buttons,
+                Qt.KeyboardModifier.NoModifier))
+        left, none = Qt.MouseButton.LeftButton, Qt.MouseButton.NoButton
+        mouse(QEvent.Type.MouseButtonPress, 1, left)
+        mouse(QEvent.Type.MouseMove, 4, left)
+        mouse(QEvent.Type.MouseButtonRelease, 4, none)
+        self.assertEqual(set(layer.selectedFeatureIds()), set(model.fids[1:5]))
+        # Ctrl+Shift+C copies the selected rows (names + 4 rows)
+        QTest.keyClick(view, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier
+                       | Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual(len(clip.text().splitlines()), 5)
+        self.assertEqual(panel.copy_action.shortcut().toString(), "Ctrl+Shift+C")
+        layer.removeSelection()
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)
