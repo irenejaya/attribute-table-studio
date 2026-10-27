@@ -258,17 +258,28 @@ field differences (the broom button clears these results).</li>
 </ol>
 <h4>Reading the results</h4>
 <ul>
-<li>Row colours: <b>Added</b> (only in NEW), <b>Deleted</b> (only in OLD),
-<b>Modified</b> (a compared value differs) and <b>Unchanged</b>. Untick a
-kind in <b>Results</b> to hide it; <b>Filter by value</b> searches a field.</li>
-<li>A pink <b>Changed value</b> cell shows the OLD value on the left and the
+<li>The <b>Results</b> row sorts every feature into four kinds, matched by
+the <b>Join field</b>, each with its own row colour and, beside it, the
+number of features of that kind:
+<ul>
+<li><b>Added</b> - in NEW only: its ID is not in OLD.</li>
+<li><b>Deleted</b> - in OLD only: its ID is missing from NEW.</li>
+<li><b>Modified</b> - in both, and at least one compared value differs
+(with <b>Compare geometry</b>, a shape measure counts too).</li>
+<li><b>Unchanged</b> - in both, with every compared value the same.</li>
+</ul>
+Untick a kind to hide its rows (or click its box); the counts stay the
+same. <b>Filter by value</b> shows only the rows with a value containing the
+text, in the field picked beside it (<b>All fields</b> searches every
+field).</li>
+<li>A pink <b>Changed</b> cell shows the OLD value on the left and the
 NEW value on the right of the divider (blank = empty / NULL).</li>
 </ul>
 <h4>Reviewing changes</h4>
 <ul>
 <li>Right-click changed values and choose <b>Accept</b> (keeps the NEW value,
-lime <b>Accepted value</b>), <b>Reject</b> (keeps the OLD value, lavender
-<b>Rejected value</b>) or <b>Reset</b>. Select several cells to decide them
+lime <b>Accepted</b>), <b>Reject</b> (keeps the OLD value, lavender
+<b>Rejected</b>) or <b>Reset</b>. Select several cells to decide them
 together.</li>
 <li>The <b>Accept / Reject / Reset</b> buttons (or <i>Accept row</i> in the
 right-click menu) decide every changed value of the selected rows, or of all

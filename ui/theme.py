@@ -165,8 +165,10 @@ def stylesheet(t, m):
         QLabel#gtsDim {{ color: {t.text_dim}; }}
         QLabel#gtsStrong {{ font-weight: 700; color: {t.text_strong}; }}
         QLabel#gtsLink {{ color: {t.accent_text}; }}
-        QWidget#gtsPanel QLabel:disabled, QWidget#gtsPanel QCheckBox:disabled {{
+        QWidget#gtsPanel QLabel:disabled {{
             background: transparent; color: {t.text_faint}; }}
+        /* no background on a check box: it would hide its greyed tick box */
+        QWidget#gtsPanel QCheckBox:disabled {{ color: {t.text_faint}; }}
 
         QToolButton#gtsButton, QToolButton#gtsSquare {{
             background: {t.card}; color: {t.text};

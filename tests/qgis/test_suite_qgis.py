@@ -381,7 +381,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(counts["Added"], 12)
         self.assertGreater(counts["Modified"], 0)
         self.assertEqual(panel.filter_counts["Added"].text(), "· 12")
-        self.assertEqual(panel.filter_boxes["Added"].text(), "Added (In NEW Only)")
+        self.assertEqual(panel.filter_boxes["Added"].text(), "Added")
         path = os.path.join(OUT, "compare.csv")
         _next_save.append(path)
         panel.export_results()
@@ -622,7 +622,7 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(all(it.data(decided) == "Accepted"
                             for it in panel._row_values(r2)))
         self.assertEqual(tbl.item(r2, 1).text(), "✓ Accepted")
-        self.assertTrue(panel.accepted_legend.text().startswith("Accepted value · "))
+        self.assertTrue(panel.accepted_legend.text().startswith("Accepted · "))
         self.assertIn("Mixed 1", panel.review_tally.text())
 
         # export: a rejected value gives OLD, an accepted one NEW
@@ -710,6 +710,42 @@ class SuiteTests(unittest.TestCase):
         for bar in (compare.filter_field_combo.parentWidget(),
                     compare.review_scope.parentWidget()):
             self.assertGreaterEqual(bar.width(), bar.minimumSizeHint().width())
+        # short kinds; the filter box shrinks down to the field picker's width
+        self.assertEqual(compare.filter_boxes["Deleted"].text(), "Deleted")
+        self.assertEqual(compare.search_edit.minimumWidth(),
+                         compare.filter_field_combo.width())
+        # at its narrowest the review buttons and Field(s) to Compare are
+        # icons, named in their tooltips; with room again the labels return
+        icon_only = Qt.ToolButtonStyle.ToolButtonIconOnly
+        accept = compare.accept_btn
+        self.assertEqual(accept.toolButtonStyle(), icon_only)
+        self.assertEqual(compare.column_filter_btn.toolButtonStyle(), icon_only)
+        self.assertTrue(accept.toolTip().startswith("Accept\n"))
+        win.resize(2400, 700)
+        H.settle(0.3)
+        self.assertNotEqual(accept.toolButtonStyle(), icon_only)
+        self.assertNotEqual(compare.column_filter_btn.toolButtonStyle(), icon_only)
+        self.assertGreaterEqual(accept.width(), 96)
+        self.assertFalse(accept.toolTip().startswith("Accept\n"))
+        # 'Compare geometry' off: its options are greyed but ticked for the
+        # OLD layer (a polygon: all four)
+        compare.old_table_combo.setLayer(self.layer)
+        H.settle(0.1)
+        self.assertFalse(compare.geom_compare_cb.isChecked())
+        for cb in compare._geom_checkboxes():
+            self.assertTrue(cb.isChecked() and not cb.isEnabled(), cb.text())
+        # a greyed, unticked box still draws its frame (it used to vanish)
+        cb = compare.geom_length_cb
+        cb.setChecked(False)
+        image = cb.grab().toImage()
+        frame = {image.pixel(x, y) for x in range(min(18, image.width()))
+                 for y in range(image.height())}
+        self.assertGreater(len(frame), 2)
+        cb.setChecked(True)
+        compare.geom_compare_cb.setChecked(True)
+        self.assertTrue(all(cb.isEnabled() for cb in compare._geom_checkboxes()))
+        compare.geom_compare_cb.setChecked(False)
+        self.assertFalse(any(cb.isEnabled() for cb in compare._geom_checkboxes()))
         # Pivot: icon export, then Help, then Dock
         pivot = self.plugin.open_pivot(self.layer)
         x = lambda w: w.mapTo(pivot, QPoint(0, 0)).x()

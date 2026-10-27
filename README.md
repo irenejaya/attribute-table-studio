@@ -196,8 +196,8 @@ Modified or Unchanged. The comparison engine is unchanged from the standalone
 plugin v1.1 (the regression test checks that exports match it byte for byte).
 
 - A **changed value** shows OLD and NEW side by side, split by a divider.
-  Right-click values to **accept** (keeps NEW, lime *Accepted value*),
-  **reject** (keeps OLD, lavender *Rejected value*) or reset them, one cell or
+  Right-click values to **accept** (keeps NEW, lime *Accepted*),
+  **reject** (keeps OLD, lavender *Rejected*) or reset them, one cell or
   many at once; the cell then shows the one value kept.
 - *Accept / Reject / Reset* (buttons or right-click) decide every changed
   value of whole rows. The Decision column follows the values: Accepted,

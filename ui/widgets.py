@@ -417,7 +417,7 @@ class ButtonRow(QWidget):
         """Width of *b* showing its label (measured by Qt while the button
         is in text mode, so style padding and menu arrows are included)."""
         if b.toolButtonStyle() != Qt.ToolButtonStyle.ToolButtonIconOnly:
-            width = b.sizeHint().width()
+            width = max(b.sizeHint().width(), b.minimumWidth())
             if b.isVisible() or b.testAttribute(Qt.WidgetAttribute.WA_WState_Polished):
                 b.setProperty("gtsFullWidth", width)
             return width
@@ -426,7 +426,8 @@ class ButtonRow(QWidget):
             return int(stored)
         text = b.property("gtsLabel") or b.text()
         extra = 30 + self._metrics.icon + (16 if b.menu() is not None else 0)
-        return b.fontMetrics().horizontalAdvance(text) + extra
+        return max(b.fontMetrics().horizontalAdvance(text) + extra,
+                   int(b.property("gtsMinWidth") or 0))
 
     def _compact_width(self, b):
         """Icon-only width: a square, plus room for a menu arrow."""
@@ -446,6 +447,10 @@ class ButtonRow(QWidget):
         total += sum(w.sizeHint().width() for w in extras)
         visible = [b for b in self._buttons if not b.isHidden()] + extras
         total += self._metrics.gap * max(len(visible) - 1, 0)
+        for i in range(self._lay.count()):       # add_spacing gaps (a stretch is 0)
+            spacer = self._lay.itemAt(i).spacerItem()
+            if spacer is not None:
+                total += spacer.sizeHint().width()
         return total
 
     def _height(self):
@@ -487,12 +492,21 @@ class ButtonRow(QWidget):
                     b.setProperty("gtsLabel", b.text())
                     if not b.toolTip():
                         b.setToolTip(b.text())
+                    elif b.property("gtsNameTip"):
+                        b.setProperty("gtsTip", b.toolTip())
+                # a minimum width the button had with its label comes back with it
+                b.setProperty("gtsMinWidth", b.minimumWidth())
+                if b.property("gtsTip"):
+                    # the label goes, so the tooltip starts with the name
+                    b.setToolTip(f"{b.property('gtsLabel').strip()}\n{b.property('gtsTip')}")
                 b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
                 # icon-only buttons become exact squares, like square_button
                 b.setFixedWidth(self._compact_width(b))
             elif b.property("gtsLabel"):
-                b.setMinimumWidth(0)
+                b.setMinimumWidth(int(b.property("gtsMinWidth") or 0))
                 b.setMaximumWidth(16777215)
+                if b.property("gtsTip"):
+                    b.setToolTip(b.property("gtsTip"))
                 b.setToolButtonStyle(
                     Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             # the label padding goes in compact mode, so the style sheet never
