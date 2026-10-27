@@ -87,6 +87,9 @@ proposed and only assigned when no other command uses it; change it in
   to scroll the table so that column is in the middle, with its heading
   briefly highlighted. A hidden column is shown again. ↑ / ↓ and Enter work
   too; Enter without the list goes to the first match.
+- *Layer* switches the Explorer to another layer; the refresh icon beside it
+  loads the layer selected in the Layers panel (greyed out when that layer is
+  already shown or is not a vector layer or table).
 - The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*
   and *Deselect features from the current layer* (icons), *Select ▾*, *Go to
   field*, *Summary*, *Pivot Table*, then *Clear filters*, *Columns* and

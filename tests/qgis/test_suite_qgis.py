@@ -946,6 +946,39 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(panel.copy_action.shortcut().toString(), "Ctrl+Shift+C")
         layer.removeSelection()
 
+    def test_13k_load_active_layer(self):
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        btn = panel.active_btn
+        # between the Layer box and the record count
+        x = lambda w: w.mapTo(panel, QPoint(0, 0)).x()
+        self.assertLess(x(panel.layer_combo), x(btn))
+        self.assertLess(x(btn), x(panel.count_label))
+        # greyed out, saying why, when there is nothing to load
+        self.iface.setActiveLayer(self.layer)
+        self.assertFalse(btn.isEnabled())
+        self.assertIn("is already shown", btn.toolTip())
+        self.iface.setActiveLayer(None)
+        self.assertFalse(btn.isEnabled())
+        self.assertIn("Select a layer", btn.toolTip())
+        # another layer: one click loads it here, as the Layer box would
+        other = H.demo_layer(n=40, seed=3, name="Other parcels")
+        self.iface.setActiveLayer(other)
+        self.assertTrue(btn.isEnabled())
+        self.assertIn("Other parcels", btn.toolTip())
+        btn.click()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertIs(panel.layer, other)
+        self.assertIs(panel.layer_combo.currentLayer(), other)
+        self.assertIs(self.plugin.explorer_for(other), panel)
+        self.assertFalse(btn.isEnabled())
+        # and back
+        self.iface.setActiveLayer(self.layer)
+        btn.click()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertIs(panel.layer, self.layer)
+        QgsProject.instance().removeMapLayer(other.id())
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)

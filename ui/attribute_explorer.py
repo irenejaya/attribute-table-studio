@@ -173,6 +173,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.layer_combo.setMaximumWidth(260)
         self.layer_combo.layerChanged.connect(self._on_combo_layer)
         top.addWidget(self.layer_combo)
+        # the layer selected in the Layers panel, as if picked in the box
+        self.active_btn = W.square_button(m, icons.native(icons.REFRESH),
+                                          "Load active layer")
+        self.active_btn.clicked.connect(self.load_active_layer)
+        top.addWidget(self.active_btn)
         top.addSpacing(8)
         self.count_label = W.label("", "strong")
         top.addWidget(self.count_label)
@@ -305,6 +310,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self.iface.mapCanvas().extentsChanged.connect(self._on_canvas_extent)
         except (AttributeError, RuntimeError, TypeError):
             pass                         # no map canvas (Visible on Map stays off)
+        try:
+            self.iface.currentLayerChanged.connect(self._update_active_btn)
+        except (AttributeError, RuntimeError, TypeError):
+            pass                         # Load active layer stays as it is
 
         visible = settings.value("explorer/summaryVisible")
         self.summary_btn.blockSignals(True)
@@ -351,6 +360,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.layer_combo.blockSignals(True)
         self.layer_combo.setLayer(layer)
         self.layer_combo.blockSignals(False)
+        self._update_active_btn()
         self._browse_layer_changed(layer)
         self._edit_layer_changed(layer)
         self.selected_btn.blockSignals(True)
@@ -410,6 +420,30 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.layer_combo.setLayer(self.layer)
         self.layer_combo.blockSignals(False)
 
+    def load_active_layer(self):
+        """The button beside Layer: show the layer selected in the Layers
+        panel, exactly as picking it in the Layer box (unsaved edits are
+        asked about; a layer with its own explorer brings that one up)."""
+        layer = self.iface.activeLayer()
+        if isinstance(layer, QgsVectorLayer) and layer is not self.layer:
+            self.layer_combo.setLayer(layer)
+
+    def _update_active_btn(self, *_args):
+        """Greyed out, saying why, when there is nothing to load."""
+        layer = self.iface.activeLayer()
+        if layer is None:
+            why = "Select a layer in the Layers panel first"
+        elif not isinstance(layer, QgsVectorLayer):
+            why = f"'{layer.name()}' is not a vector layer or table"
+        elif layer is self.layer:
+            why = f"'{layer.name()}' is already shown"
+        else:
+            why = None
+        self.active_btn.setEnabled(why is None)
+        self.active_btn.setToolTip(
+            "Load active layer\n" + (why or f"Show '{layer.name()}', the layer "
+                                      "selected in the Layers panel"))
+
     def shutdown(self):
         self._closing = True
         self._refresh_timer.stop()
@@ -436,6 +470,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.edit.set_layer(None)
         try:
             self.iface.mapCanvas().extentsChanged.disconnect(self._on_canvas_extent)
+        except (TypeError, RuntimeError, AttributeError):
+            pass
+        try:
+            self.iface.currentLayerChanged.disconnect(self._update_active_btn)
         except (TypeError, RuntimeError, AttributeError):
             pass
 

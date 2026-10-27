@@ -433,9 +433,8 @@ class RowDelegate(QStyledItemDelegate):
                     QPointF(r.left(), r.top()), QPointF(r.left() + self.CORNER, r.top()),
                     QPointF(r.left(), r.top() + self.CORNER)]))
         if opt.state & QStyle.StateFlag.State_HasFocus:
-            # the framed cell (Ctrl+C copies it), browsing or editing; on a
-            # selected row in the selection's text colour, to stand out
-            painter.setPen(QPen(self._sel_fg if selected else self._focus, 1.5))
+            # the framed cell (Ctrl+C copies it), browsing or editing
+            painter.setPen(QPen(self._focus, 1.5))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(QRectF(opt.rect).adjusted(1, 1, -1, -1))
         painter.restore()

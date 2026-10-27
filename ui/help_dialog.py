@@ -19,7 +19,10 @@ column. It opens read-only; <b>Edit</b> starts editing the layer. Open it
 from the toolbar, the plugin menu, a layer's right-click menu (<i>Open in
 Attribute Explorer</i>) or the shortcut (default <b>Ctrl+Alt+T</b> when it
 is free). Each layer has its own explorer; opening it again brings that
-window to the front.</p>
+window to the front. <b>Layer</b> switches the explorer to another layer;
+the refresh icon beside it loads the layer selected in the Layers panel
+(greyed out when that layer is already shown or is not a vector layer or
+table).</p>
 <h4>Filters</h4>
 <ul>
 <li>Every column has a filter below its name. Click the symbol on the left
