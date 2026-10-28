@@ -58,9 +58,11 @@ proposed and only assigned when no other command uses it; change it in
 - **Scope rules**: profiles describe exactly the filtered records (not just
   the visible screen). NULL is missing; zero and empty text are values.
   Sorting and hiding columns never change the population.
-- **Selection** stays in sync with the map (click, Ctrl, Shift, drag or the
-  tick boxes — a tick click selects only that row, Ctrl adds, Shift extends,
-  also while editing). A feature selected on the map scrolls its row into view.
+- **Selection** stays in sync with the map: select features with the row tick
+  boxes / numbers (a click selects only that row, Ctrl adds or removes, Shift
+  or a drag extends, also while editing). A click on a cell only frames it,
+  as while editing: the arrow keys move the frame and *Ctrl+C* copies the
+  cell's value. A feature selected on the map scrolls its row into view.
   *Selected only* limits table and statistics to the selection. Filtering
   never changes the map selection.
 - **Map filter** (the outline funnel next to *Dock*, the mark QGIS shows beside
@@ -85,12 +87,15 @@ proposed and only assigned when no other command uses it; change it in
   to scroll the table so that column is in the middle, with its heading
   briefly highlighted. A hidden column is shown again. ↑ / ↓ and Enter work
   too; Enter without the list goes to the first match.
+- *Layer* switches the Explorer to another layer; the refresh icon beside it
+  loads the layer selected in the Layers panel (greyed out when that layer is
+  already shown or is not a vector layer or table).
 - The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*
   and *Deselect features from the current layer* (icons), *Select ▾*, *Go to
   field*, *Summary*, *Pivot Table*, then *Clear filters*, *Columns* and
   *Export ▾* (icons), the map filter and *Dock*.
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
-  rows (*Ctrl+C*); *Pivot Table* hands the filtered records to the Pivot
+  rows (*Ctrl+Shift+C*); *Pivot Table* hands the filtered records to the Pivot
   Table.
 - Menus are written the way QGIS writes them (Title Case; "…" when the entry
   opens a dialog).
@@ -116,7 +121,7 @@ attribute table and every other QGIS tool.
 ![Editing](docs/screenshots/dark_editing.png)
 
 - Cells open the field's configured QGIS editor widget (double-click, F2 or
-  typing; a click only focuses while editing). Hard constraints keep the value
+  typing; a click only frames the cell). Hard constraints keep the value
   in the editor with the reason, soft ones warn. Virtual, joined and read-only
   fields are locked. Unsaved cells get an amber corner.
 - **Save edits** / *Ctrl+S* saves every unsaved change of the layer and keeps

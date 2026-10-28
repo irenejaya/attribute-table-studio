@@ -19,7 +19,10 @@ column. It opens read-only; <b>Edit</b> starts editing the layer. Open it
 from the toolbar, the plugin menu, a layer's right-click menu (<i>Open in
 Attribute Explorer</i>) or the shortcut (default <b>Ctrl+Alt+T</b> when it
 is free). Each layer has its own explorer; opening it again brings that
-window to the front.</p>
+window to the front. <b>Layer</b> switches the explorer to another layer;
+the refresh icon beside it loads the layer selected in the Layers panel
+(greyed out when that layer is already shown or is not a vector layer or
+table).</p>
 <h4>Filters</h4>
 <ul>
 <li>Every column has a filter below its name. Click the symbol on the left
@@ -53,9 +56,12 @@ NULL is missing; zero and empty text are values. <b>Summary: On / Off</b>
 collapses the strip. Statistics are exact and calculated in the
 background - visible columns first.</p>
 <h4>Selection and map</h4>
-<p>Click, Ctrl+click, Shift+click or drag rows, or use the tick boxes (a
-click selects only that feature, Ctrl+click adds or removes it, Shift+click
-selects a range - also while editing), to select features; the table and the map selection stay in sync. Selecting features
+<p>Select features with the tick boxes / row numbers (a click selects only
+that feature, Ctrl+click adds or removes it, Shift+click or a drag selects a
+range - also while editing); the table and the map selection stay in sync.
+A click on a cell only frames it, as while editing: the arrow keys move the
+frame and <b>Ctrl+C</b> copies the cell's value (<b>Ctrl+Shift+C</b> copies
+the selected rows). Selecting features
 on the map scrolls the table to the first of them. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
@@ -97,8 +103,8 @@ The right of the status bar says whether the layer is read only or being
 edited (orange) and how many unsaved changes it has (red when a save
 failed). Buttons that cannot be used say why in their tooltip.</p>
 <ul>
-<li>While editing, a click only focuses a cell (it does not change the
-selection); double-click, F2 or typing opens the field's configured QGIS
+<li>While editing, as while browsing, a click only frames a cell (it does
+not change the selection); double-click, F2 or typing opens the field's configured QGIS
 widget. <b>Enter</b> or <b>Tab</b> write the value, <b>Escape</b> cancels
 that cell. A value breaking a hard constraint stays in the editor with the
 reason; a soft constraint writes it and warns. Virtual, joined and read-only
@@ -172,7 +178,8 @@ is shown again. The list shows each field's type icon, name and QGIS type.</p>
 reset). Drag names to reorder, drag edges to resize, and use the
 <b>Columns</b> icon to show, hide and reorder; the layout is saved with the
 layer in the project. <b>Export</b> writes the filtered records to Excel
-or CSV with the scope recorded; <b>Ctrl+C</b> copies the selected rows.
+or CSV with the scope recorded; <b>Ctrl+Shift+C</b> copies the selected
+rows (<b>Ctrl+C</b> the framed cell).
 <b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>
 """
 

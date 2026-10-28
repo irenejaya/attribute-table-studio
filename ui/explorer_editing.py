@@ -12,7 +12,7 @@ explains itself in its tooltip when it is unavailable.
 """
 
 from qgis.PyQt.QtCore import QTimer
-from qgis.PyQt.QtGui import QGuiApplication
+from qgis.PyQt.QtGui import QGuiApplication, QKeySequence
 from qgis.PyQt.QtWidgets import QComboBox, QGroupBox
 from qgis.core import QgsFeature, QgsVectorLayerUtils
 from qgis.gui import (
@@ -26,6 +26,7 @@ from . import explorer_ops as OPS
 from . import icons
 from . import widgets as W
 from .explorer_bars import EditBar, QuickUpdateBar
+from .explorer_table import COPY_ROWS_KEY
 
 _ADD_MODE = QgsAttributeEditorContext.Mode.AddFeatureMode
 
@@ -597,9 +598,11 @@ class EditingMixin:
         act.triggered.connect(lambda: self.open_feature_form(fid))
         self.add_actions_menu(menu, fid)
         menu.addSeparator()
-        menu.addAction(icons.native(icons.COPY), "Copy Selected Rows as Text").triggered.connect(
-            self.copy_selected_rows)
+        act = menu.addAction(icons.native(icons.COPY), "Copy Selected Rows as Text")
+        act.setShortcut(COPY_ROWS_KEY)
+        act.triggered.connect(self.copy_selected_rows)
         act = menu.addAction(icons.native(icons.COPY), "Copy Cell Value")
+        act.setShortcut(QKeySequence.StandardKey.Copy)
         act.setEnabled(row >= 0 and col >= 0)
         act.triggered.connect(lambda: QGuiApplication.clipboard().setText(
             self.model.display_text(row, col)))

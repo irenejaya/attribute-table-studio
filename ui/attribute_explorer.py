@@ -69,7 +69,7 @@ from .explorer_edit import CAP_DELETE
 from .explorer_editing import EditingMixin
 from .explorer_form import FormView
 from .explorer_header import ExplorerHeader, ProfileDetails
-from .explorer_table import ExplorerTableView, FeatureTableModel
+from .explorer_table import COPY_ROWS_KEY, ExplorerTableView, FeatureTableModel
 from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
@@ -173,6 +173,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.layer_combo.setMaximumWidth(260)
         self.layer_combo.layerChanged.connect(self._on_combo_layer)
         top.addWidget(self.layer_combo)
+        # the layer selected in the Layers panel, as if picked in the box
+        self.active_btn = W.square_button(m, icons.native(icons.REFRESH),
+                                          "Load active layer")
+        self.active_btn.clicked.connect(self.load_active_layer)
+        top.addWidget(self.active_btn)
         top.addSpacing(8)
         self.count_label = W.label("", "strong")
         top.addWidget(self.count_label)
@@ -216,7 +221,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         export_menu.addSeparator()
         self.copy_action = export_menu.addAction(
             icons.native(icons.COPY), "Copy Selected Rows")
-        self.copy_action.setShortcut(QKeySequence.StandardKey.Copy)
+        self.copy_action.setShortcut(COPY_ROWS_KEY)
         if not X.HAS_OPENPYXL:
             self.export_xlsx.setEnabled(False)
             self.export_xlsx.setToolTip("Excel export needs the 'openpyxl' package")
@@ -291,22 +296,24 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.header.sectionClicked.connect(self._on_sort_clicked)
         self.view.horizontalScrollBar().valueChanged.connect(
             lambda _v: self._profile_timer.start())
-        self.view.rowPressed.connect(self._on_row_pressed)
-        self.view.rowDragged.connect(self._on_row_dragged)
         self.view.rowActivated.connect(self._zoom_to_row)
-        self.view.currentMoved.connect(self._on_current_moved)
         self.view.selectAllRequested.connect(self.select_all)
-        self.view.copyRequested.connect(self.copy_selected_rows)
+        self.view.copyCellRequested.connect(self.copy_current_cell)
+        self.view.copyRowsRequested.connect(self.copy_selected_rows)
         self.view.toggleRequested.connect(
             lambda r: self._on_row_pressed(r, Qt.KeyboardModifier.ControlModifier))
         self.view.contextRequested.connect(self._context_menu)
-        self.view.row_header.rowPressed.disconnect()
         self.view.row_header.rowPressed.connect(self._on_tick_pressed)
+        self.view.row_header.rowDragged.connect(self._on_row_dragged)
         self._wire_editing()
         try:
             self.iface.mapCanvas().extentsChanged.connect(self._on_canvas_extent)
         except (AttributeError, RuntimeError, TypeError):
             pass                         # no map canvas (Visible on Map stays off)
+        try:
+            self.iface.currentLayerChanged.connect(self._update_active_btn)
+        except (AttributeError, RuntimeError, TypeError):
+            pass                         # Load active layer stays as it is
 
         visible = settings.value("explorer/summaryVisible")
         self.summary_btn.blockSignals(True)
@@ -353,6 +360,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.layer_combo.blockSignals(True)
         self.layer_combo.setLayer(layer)
         self.layer_combo.blockSignals(False)
+        self._update_active_btn()
         self._browse_layer_changed(layer)
         self._edit_layer_changed(layer)
         self.selected_btn.blockSignals(True)
@@ -412,6 +420,30 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.layer_combo.setLayer(self.layer)
         self.layer_combo.blockSignals(False)
 
+    def load_active_layer(self):
+        """The button beside Layer: show the layer selected in the Layers
+        panel, exactly as picking it in the Layer box (unsaved edits are
+        asked about; a layer with its own explorer brings that one up)."""
+        layer = self.iface.activeLayer()
+        if isinstance(layer, QgsVectorLayer) and layer is not self.layer:
+            self.layer_combo.setLayer(layer)
+
+    def _update_active_btn(self, *_args):
+        """Greyed out, saying why, when there is nothing to load."""
+        layer = self.iface.activeLayer()
+        if layer is None:
+            why = "Select a layer in the Layers panel first"
+        elif not isinstance(layer, QgsVectorLayer):
+            why = f"'{layer.name()}' is not a vector layer or table"
+        elif layer is self.layer:
+            why = f"'{layer.name()}' is already shown"
+        else:
+            why = None
+        self.active_btn.setEnabled(why is None)
+        self.active_btn.setToolTip(
+            "Load active layer\n" + (why or f"Show '{layer.name()}', the layer "
+                                      "selected in the Layers panel"))
+
     def shutdown(self):
         self._closing = True
         self._refresh_timer.stop()
@@ -438,6 +470,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.edit.set_layer(None)
         try:
             self.iface.mapCanvas().extentsChanged.disconnect(self._on_canvas_extent)
+        except (TypeError, RuntimeError, AttributeError):
+            pass
+        try:
+            self.iface.currentLayerChanged.disconnect(self._update_active_btn)
         except (TypeError, RuntimeError, AttributeError):
             pass
 
@@ -1284,7 +1320,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _on_tick_pressed(self, row, mods):
         """A tick box selects like the row numbers of QGIS's attribute table,
         browsing or editing: a click selects only that feature, Ctrl+click
-        adds or removes it, Shift+click selects a range."""
+        adds or removes it, Shift+click or a drag selects a range (a click
+        on a cell only frames it)."""
         self._on_row_pressed(row, mods)
 
     def _on_row_dragged(self, row):
@@ -1292,16 +1329,6 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             return
         lo, hi = sorted((self._anchor, row))
         self._select(self.model.fids[lo:hi + 1], self._drag_behaviour)
-
-    def _on_current_moved(self, row, mods):
-        if mods & Qt.KeyboardModifier.ControlModifier:
-            return
-        if mods & Qt.KeyboardModifier.ShiftModifier and self._anchor is not None:
-            lo, hi = sorted((self._anchor, row))
-            self._select(self.model.fids[lo:hi + 1], SELECT_SET)
-        else:
-            self._anchor = row
-            self._select([self.model.fids[row]], SELECT_SET)
 
     def select_all(self):
         self._select(self.model.fids, SELECT_SET)
@@ -1381,6 +1408,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if row >= 0 and col >= 0:
             value_text = self.model.display_text(row, col)
             act = menu.addAction(icons.native(icons.COPY), "Copy Cell Value")
+            act.setShortcut(QKeySequence.StandardKey.Copy)
             act.triggered.connect(
                 lambda: QGuiApplication.clipboard().setText(value_text))
             if col in self.model.editable_cols:
@@ -1388,6 +1416,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                     lambda: self.set_cell_null(row, col))
         act = menu.addAction(icons.native(icons.COPY),
                              f"Copy Selected Rows ({n_sel:,})")
+        act.setShortcut(COPY_ROWS_KEY)
         act.setEnabled(n_sel > 0)
         act.triggered.connect(self.copy_selected_rows)
         menu.addSeparator()
@@ -1511,6 +1540,18 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
 
     def _shown_columns(self):
         return self.header.visible_logicals()
+
+    def copy_current_cell(self):
+        """Ctrl+C: the framed cell's value, as the table shows it."""
+        index = self.view.currentIndex()
+        if not index.isValid():
+            self.status.set_status("Click a cell to copy its value", "warning")
+            return
+        QGuiApplication.clipboard().setText(
+            self.model.display_text(index.row(), index.column()))
+        name = self.model.fields[index.column()].name()
+        self.status.set_status(f"Copied the {name} value to the clipboard",
+                               "success")
 
     def copy_selected_rows(self):
         sel = self.model.selected

@@ -40,6 +40,14 @@ def start_qgis(theme=None):
     return app
 
 
+def _iface_signals():
+    from qgis.PyQt.QtCore import QObject, pyqtSignal
+
+    class IfaceSignals(QObject):
+        currentLayerChanged = pyqtSignal(object)
+    return IfaceSignals
+
+
 class FakeIface:
     """Just enough of QgisInterface for the tools."""
 
@@ -54,6 +62,8 @@ class FakeIface:
         self._canvas = QgsMapCanvas(self._main)
         self._main.setCentralWidget(self._canvas)
         self._active = None
+        self._signals = _iface_signals()()
+        self.currentLayerChanged = self._signals.currentLayerChanged
         self.messages = []
         self.toolbars = []
         self.menu_actions = []
@@ -71,6 +81,8 @@ class FakeIface:
 
     def setActiveLayer(self, layer):
         self._active = layer
+        self._signals.currentLayerChanged.emit(layer)
+        return True
 
     def addDockWidget(self, area, dock):
         self._main.addDockWidget(area, dock)
