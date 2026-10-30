@@ -62,7 +62,8 @@ range - also while editing); the table and the map selection stay in sync.
 A click on a cell only frames it, as while editing: the arrow keys move the
 frame and <b>Ctrl+C</b> copies the cell's value (<b>Ctrl+Shift+C</b> copies
 the selected rows). Selecting features
-on the map scrolls the table to the first of them. Filtering never changes
+on the map scrolls the table to the first of them; after a sort or a filter
+the table shows its top, or the first selected feature. Filtering never changes
 the map selection. <b>Selected only</b> limits the table and the
 statistics to the selected features. <b>Zoom to selection</b> zooms the map;
 double-click a row to zoom to one feature. The icon left of <b>Select ▾</b>

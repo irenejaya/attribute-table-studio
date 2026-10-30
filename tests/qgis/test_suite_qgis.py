@@ -979,6 +979,47 @@ class SuiteTests(unittest.TestCase):
         self.assertIs(panel.layer, self.layer)
         QgsProject.instance().removeMapLayer(other.id())
 
+    def test_13l_sort_shows_the_start(self):
+        layer = H.demo_layer(n=3000, seed=11, name="Sort parcels")
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        view, model = panel.view, panel.model
+        bar = view.verticalScrollBar()
+
+        def sort(name):
+            panel._on_sort_clicked(layer.fields().indexOf(name))
+            self.assertTrue(H.wait_for(lambda: idle(panel)))
+            H.settle(0.1)
+        # the table has the keyboard: Qt frames its first cell. A sort keeps
+        # the frame on that feature but stays at the top (it used to jump
+        # to wherever the feature went)
+        view.setFocus()
+        view.setCurrentIndex(model.index(0, 0))
+        fid = model.fid(0)
+        sort("SCORE_MAX")
+        self.assertEqual(bar.value(), 0)
+        self.assertGreater(model.row_of(fid), 0)
+        self.assertEqual(view.currentIndex().row(), model.row_of(fid))
+        # with a selection, a sort shows the first selected feature
+        layer.selectByIds([model.fid(1500), model.fid(2500)])
+        bar.setValue(0)
+        sort("SCORE_MIN")
+        first = min(model.row_of(f) for f in layer.selectedFeatureIds())
+        self.assertGreater(first, 0)
+        self.assertTrue(view.rowAt(0) <= first <= view.rowAt(view.viewport().height() - 1))
+        layer.removeSelection()
+        # a data refresh (an edit) keeps the framed feature in view
+        view.setCurrentIndex(model.index(40, 0))
+        fid = model.fid(40)
+        bar.setValue(bar.maximum())
+        panel._on_data_settled()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        H.settle(0.1)
+        row = model.row_of(fid)
+        self.assertTrue(view.rowAt(0) <= row <= view.rowAt(view.viewport().height() - 1))
+        self.plugin.explorers[layer.id()].close()
+        QgsProject.instance().removeMapLayer(layer.id())
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)

@@ -119,6 +119,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.sort_expr = None            # (expression, descending)
         self._failing_counts = None
         self._pending_focus = None       # fid to focus after the next scan
+        self._place = None               # next scan: "keep" the place or go to "start"
         self.sort = None                 # (logical, descending)
         self._anchor = None
         self._drag_behaviour = SELECT_SET
@@ -551,7 +552,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             return
         self._revision += 1
         self.model.invalidate()
-        self.refresh()
+        self.refresh(keep_place=True)
 
     def _on_schema_changed(self):
         if self.layer is None or self._closing:
@@ -574,7 +575,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         dropped = [n for n, f in old.items() if f is not None]
         self.profiles = {}
         self._scope_key = None
-        self.refresh()
+        self.refresh(keep_place=True)
         if dropped:
             self.status.set_status(
                 f"Fields changed — removed the filter on {', '.join(dropped)}",
@@ -607,8 +608,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         else:
             self._schedule_refresh()
 
-    def refresh(self, sort_only=False):
-        """Recompute the scope (and the profiles when the scope changed)."""
+    def refresh(self, sort_only=False, keep_place=False):
+        """Recompute the scope (and the profiles when the scope changed).
+        After a sort, a filter or a scope change the table shows its start
+        (the first selected feature, else the top); *keep_place* (a data
+        refresh: an edit) keeps the framed cell's feature in view instead."""
         if self.layer is None or self._closing:
             return
         self._refresh_timer.stop()
@@ -706,6 +710,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.status.set_status(
             "Sorting…" if sort_only else f"Filtering {self.layer.name()}…", "busy")
         self.status.set_busy(True)
+        # a sort or filter still waiting to show wins over a data refresh
+        if not keep_place:
+            self._place = "start"
+        elif self._place is None:
+            self._place = "keep"
         self.runner.start(f"Attribute Explorer: {self.layer.name()}", work,
                           self._on_scan_done, tag="scan")
 
@@ -715,9 +724,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if not self.runner.is_current(job):
             return
         if job.error:
+            self._place = None
             self._job_failed(job, "Filtering failed")
             return
         if job.cancelled:
+            self._place = None
             self._finish_busy("Cancelled — the previous result is still shown",
                               "warning")
             return
@@ -731,18 +742,29 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._failing_counts = (hard, len(failing) - hard)
         if self._map_filter:             # before the rows are read
             self._sync_map_filter(fids if map_fids is None else map_fids)
-        # keep the focused cell on the same feature
+        # the framed cell stays on its feature. The view follows it after a
+        # data refresh (an edit: you keep your place) or to a new record;
+        # after a sort, a filter or a scope change it shows the start: the
+        # first selected feature, else the top
         current = self.view.currentIndex()
-        focus_fid = self._pending_focus if self._pending_focus is not None \
+        pending = self._pending_focus
+        focus_fid = pending if pending is not None \
             else (self.model.fid(current.row()) if current.isValid() else None)
         focus_col = current.column() if current.isValid() else max(self.view.columnAt(0), 0)
         self._pending_focus = None
+        follow = pending is not None or self._place == "keep"
+        self._place = None
         self.model.set_fids(self._ordered(fids))
         if focus_fid is not None:
             row = self.model.row_of(focus_fid)
             if row is not None:
+                self.view.setAutoScroll(follow)    # no jump to the frame
                 self.view.setCurrentIndex(self.model.index(row, focus_col))
-                self._scroll_to_features([focus_fid])
+                self.view.setAutoScroll(True)
+                if follow:
+                    self._scroll_to_features([focus_fid])
+        if not follow and not self._scroll_to_features(self.model.selected):
+            self.view.verticalScrollBar().setValue(0)
         self._anchor = None
         self.view.verticalHeader().updateGeometry()
         self._has_result = True
@@ -1131,7 +1153,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _on_editing_stopped(self):
         self._update_query_btn()
         if self._map_filter:
-            self.refresh()
+            self.refresh(keep_place=True)
 
     def set_external_scope(self, fids, label):
         """Show only *fids* (records handed over from a pivot cell)."""
@@ -1287,16 +1309,17 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
 
     def _scroll_to_features(self, fids):
         """Scroll (vertically only) so the first of *fids* in table order is
-        in the middle of the view."""
+        in the middle of the view; False when none of them is shown."""
         rows = [r for r in map(self.model.row_of, fids) if r is not None]
         if not rows:
-            return
+            return False
         bar = self.view.horizontalScrollBar()
         keep = bar.value()
         column = max(self.view.columnAt(0), 0)
         self.view.scrollTo(self.model.index(min(rows), column),
                            QAbstractItemView.ScrollHint.PositionAtCenter)
         bar.setValue(keep)
+        return True
 
     def _on_row_pressed(self, row, mods):
         fid = self.model.fid(row)
