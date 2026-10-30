@@ -182,6 +182,26 @@ layer in the project. <b>Export</b> writes the filtered records to Excel
 or CSV with the scope recorded; <b>Ctrl+Shift+C</b> copies the selected
 rows (<b>Ctrl+C</b> the framed cell).
 <b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>
+<p><b>Ctrl+Home</b> / <b>Ctrl+End</b> jump to the first / last record and
+<b>Page Up</b> / <b>Page Down</b> move a page (click a cell first);
+right-click the scroll bar for <i>Top</i> and <i>Bottom</i>.</p>
+<h4>Find and Replace</h4>
+<p>The magnifier left of the map filter, or <b>Ctrl+F</b>, opens the find
+bar at the top right of the rows; <b>Ctrl+H</b> (or its chevron) adds the
+Replace line. It finds the text in every cell shown, as the table shows it,
+ignoring case unless <b>Match case</b> (Cc) is on; <b>Match whole cell</b>
+(ab) and <b>Regular expression</b> (.*) refine it. NULL cells never match.
+Matches are tinted and counted ("3 of 128"); the current one is framed
+(<b>Ctrl+C</b> copies it). <b>Enter</b> / <b>Shift+Enter</b> (or <b>F3</b> /
+<b>Shift+F3</b>) move to the next / previous match; <b>Escape</b> closes the
+bar. Find never filters or selects.</p>
+<p>Replace works while the layer is being edited (<b>Start editing</b> is in
+the bar), in text fields that can be edited: <b>Replace</b> (Enter in the
+Replace box) changes the framed match and moves on; <b>Replace All</b>
+(<b>Ctrl+Alt+Enter</b>) changes every match in the records shown as one
+undo step, unsaved until <b>Save edits</b>. Number, date and true / false
+matches are found but never replaced. With a regular expression, $1 … $99
+put back a group and $&amp; the whole match.</p>
 """
 
 PIVOT_HELP = """

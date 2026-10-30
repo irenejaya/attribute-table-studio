@@ -103,6 +103,9 @@ class Theme:
         self.bar = "#4C9BE8" if dark else "#42A5F5"
         self.bar_hover = "#82BDF5" if dark else "#1E88E5"
         self.big_number = "#5AA9F0" if dark else "#1E88E5"
+        # Find: matching cells (amber, over the row colours), the current one
+        self.find_hit = "#4DFFB300" if dark else "#59FFC400"
+        self.find_current = "#99FF9800" if dark else "#A6FFA000"
 
         status = self.DARK_STATUS if dark else self.LIGHT_STATUS
         self.status = {k: (QColor(v[0]), QColor(v[1]))

@@ -1,8 +1,8 @@
 # Roadmap
 
-Ideas agreed for future versions of Attribute Table Studio. **Nothing here is
-built yet**: the plugin does what it is meant to do today, and each item is
-planned in detail (look, wording, edge cases) before any work starts.
+Ideas agreed for future versions of Attribute Table Studio. Items marked
+**Done** are built; the others are not built yet, and each is planned in
+detail (look, wording, edge cases) before any work starts.
 
 Many of the ideas are inspired by the
 [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
@@ -99,10 +99,11 @@ filters, as Geometry and Table Compare already does for its comparison.
 - Area, length or perimeter, vertex count, number of parts, empty and
   validity. The validity check is the slow one and may run on demand.
 
-### 8. Find (Ctrl+F)
+### 8. Find (Ctrl+F) — Done
 
-Like Excel: type a value, every matching cell in any field is highlighted,
-with next / previous to move between them.
+Built as **Find and Replace**: a VS Code style find bar (Ctrl+F; Ctrl+H adds
+Replace) with match case, whole cell and regular expressions; Replace and
+Replace All while editing, in editable text fields. See the README.
 
 ### 9. Frozen columns
 

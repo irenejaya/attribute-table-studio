@@ -88,13 +88,25 @@ proposed and only assigned when no other command uses it; change it in
   to scroll the table so that column is in the middle, with its heading
   briefly highlighted. A hidden column is shown again. ↑ / ↓ and Enter work
   too; Enter without the list goes to the first match.
+- **Find and Replace** (the magnifier left of the map filter, *Ctrl+F*;
+  *Ctrl+H* adds Replace): a find bar like VS Code's at the top right of the
+  rows. It finds the text in every cell shown (as the table shows it),
+  ignoring case unless *Match case*; *Match whole cell* and *Regular
+  expression* refine it. Matches are tinted and counted, *Enter* / *Shift+Enter*
+  (or F3) move between them and *Escape* closes the bar. While editing,
+  *Replace* changes the framed match and *Replace All* every match in the
+  records shown, as one undo step, in editable text fields only.
+
+  ![Find and Replace](docs/screenshots/dark_find_replace.png)
+- *Ctrl+Home* / *Ctrl+End* jump to the first / last record, *Page Up* /
+  *Page Down* move a page; right-click the scroll bar for *Top* / *Bottom*.
 - *Layer* switches the Explorer to another layer; the refresh icon beside it
   loads the layer selected in the Layers panel (greyed out when that layer is
   already shown or is not a vector layer or table).
 - The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*
   and *Deselect features from the current layer* (icons), *Select ▾*, *Go to
   field*, *Summary*, *Pivot Table*, then *Clear filters*, *Columns* and
-  *Export ▾* (icons), the map filter and *Dock*.
+  *Export ▾* (icons), *Find and Replace*, the map filter and *Dock*.
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
   rows (*Ctrl+Shift+C*); *Pivot Table* hands the filtered records to the Pivot
   Table.

@@ -16,6 +16,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core import fields as F  # noqa: E402
+from core import find as FIND  # noqa: E402
 from core import filters as FL  # noqa: E402
 from core import pivot as P  # noqa: E402
 from core import stats as S  # noqa: E402
@@ -351,6 +352,49 @@ class PivotTests(unittest.TestCase):
                            False, True)
         again = P.PivotSpec.from_dict(spec.to_dict())
         self.assertEqual(again.to_dict(), spec.to_dict())
+
+
+
+class FindTests(unittest.TestCase):
+    def test_contains_ignoring_case(self):
+        m = FIND.Matcher("resid")
+        self.assertTrue(m.matches("RESIDENTIAL"))
+        self.assertFalse(m.matches("Commercial"))
+        self.assertEqual(m.replace("Resid resid", "X"), "X X")
+
+    def test_match_case(self):
+        m = FIND.Matcher("Lot", case=True)
+        self.assertTrue(m.matches("Lot 12"))
+        self.assertFalse(m.matches("lot 12"))
+
+    def test_whole_cell(self):
+        m = FIND.Matcher("lot 1", whole=True)
+        self.assertTrue(m.matches("Lot 1"))
+        self.assertFalse(m.matches("Lot 12"))
+        self.assertEqual(m.replace("LOT 1", "Lot one"), "Lot one")
+        self.assertEqual(m.replace("Lot 12", "x"), "Lot 12")
+
+    def test_plain_text_is_not_a_pattern(self):
+        m = FIND.Matcher("a.b (1)")
+        self.assertTrue(m.matches("x a.b (1) y"))
+        self.assertFalse(m.matches("axb 1"))
+        self.assertEqual(m.replace("a.b (1)", "$1 \\1"), "$1 \\1")
+
+    def test_regex_and_groups(self):
+        m = FIND.Matcher(r"^P-(\d{3})(\d+)$", regex=True)
+        self.assertTrue(m.matches("P-170001"))
+        self.assertFalse(m.matches("Q-170001"))
+        self.assertEqual(m.replace("P-170001", "$2-$1"), "001-170")
+        self.assertEqual(m.replace("P-170001", "[$&] $$ $9"), "[P-170001] $ $9")
+        self.assertEqual(m.replace("P-170001", "$12"), "1702")    # $1 then "2"
+        whole = FIND.Matcher(r"st", regex=True, whole=True)
+        self.assertFalse(whole.matches("Main St"))
+        self.assertTrue(whole.matches("ST"))
+
+    def test_invalid_regex(self):
+        import re
+        with self.assertRaises(re.error):
+            FIND.Matcher("(", regex=True)
 
 
 if __name__ == "__main__":

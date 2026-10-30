@@ -1093,6 +1093,70 @@ class EditingTests(unittest.TestCase):
         finally:
             QFileDialog.getSaveFileName = original
 
+    def test_31_find_and_replace(self):
+        from qgis.PyQt.QtTest import QTest
+        p, layer = self.panel, self.layer
+        bar = p.find_bar
+
+        def found():
+            assert H.wait_for(lambda: not bar._timer.isActive() and not bar._runner.busy)
+            H.settle(0.05)
+
+        def count(value):
+            return sum(1 for f in layer.getFeatures() if f["LAND_USE"] == value)
+        total = count("INDUSTRIAL")
+        self.assertGreater(total, 2)
+        bar.open(replace=True)
+        bar.find_box.edit.setText("INDUSTRIAL")
+        bar.case_btn.setChecked(True)
+        bar.whole_btn.setChecked(True)
+        found()
+        self.assertEqual(bar.count_label.text(), f"1 of {total}")
+        # not editing: Start editing in the bar
+        self.assertFalse(bar.replace_btn.isEnabled())
+        bar.start_btn.click()
+        self.assertTrue(layer.isEditable())
+        self.assertFalse(bar.start_btn.isVisible())
+        self.assertTrue(bar.replace_btn.isEnabled())
+        # Replace: the framed match only, one undo step, then the next match
+        bar.replace_box.edit.setText("Industrial")
+        steps = layer.undoStack().count()
+        framed = p.view.currentIndex()
+        fid = p.model.fid(framed.row())
+        QTest.keyClick(bar.replace_box.edit, Qt.Key.Key_Return)
+        self.assertEqual(layer.getFeature(fid)["LAND_USE"], "Industrial")
+        self.assertEqual(count("INDUSTRIAL"), total - 1)
+        self.assertEqual(layer.undoStack().count(), steps + 1)
+        self.assertEqual(bar.count_label.text(), f"1 of {total - 1}")
+        self.assertNotEqual(p.model.fid(p.view.currentIndex().row()), fid)
+        settle(p)
+        found()
+        # Replace All: every match in the records shown, one undo step
+        steps = layer.undoStack().count()
+        QTest.keyClick(bar.replace_box.edit, Qt.Key.Key_Return,
+                       Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier)
+        self.assertEqual(count("INDUSTRIAL"), 0)
+        self.assertEqual(count("Industrial"), total)
+        self.assertEqual(layer.undoStack().count(), steps + 1)
+        self.assertIn(f"Replaced {total - 1} values", p.status.message.fullText())
+        found()
+        self.assertEqual(bar.count_label.text(), "No results")
+        p.edit.undo()
+        self.assertEqual(count("INDUSTRIAL"), total - 1)
+        settle(p)
+        # number fields are found but never replaced
+        bar.case_btn.setChecked(False)
+        bar.whole_btn.setChecked(False)
+        bar.find_box.edit.setText(str(p.model.display_text(0, self.fl)))
+        found()
+        index = p.view.currentIndex()
+        self.assertEqual(index.column(), self.fl)
+        before = p.model.raw_value(index.row(), index.column())
+        bar.replace_box.edit.setText("1")
+        bar.replace_one()
+        self.assertEqual(p.model.raw_value(index.row(), index.column()), before)
+        self.assertIn("text fields", p.status.message.fullText())
+
     def test_21_replacement_keys(self):
         from qgis.gui import QgsGui
         from attribute_table_studio.core.compat import QAction

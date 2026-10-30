@@ -206,6 +206,15 @@ def format_number(value, decimals=None):
     return text if text not in ("", "-0") else "0"
 
 
+def cell_text(field, value):
+    """A non-NULL value as the attribute table shows it (QGIS's own
+    formatting for the field); also the text Find matches."""
+    try:
+        return field.displayString(value)
+    except Exception:
+        return display_value(value)
+
+
 def display_value(value):
     """Plain text for a raw attribute value (labels, frequency lists)."""
     if is_null(value):

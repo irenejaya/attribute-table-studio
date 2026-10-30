@@ -80,6 +80,7 @@ class FeatureTableModel(QAbstractTableModel):
         self._null_colour = QColor(theme.data_null)
         self._italic = QFont()
         self._italic.setItalic(True)
+        self.highlight = None              # Find: (row, col) -> 0, 1 match, 2 current
         # editing
         self.editing = False
         self.editable_cols = set()
@@ -164,10 +165,7 @@ class FeatureTableModel(QAbstractTableModel):
         value = self.raw_value(row, col)
         if F.is_null(value):
             return self._null_text
-        try:
-            return self.fields[col].displayString(value)
-        except Exception:
-            return F.display_value(value)
+        return F.cell_text(self.fields[col], value)
 
     def _load_around(self, row):
         if self.layer is None:
@@ -399,6 +397,8 @@ class RowDelegate(QStyledItemDelegate):
         self._alt = QColor(theme.base_alt)
         self._dirty = QColor("#F5A623")          # unsaved: amber corner
         self._focus = QColor(theme.accent)
+        self._find_hit = QColor(theme.find_hit)
+        self._find_current = QColor(theme.find_current)
         self._wrappers = {}                      # C++ editor address -> (wrapper, index)
 
     def paint(self, painter, option, index):
@@ -419,6 +419,9 @@ class RowDelegate(QStyledItemDelegate):
             if background is not None:
                 painter.fillRect(opt.rect, QColor(background))
             painter.setPen(opt.palette.color(opt.palette.ColorRole.Text))
+        found = model.highlight(row, col) if model.highlight is not None else 0
+        if found:
+            painter.fillRect(opt.rect, self._find_current if found == 2 else self._find_hit)
         painter.setFont(opt.font)
         rect = opt.rect.adjusted(self.PAD, 0, -self.PAD, 0)
         text = opt.fontMetrics.elidedText(
