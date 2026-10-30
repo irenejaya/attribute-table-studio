@@ -270,6 +270,17 @@ if THEME == "dark":
     ex.set_form_view(False)
     H.settle(0.3)
 
+    # find and replace (Ctrl+H) while editing
+    bar = ex.find_bar
+    bar.open(replace=True)
+    bar.find_box.edit.setText("Council")
+    bar.replace_box.edit.setText("City council")
+    H.wait_for(lambda: not bar._timer.isActive() and not bar._runner.busy)
+    H.settle(0.4)
+    save(win, "find_replace")
+    bar.dismiss()
+    H.settle(0.2)
+
 layer.rollBack()
 H.wait_for(lambda: idle(ex))
 

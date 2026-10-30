@@ -1020,6 +1020,111 @@ class SuiteTests(unittest.TestCase):
         self.plugin.explorers[layer.id()].close()
         QgsProject.instance().removeMapLayer(layer.id())
 
+    def test_13m_find_bar(self):
+        from qgis.PyQt.QtCore import QEvent
+        from qgis.PyQt.QtGui import QKeyEvent
+        from qgis.PyQt.QtTest import QTest
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        view, model, bar = panel.view, panel.model, panel.find_bar
+        layer = self.layer
+        lu = layer.fields().indexOf("LAND_USE")
+
+        def found():
+            return H.wait_for(lambda: not bar._timer.isActive() and not bar._runner.busy)
+        # the search icon sits left of the Query Builder button
+        x = lambda w: w.mapTo(panel, QPoint(0, 0)).x()
+        self.assertLess(x(panel.find_btn), x(panel.query_btn))
+        # Ctrl+F belongs to the Explorer (not QGIS) and opens the bar
+        view.setFocus()
+        override = QKeyEvent(QEvent.Type.ShortcutOverride, Qt.Key.Key_F,
+                             Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(panel.event(override))
+        QTest.keyClick(view, Qt.Key.Key_F, Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(bar.isVisible())
+        self.assertTrue(panel.find_btn.isChecked())
+        self.assertFalse(bar.replace_row.isVisible())
+        self.assertTrue(bar.find_box.edit.hasFocus())
+        # top right of the rows
+        vp = view.viewport().geometry()
+        self.assertLessEqual(bar.geometry().right(), vp.right())
+        self.assertGreaterEqual(bar.geometry().top(), vp.top())
+        # every cell shown whose text contains it, case ignored, row by row
+        expected = [(r, c) for r in range(model.rowCount())
+                    for c in panel._shown_columns()
+                    if "industrial" in model.display_text(r, c).lower()
+                    and not F.is_null(model.raw_value(r, c))]
+        QTest.keyClicks(bar.find_box.edit, "indus")
+        self.assertTrue(found())
+        self.assertEqual(bar.count_label.text(), f"1 of {len(expected)}")
+        first = view.currentIndex()
+        self.assertEqual((first.row(), first.column()), expected[0])
+        self.assertEqual(model.highlight(*expected[0]), 2)
+        self.assertEqual(model.highlight(*expected[1]), 1)
+        self.assertEqual(model.highlight(expected[0][0], 0), 0)
+        # Enter: next; Shift+Enter: previous (wrapping round)
+        QTest.keyClick(bar.find_box.edit, Qt.Key.Key_Return)
+        self.assertEqual((view.currentIndex().row(), view.currentIndex().column()),
+                         expected[1])
+        self.assertEqual(bar.count_label.text(), f"2 of {len(expected)}")
+        for _ in range(2):
+            QTest.keyClick(bar.find_box.edit, Qt.Key.Key_Return,
+                           Qt.KeyboardModifier.ShiftModifier)
+        self.assertEqual((view.currentIndex().row(), view.currentIndex().column()),
+                         expected[-1])
+        # match case, whole cell, regular expression
+        bar.case_btn.setChecked(True)
+        self.assertTrue(found())
+        self.assertEqual(bar.count_label.text(), "No results")
+        bar.case_btn.setChecked(False)
+        bar.whole_btn.setChecked(True)
+        bar.find_box.edit.setText("industrial")
+        self.assertTrue(found())
+        whole = sum(1 for r in range(model.rowCount())
+                    if model.display_text(r, lu).lower() == "industrial")
+        self.assertTrue(bar.count_label.text().endswith(f"of {whole}"))
+        bar.whole_btn.setChecked(False)
+        bar.regex_btn.setChecked(True)
+        bar.find_box.edit.setText("(")
+        self.assertTrue(found())
+        self.assertEqual(bar.count_label.text(), "Invalid pattern")
+        self.assertTrue(bar.find_box.property("error"))
+        bar.find_box.edit.setText("^P-17000[1-3]$")
+        self.assertTrue(found())
+        self.assertTrue(bar.count_label.text().endswith("of 3"))
+        bar.regex_btn.setChecked(False)
+        # a sort searches again: the matches follow their rows
+        bar.find_box.edit.setText("indus")
+        self.assertTrue(found())
+        panel._on_sort_clicked(lu)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertTrue(found())
+        rows = [r for r in range(model.rowCount())
+                if "industrial" in model.display_text(r, lu).lower()]
+        self.assertEqual(model.highlight(rows[0], lu), 1 if view.currentIndex().row()
+                         != rows[0] else 2)
+        panel._on_sort_clicked(lu)
+        panel._on_sort_clicked(lu)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        # Ctrl+H opens the Replace line; not editing: greyed, Start editing
+        QTest.keyClick(bar.find_box.edit, Qt.Key.Key_H, Qt.KeyboardModifier.ControlModifier)
+        self.assertTrue(bar.replace_row.isVisible())
+        self.assertFalse(bar.replace_btn.isEnabled())
+        self.assertFalse(bar.replace_all_btn.isEnabled())
+        self.assertTrue(bar.start_btn.isVisible())
+        # Escape closes it and clears the highlights
+        QTest.keyClick(bar.find_box.edit, Qt.Key.Key_Escape)
+        self.assertFalse(bar.isVisible())
+        self.assertIsNone(model.highlight)
+        self.assertFalse(panel.find_btn.isChecked())
+        # the icon opens it again, with the last search
+        panel.find_btn.click()
+        self.assertTrue(bar.isVisible())
+        self.assertTrue(found())
+        self.assertIsNotNone(model.highlight)
+        panel.find_btn.click()
+        self.assertFalse(bar.isVisible())
+
     def test_13f_map_filter(self):
         layer = H.demo_layer(n=1500, seed=5, name="Map filter parcels")
         panel = self.plugin.open_explorer(layer)

@@ -97,6 +97,10 @@ ADVANCED_FILTER = "/mActionFilter.svg"
 STORED_FILTER = "/mActionHandleStoreFilterExpressionChecked.svg"
 HISTORY = "/mActionHistory.svg"
 QUERY = "/mIndicatorFilter.svg"      # the Layers panel's "filtered" mark
+SEARCH = "/search.svg"               # Find and Replace (Ctrl+F)
+SEARCH_CASE = "/mIconSearchCaseSensitive.svg"
+SEARCH_WHOLE = "/mIconSearchWholeWord.svg"
+SEARCH_REGEX = "/mIconSearchRegex.svg"
 GEOM_DIFF = "/algorithms/mAlgorithmSymmetricalDifference.svg"
 
 FIELD_ICONS = {
@@ -229,6 +233,22 @@ def _paint(kind, color, size):
         path.moveTo(pt(.25, .40))
         path.lineTo(pt(.50, .64))
         path.lineTo(pt(.75, .40))
+        p.drawPath(path)
+    elif kind == "chevron_right":
+        path = QPainterPath()
+        path.moveTo(pt(.40, .25))
+        path.lineTo(pt(.64, .50))
+        path.lineTo(pt(.40, .75))
+        p.drawPath(path)
+    elif kind in ("arrow_up", "arrow_down"):
+        up = kind == "arrow_up"
+        tip, tail = (.22, .80) if up else (.78, .20)
+        wing = .44 if up else .56
+        p.drawLine(pt(.50, tip), pt(.50, tail))
+        path = QPainterPath()
+        path.moveTo(pt(.26, wing))
+        path.lineTo(pt(.50, tip))
+        path.lineTo(pt(.74, wing))
         p.drawPath(path)
     elif kind == "cross":
         p.drawLine(pt(.30, .30), pt(.70, .70))

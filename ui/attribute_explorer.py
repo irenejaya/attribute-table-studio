@@ -67,6 +67,7 @@ from . import widgets as W
 from .explorer_browse import BrowseMixin
 from .explorer_edit import CAP_DELETE
 from .explorer_editing import EditingMixin
+from .explorer_find import FindBar
 from .explorer_form import FormView
 from .explorer_header import ExplorerHeader, ProfileDetails
 from .explorer_table import COPY_ROWS_KEY, ExplorerTableView, FeatureTableModel
@@ -231,6 +232,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             "CSV (with their scope recorded), or copy the selected rows", export_menu))
         top.addWidget(row, 1)
         top.addSpacing(m.gap)
+        self.find_btn = W.square_button(
+            m, icons.native(icons.SEARCH), "Find and Replace (Ctrl+F, Ctrl+H)\n"
+            "Find a value in any cell shown; replace it while editing", checkable=True)
+        top.addWidget(self.find_btn)
         self.query_btn = W.square_button(m, icons.native_for(icons.QUERY, t), "",
                                          checkable=True)
         top.addWidget(self.query_btn)
@@ -307,6 +312,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.view.row_header.rowPressed.connect(self._on_tick_pressed)
         self.view.row_header.rowDragged.connect(self._on_row_dragged)
         self._wire_editing()
+        self.find_bar = FindBar(self)
+        self.find_btn.clicked.connect(self.find_bar.toggle)
+        self.model.modelReset.connect(self.find_bar.rows_changed)
+        self.header.sectionMoved.connect(self.find_bar.columns_changed)
+        self.header.sectionResized.connect(self.find_bar.columns_changed)
+        self.edit.changed.connect(self.find_bar.update_buttons)
         try:
             self.iface.mapCanvas().extentsChanged.connect(self._on_canvas_extent)
         except (AttributeError, RuntimeError, TypeError):
@@ -447,6 +458,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
 
     def shutdown(self):
         self._closing = True
+        self.find_bar.shutdown()
         self._refresh_timer.stop()
         self._data_timer.stop()
         self._profile_timer.stop()
@@ -1408,16 +1420,42 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
 
     def event(self, event):
         # Ctrl+S saves this layer's edits while the Explorer has focus and
-        # the layer is being edited (never the project)
-        if event.type() == QEvent.Type.ShortcutOverride and self.edit.editing \
-                and event.matches(QKeySequence.StandardKey.Save):
+        # the layer is being edited (never the project); Ctrl+F, Ctrl+H and
+        # (with the find bar open) F3 belong to the Explorer, not to QGIS
+        if event.type() == QEvent.Type.ShortcutOverride and (
+                (self.edit.editing and event.matches(QKeySequence.StandardKey.Save))
+                or self._find_key(event)):
             event.accept()
             return True
         return super().event(event)
 
+    def _find_key(self, event):
+        mods = event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier
+        if mods == Qt.KeyboardModifier.ControlModifier:
+            return {Qt.Key.Key_F: "find", Qt.Key.Key_H: "replace"}.get(event.key())
+        if event.key() == Qt.Key.Key_F3 and self.find_bar.isVisible():
+            return "previous" if mods & Qt.KeyboardModifier.ShiftModifier else "next"
+        if event.key() == Qt.Key.Key_Escape and self.find_bar.isVisible() \
+                and not mods and self.view.state() != QAbstractItemView.State.EditingState:
+            return "close"
+        return None
+
     def keyPressEvent(self, event):
         if self.edit.editing and event.matches(QKeySequence.StandardKey.Save):
             self.save_edits()
+            return
+        action = self._find_key(event)
+        if action in ("find", "replace"):
+            self.find_bar.open(replace=action == "replace")
+            return
+        if action == "next":
+            self.find_bar.next()
+            return
+        if action == "previous":
+            self.find_bar.previous()
+            return
+        if action == "close":
+            self.find_bar.dismiss()
             return
         super().keyPressEvent(event)
 

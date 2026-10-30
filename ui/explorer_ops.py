@@ -20,6 +20,7 @@ from qgis.core import (
 
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY
+from ..core.scan import FID_FILTER_LIMIT
 
 BATCH_PROGRESS = 2000            # show a cancellable progress dialog above this
 
@@ -187,6 +188,63 @@ def run_field_calculation(layer, idx, expression, fids, title, parent=None):
             progress.close()
     layer.endEditCommand()
     return rownum - 1, problems
+
+
+def replace_all(layer, fids, cols, matcher, replacement, title, parent=None):
+    """Find and Replace's Replace All as one undo command: in the features
+    *fids*, every text value of the fields *cols* that *matcher* finds is
+    rewritten (cut to the field length like QGIS's calculators).  Returns
+    (values, features) changed, or None when cancelled; nothing changed
+    leaves no undo step."""
+    if not layer.isEditable():
+        raise OperationError("Start editing first")
+    fields = layer.fields()
+    fids = set(fids)
+    req = QgsFeatureRequest()
+    req.setFlags(NO_GEOMETRY)
+    req.setSubsetOfAttributes(list(cols))
+    if len(fids) <= FID_FILTER_LIMIT:
+        req.setFilterFids(list(fids))
+    progress = None
+    if len(fids) > BATCH_PROGRESS and parent is not None:
+        progress = QProgressDialog(f"{title}…", "Cancel", 0, len(fids), parent)
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(400)
+    layer.beginEditCommand(title)
+    values = features = seen = 0
+    try:
+        for feat in _targets(layer, req, fids):
+            changed = False
+            for idx in cols:
+                old = feat.attribute(idx)
+                if not isinstance(old, str) or not matcher.matches(old):
+                    continue
+                new = matcher.replace(old, replacement)
+                if new == old:
+                    continue
+                value = convert_like_qgis(fields.at(idx), new)[0]
+                if layer.changeAttributeValue(feat.id(), idx, value, old):
+                    values += 1
+                    changed = True
+            features += changed
+            seen += 1
+            if progress is not None and seen % 200 == 0:
+                progress.setValue(seen)
+                QApplication.processEvents()
+                if progress.wasCanceled():
+                    layer.destroyEditCommand()
+                    return None
+    except Exception:
+        layer.destroyEditCommand()
+        raise
+    finally:
+        if progress is not None:
+            progress.close()
+    if values:
+        layer.endEditCommand()
+    else:
+        layer.destroyEditCommand()
+    return values, features
 
 
 def add_feature_in_table(layer):
