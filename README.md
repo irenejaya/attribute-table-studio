@@ -62,7 +62,8 @@ proposed and only assigned when no other command uses it; change it in
   boxes / numbers (a click selects only that row, Ctrl adds or removes, Shift
   or a drag extends, also while editing). A click on a cell only frames it,
   as while editing: the arrow keys move the frame and *Ctrl+C* copies the
-  cell's value. A feature selected on the map scrolls its row into view.
+  cell's value. A feature selected on the map scrolls its row into view; a
+  sort or a filter shows the top, or the first selected feature.
   *Selected only* limits table and statistics to the selection. Filtering
   never changes the map selection.
 - **Map filter** (the outline funnel next to *Dock*, the mark QGIS shows beside
