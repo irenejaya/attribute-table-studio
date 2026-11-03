@@ -30,6 +30,8 @@ hasProcessingProvider=no
 server=False
 
 changelog=
+	1.1 - Bug fix and Add a search (Ctrl+F) and replace (Ctrl+H)
+		* New: Ctrl+F now works like Excel workbook and Ctrl+H will show the replace bar
     1.0 - Attribute Table Studio
         * One plugin, one toolbar with three tools: Attribute Explorer, Pivot Table, Geometry and Table Compare
         * New: Attribute Explorer - column profiles attached above the table, permanent typed filters (AND across columns, OR within a value list), map selection sync, Selected only, layouts saved per layer, exact background statistics, CSV / Excel export with scope
