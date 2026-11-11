@@ -20,7 +20,7 @@ cells NULL / Count 0).
 
 import json
 
-from qgis.PyQt.QtCore import QAbstractTableModel, QModelIndex, Qt, pyqtSignal
+from qgis.PyQt.QtCore import QAbstractTableModel, QModelIndex, QSize, Qt, pyqtSignal
 from qgis.PyQt.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QPen
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
@@ -47,6 +47,7 @@ from . import widgets as W
 from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
+TEXT_COLUMN_MAX = 420            # a List distinct column (the whole list on hover)
 PROJECT_SCOPE = "AttributeTableStudio"
 PROJECT_LAYOUTS = "pivotLayouts"
 _RIGHT = enum_int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -106,6 +107,12 @@ class PivotModel(QAbstractTableModel):
     def is_total(self, row):
         return self.total is not None and row == len(self.rows)
 
+    def is_text(self, col):
+        """A measure column holding text (List distinct)."""
+        head = self.header[col]
+        return head["kind"] == "value" and self.result is not None and \
+            self.result.spec.measures[head["measure"]].agg in P.TEXT_AGGS
+
     def text(self, row, col):
         cell = self.cell(row, col)
         kind = self.header[col]["kind"]
@@ -119,6 +126,8 @@ class PivotModel(QAbstractTableModel):
         if kind == "count":
             return f"{value:,}"
         agg = self.result.spec.measures[self.header[col]["measure"]].agg
+        if agg in P.TEXT_AGGS:
+            return value
         if agg in P.COUNT_AGGS or isinstance(value, int):
             return F.format_number(value)
         if agg in ("min", "max", "sum") and float(value).is_integer():
@@ -134,7 +143,7 @@ class PivotModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return self.text(row, col)
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            return _LEFT if kind == "key" else _RIGHT
+            return _LEFT if kind == "key" or self.is_text(col) else _RIGHT
         if role == Qt.ItemDataRole.ForegroundRole:
             if cell["value"] is None and not cell.get("total"):
                 return self._null
@@ -148,7 +157,10 @@ class PivotModel(QAbstractTableModel):
                 return self._italic
             return None
         if role == Qt.ItemDataRole.ToolTipRole:
-            return "Double-click to inspect the contributing records"
+            hint = "Double-click to inspect the contributing records"
+            if self.is_text(col) and cell["value"]:
+                return f"{cell['value']}\n\n{hint}"        # the whole list
+            return hint
         return None
 
     def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
@@ -169,7 +181,7 @@ class PivotModel(QAbstractTableModel):
             return f"{', '.join(spec.cols)} = {col['group']}\n{col['label']}"
 
         if role == Qt.ItemDataRole.TextAlignmentRole:
-            return _LEFT if col["kind"] == "key" else _RIGHT
+            return _LEFT if col["kind"] == "key" or self.is_text(section) else _RIGHT
         return None
 
     def sort(self, column, order=Qt.SortOrder.AscendingOrder):
@@ -265,7 +277,9 @@ class _FieldRow(QWidget):
 
 
 class _MeasureRow(QFrame):
-    """One value: field, aggregation, optional output label."""
+    """One value: operator (with its symbol), then the field it reads (the
+    fields that suit the operator; none for Count records), then an optional
+    output label."""
 
     removed = pyqtSignal(object)
     changed = pyqtSignal()
@@ -277,22 +291,22 @@ class _MeasureRow(QFrame):
         lay.setSpacing(4)
         top = QHBoxLayout()
         top.setSpacing(metrics.gap)
-        self.field = W.FieldCombo(metrics, theme, none_label="(records)")
-        top.addWidget(self.field, 1)
+        self.agg = QComboBox()
+        self.agg.setFixedHeight(metrics.control_h)
+        self.agg.setIconSize(QSize(metrics.icon, metrics.icon))
+        for agg, label, numeric in P.AGGREGATES:
+            self.agg.addItem(icons.text_glyph(P.AGG_SYMBOLS[agg], theme.accent_text),
+                             label, agg)
+            self.agg.setItemData(self.agg.count() - 1, f"{label}: {P.AGG_HELP[agg]}",
+                                 Qt.ItemDataRole.ToolTipRole)
+        top.addWidget(self.agg, 1)
         self.remove_btn = W.square_button(metrics, icons.native(icons.REMOVE),
                                           "Remove this value")
         self.remove_btn.clicked.connect(lambda: self.removed.emit(self))
         top.addWidget(self.remove_btn)
         lay.addLayout(top)
-        self.agg = QComboBox()
-        self.agg.setFixedHeight(metrics.control_h)
-        for agg, label, numeric in P.AGGREGATES:
-            self.agg.addItem(label, agg)
-            if numeric:
-                self.agg.setItemData(self.agg.count() - 1,
-                                     "Needs a numeric field",
-                                     Qt.ItemDataRole.ToolTipRole)
-        lay.addWidget(self.agg)
+        self.field = W.FieldCombo(metrics, theme, none_label="(records)")
+        lay.addWidget(self.field)
         self.label = QLineEdit()
         self.label.setFixedHeight(metrics.control_h)
         self.label.setClearButtonEnabled(True)
@@ -309,8 +323,16 @@ class _MeasureRow(QFrame):
     def _refill(self):
         if self._fields is None:
             return
-        numeric = self.agg.currentData() in P.NUMERIC_AGGS
-        self.field.set_fields(self._fields, numeric_only=numeric)
+        agg = self.agg.currentData()
+        self.field.set_fields(self._fields, numeric_only=agg in P.NUMERIC_AGGS)
+        # Count records counts records: no field to choose
+        counting = agg == "count"
+        if counting:
+            self.field.set_current_name(None)
+        elif self.field.current_name() is None and self.field.count() > 1:
+            self.field.setCurrentIndex(1)          # the first field that suits it
+        self.field.setEnabled(not counting)
+        self.agg.setToolTip(f"{self.agg.currentText()}: {P.AGG_HELP[agg]}")
         self._on_change()
 
     def _on_agg(self, _i):
@@ -323,9 +345,7 @@ class _MeasureRow(QFrame):
 
     def measure(self):
         agg = self.agg.currentData()
-        field = self.field.current_name()
-        if agg == "count":
-            field = field or None
+        field = None if agg == "count" else self.field.current_name()
         return P.Measure(field, agg, self.label.text().strip())
 
     def set_measure(self, m):
@@ -1157,6 +1177,8 @@ class PivotPanel(QWidget):
             header_w = max(fm.horizontalAdvance(line)
                            for line in text.split("\n")) + 8 + 22 + 8
             cell_w = hdr.sectionSize(c) + 2 * _PivotDelegate.PAD
+            if self.model.is_text(c):             # long lists end in "…"
+                cell_w = min(cell_w, TEXT_COLUMN_MAX)
             hdr.resizeSection(c, max(cell_w, header_w, 80))
 
     def _reset_header_card(self):
@@ -1446,6 +1468,8 @@ class PivotPanel(QWidget):
             values = [row[i] for row in body if row[i] is not None]
             if kinds[i] == "count":
                 ftype = "integer"
+            elif self.model.is_text(i):
+                ftype = "string"
             elif kinds[i] == "value" or (values and all(
                     isinstance(v, (int, float)) and not isinstance(v, bool)
                     for v in values)):

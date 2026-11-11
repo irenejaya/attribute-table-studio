@@ -190,9 +190,12 @@ the profiles afterwards; stale results are never shown.
 - Input scope: all available records, Explorer filtered records or selected
   records; the ids are captured, later changes mark the result stale
   (*Refresh input*, then *Build Pivot*).
-- Rows (one or more), optional columns (cross tab), several values — count
-  records, count non-NULL, count distinct, sum, mean, median, min, max,
-  population standard deviation — with optional labels.
+- Rows (one or more), optional columns (cross tab), several values with
+  optional labels. Each value is an operator (with its symbol; hover for
+  what it does), then the field it reads: # count records, n count non-NULL,
+  ≠ count distinct, ≡ list distinct (the different values as text, A to Z —
+  e.g. the inlet types of every pit), Σ sum, x̄ mean, x̃ median, ↓ min,
+  ↑ max, σ population standard deviation.
 - *Add filter* opens a small dialog; each filter then shows as a chip
   (click to edit, × to remove). All filters must match (AND).
 - Totals are calculated from contributing records (never by averaging group

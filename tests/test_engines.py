@@ -281,6 +281,25 @@ class PivotTests(unittest.TestCase):
         self.assertEqual(r.value(P.TOTAL, (), 0), 15.0)
         self.assertEqual(r.record_count(P.TOTAL, P.TOTAL), 5)
 
+    def test_list_distinct(self):
+        # for every pit, its inlet types: each once, A to Z, NULL left out
+        rows = [("Pit A01", "GP 300"), ("Pit A01", "GP 200"), ("Pit A01", "GP 300"),
+                ("Pit A02", "gp 100"), ("Pit A02", None), ("Pit B07", None)]
+        spec = P.PivotSpec(["PIT"], [], [P.Measure("INLET", "list_distinct")])
+        r = P.compute(_records(rows), ["PIT", "INLET"], spec,
+                      kinds={"PIT": F.TEXT, "INLET": F.TEXT})
+        self.assertEqual(r.value(("Pit A01",), (), 0), "GP 200, GP 300")
+        self.assertEqual(r.value(("Pit A02",), (), 0), "gp 100")
+        self.assertIsNone(r.value(("Pit B07",), (), 0))      # only NULL
+        self.assertEqual(r.value(P.TOTAL, (), 0), "gp 100, GP 200, GP 300")
+        self.assertEqual(spec.measures[0].title(), "List INLET")
+        # numbers in their own order, without thousands separators
+        nums = [("A", 1500), ("A", 300), ("A", 1500), ("A", 2.5)]
+        spec = P.PivotSpec(["G"], [], [P.Measure("V", "list_distinct")])
+        r = P.compute(_records(nums), ["G", "V"], spec,
+                      kinds={"G": F.TEXT, "V": F.REAL})
+        self.assertEqual(r.value(("A",), (), 0), "2.5, 300, 1500")
+
     def test_unequal_groups_grand_mean(self):
         rows = [("A", 10.0), ("A", 20.0), ("B", 90.0)]
         spec = P.PivotSpec(["G"], [], [P.Measure("V", "mean")])

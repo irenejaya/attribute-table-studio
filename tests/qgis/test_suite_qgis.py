@@ -367,6 +367,54 @@ class SuiteTests(unittest.TestCase):
         names = [s.split("!!::!!")[1] for s in lyr.dataProvider().subLayers()]
         self.assertEqual(len(names), 2)
 
+    def test_12b_pivot_list_distinct_and_values_row(self):
+        pivot = self.plugin.open_pivot(self.layer)
+        pivot._capture("all")
+        pivot.set_spec(P.PivotSpec(["ZONE_CODE"], [], [
+            P.Measure("LAND_USE", "list_distinct"), P.Measure(None, "count")]))
+        pivot.build()
+        self.assertTrue(H.wait_for(lambda: not pivot.runner.busy, 30))
+        model = pivot.model
+        col = next(c for c in range(model.columnCount()) if model.is_text(c))
+        # each zone lists its land uses once, A to Z (NULL left out)
+        uses = {}
+        for f in self.layer.getFeatures():
+            if not F.is_null(f["LAND_USE"]) and not F.is_null(f["ZONE_CODE"]):
+                uses.setdefault(f["ZONE_CODE"], set()).add(f["LAND_USE"])
+        for row in range(model.rowCount() - 1):
+            zone = model.cell(row, 0)["value"]
+            if zone in uses:
+                self.assertEqual(model.text(row, col),
+                                 ", ".join(sorted(uses[zone], key=str.lower)))
+        self.assertEqual(model.data(model.index(0, col), Qt.ItemDataRole.TextAlignmentRole),
+                         model.data(model.index(0, 0), Qt.ItemDataRole.TextAlignmentRole))
+        # the GeoPackage keeps the list as text
+        path = os.path.join(OUT, "pivot_list.gpkg")
+        _next_save.append(path)
+        pivot.export("gpkg")
+        source = QgsVectorLayer(path, "p", "ogr")
+        names = [s.split("!!::!!")[1] for s in source.dataProvider().subLayers()]
+        table = next(n for n in names if n.endswith("_pivot"))
+        lyr = QgsVectorLayer(f"{path}|layername={table}", "p", "ogr")
+        listed = [f for f in lyr.fields() if f.name().lower().startswith("list")]
+        self.assertEqual(len(listed), 1)
+        self.assertEqual(F.field_kind(listed[0]), F.TEXT)
+        # the Values row: operator (with its symbol and explanation) above
+        # the field; Count records needs no field
+        row = pivot.measure_rows[0]
+        top = row.layout().itemAt(0).layout()
+        self.assertIs(top.itemAt(0).widget(), row.agg)
+        self.assertFalse(row.agg.itemIcon(row.agg.findData("sum")).isNull())
+        self.assertIn("different values", row.agg.itemData(
+            row.agg.findData("list_distinct"), Qt.ItemDataRole.ToolTipRole))
+        count_row = pivot.measure_rows[1]
+        self.assertFalse(count_row.field.isEnabled())
+        self.assertIsNone(count_row.measure().field)
+        # from Count records to Sum: a number field is picked for you
+        count_row.agg.setCurrentIndex(count_row.agg.findData("sum"))
+        self.assertTrue(count_row.field.isEnabled())
+        self.assertIn(count_row.field.kind(), F.NUMERIC)
+
     def test_13_compare(self):
         base = H.demo_layer(n=800, name="Parcels baseline")
         new = H.demo_updated_layer(base)
