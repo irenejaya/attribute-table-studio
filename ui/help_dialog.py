@@ -223,12 +223,15 @@ field inside the first (e.g. land use, then owner type).</li>
 <li><b>Columns</b> (optional): choose a field to spread across the top. The
 result becomes a cross tab - one column per value of that field. Leave it at
 <i>None</i> for a simple grouped list.</li>
-<li><b>Values</b>: what to calculate for each group. Pick a field and an
-aggregation: <i>Count records</i> (no field needed), <i>Count non-NULL</i>,
-<i>Count distinct</i>, or for numbers <i>Sum, Mean, Median, Min, Max</i> and
-<i>Std dev (population)</i>. Type a label if you like. <b>Add value</b> adds
-another measure; the same field may be used twice (e.g. its mean and its
-max).</li>
+<li><b>Values</b>: what to calculate for each group. Pick the operator
+first, then the field it reads (the list offers the fields that suit it):
+<i># Count records</i> (no field needed), <i>n Count non-NULL</i>,
+<i>≠ Count distinct</i>, <i>≡ List distinct</i> (the different values of the
+field, A to Z, separated by commas - e.g. the inlet types of every pit), or
+for numbers <i>Σ Sum, x̄ Mean, x̃ Median, ↓ Min, ↑ Max</i> and
+<i>σ Std dev (population)</i>. Hover an operator in the list for what it
+does. Type a label if you like. <b>Add value</b> adds another measure; the
+same field may be used twice (e.g. its mean and its max).</li>
 <li>Optionally <b>Add filter</b> to use only part of the input (all filters
 must match), then press <b>Build Pivot</b>.</li>
 </ol>

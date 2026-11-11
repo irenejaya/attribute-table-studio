@@ -41,10 +41,16 @@ def export_value(value):
     return F.display_value(value)
 
 
+EXCEL_CELL_TEXT = 32767          # characters Excel keeps in one cell
+
+
 def excel_value(value):
-    """Typed cell value for openpyxl (numbers stay numbers)."""
+    """Typed cell value for openpyxl (numbers stay numbers; text longer than
+    an Excel cell holds ends in '…')."""
     if F.is_null(value):
         return None
+    if isinstance(value, str) and len(value) > EXCEL_CELL_TEXT:
+        return value[:EXCEL_CELL_TEXT - 1] + "…"
     if isinstance(value, (bool, int, float, str)):
         if isinstance(value, float) and value != value:     # NaN
             return None

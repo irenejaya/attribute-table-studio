@@ -14,6 +14,8 @@ primary buttons, the dropdown chevron) so they follow the theme colours.
 
 import os
 
+import unicodedata
+
 from qgis.PyQt.QtCore import QPointF, QRectF, QSize, Qt
 from qgis.PyQt.QtGui import (
     QColor, QFont, QIcon, QPainter, QPainterPath, QPen, QPixmap,
@@ -326,7 +328,9 @@ def text_glyph(text, color):
         p.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         font = QFont()
         font.setBold(True)
-        font.setPixelSize(int(size * (0.80 if len(text) == 1 else 0.58)))
+        # a mark such as the bar of x̄ does not make the symbol wider
+        wide = sum(1 for ch in text if not unicodedata.combining(ch)) > 1
+        font.setPixelSize(int(size * (0.58 if wide else 0.80)))
         p.setFont(font)
         p.setPen(QColor(color))
         p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, text)

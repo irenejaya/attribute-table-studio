@@ -12,7 +12,10 @@ a total is always calculated from records, never by averaging the
 displayed subgroup values (group A {10, 20} + group B {90} -> grand mean 40,
 not 52.5).
 
-NULL rules: mean / sum / min / max / median / stdev skip NULL and keep zero;
+"List distinct" gives the different values of a group as text, A to Z,
+separated by commas (numbers without thousands separators).
+
+NULL rules: mean / sum / min / max / median / stdev / list skip NULL and keep zero;
 a group with no valid value gives None (shown as NULL); a missing cross-tab
 combination gives None, except "Count records" which gives 0.  NULL group
 values form their own group (key None), separate from the text "NULL".
@@ -27,6 +30,7 @@ AGGREGATES = (
     ("count", "Count records", False),
     ("count_non_null", "Count non-NULL", False),
     ("count_distinct", "Count distinct", False),
+    ("list_distinct", "List distinct", False),
     ("sum", "Sum", True),
     ("mean", "Mean", True),
     ("median", "Median", True),
@@ -37,6 +41,29 @@ AGGREGATES = (
 AGG_LABELS = {a: label for a, label, _n in AGGREGATES}
 NUMERIC_AGGS = {a for a, _l, numeric in AGGREGATES if numeric}
 COUNT_AGGS = ("count", "count_non_null", "count_distinct")
+TEXT_AGGS = ("list_distinct",)               # a text result, any field
+# the operator lists' icons and hover explanations
+AGG_SYMBOLS = {
+    "count": "#", "count_non_null": "n", "count_distinct": "≠",
+    "list_distinct": "≡", "sum": "Σ", "mean": "x̄", "median": "x̃",
+    "min": "↓", "max": "↑", "stdev": "σ",
+}
+AGG_HELP = {
+    "count": "How many records each group has (no field needed)",
+    "count_non_null": "How many records of each group have a value in the "
+                      "field (NULL not counted)",
+    "count_distinct": "How many different values the field has in each group "
+                      "(NULL not counted)",
+    "list_distinct": "The different values of the field in each group, A to Z, "
+                     "separated by commas (NULL left out)",
+    "sum": "The values of a number field added up (NULL left out)",
+    "mean": "The average of a number field (NULL left out)",
+    "median": "The middle value of a number field (NULL left out)",
+    "min": "The smallest value of a number field",
+    "max": "The largest value of a number field",
+    "stdev": "How spread out the values of a number field are (population "
+             "standard deviation; NULL left out)",
+}
 
 TOTAL = object()          # key of a total row / column
 DEFAULT_CELL_LIMIT = 100000
@@ -62,7 +89,8 @@ class Measure:
         if self.agg == "count" or not self.field:
             return "Records" if self.agg == "count" else AGG_LABELS[self.agg]
         short = {"count_non_null": "Count", "count_distinct": "Distinct",
-                 "stdev": "Std dev"}.get(self.agg, AGG_LABELS[self.agg])
+                 "list_distinct": "List", "stdev": "Std dev"}.get(
+            self.agg, AGG_LABELS[self.agg])
         return f"{short} {self.field}"
 
     def to_dict(self):
@@ -141,6 +169,8 @@ def _result(state, agg):
         return len(state.distinct)
     if state.n == 0:
         return None
+    if agg == "list_distinct":
+        return ", ".join(_list_item(v) for v in sorted(state.distinct, key=F.sort_key))
     if agg == "sum":
         return math.fsum(state.values) if state.values is not None \
             else state.total
@@ -161,6 +191,18 @@ def _result(state, agg):
         mean = math.fsum(vals) / n
         return math.sqrt(math.fsum((x - mean) ** 2 for x in vals) / n)
     raise PivotError(f"Unknown aggregation '{agg}'")
+
+
+def _list_item(value):
+    """One value of a list: numbers plainly (a thousands separator would read
+    as another item), everything else as shown elsewhere."""
+    if isinstance(value, bool):
+        return F.display_value(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return f"{value:.15g}"
+    return F.display_value(value)
 
 
 # ============================================================================
@@ -332,7 +374,7 @@ def compute(records, field_names, spec, kinds=None,
     for m in spec.measures:
         meas.append((index[m.field] if m.field else None, m.agg,
                      m.agg in ("median", "stdev"),
-                     m.agg == "count_distinct"))
+                     m.agg in ("count_distinct", "list_distinct")))
     n_meas = len(meas)
     limit_cells = max(1, int(cell_limit))
 
@@ -375,7 +417,7 @@ def compute(records, field_names, spec, kinds=None,
             v = values[vi]
             if v is None or F.is_null(v):
                 continue
-            if agg in COUNT_AGGS:
+            if agg in COUNT_AGGS or agg in TEXT_AGGS:
                 st.n += 1
                 if st.distinct is not None:
                     st.distinct.add(gv(v))
