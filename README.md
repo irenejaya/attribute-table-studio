@@ -48,10 +48,12 @@ proposed and only assigned when no other command uses it; change it in
   Distribution sheets, or CSV; shares as numbers, scope recorded).
 
   ![Statistics](docs/screenshots/dark_statistics.png)
-- **Filters** under every heading — text: contains, equals, starts with, is
-  one of, is NULL, is not NULL; numbers: =, ≠, <, ≤, >, ≥, between, is one of;
-  dates: on, before, after, between (calendar, YYYY-MM-DD hints); booleans:
-  true, false, NULL.
+- **Filters** under every heading — text: contains, does not contain,
+  equals, is not, starts with, is one of, is not one of, is NULL, is not NULL;
+  numbers: =, ≠, <, ≤, >, ≥, between, is one of, is not one of; dates: on,
+  before, after, between (calendar, YYYY-MM-DD hints); booleans: true, false,
+  NULL. The "not" filters keep the NULL records (a NULL value is not
+  'Residential'), unless NULL is one of the values left out.
   Columns combine with AND, values within a column with OR. Invalid input is
   outlined red and the last valid result stays. The ✕ in a filter box clears
   it (also for *is one of*); the value list sorts by value or by records.
@@ -146,7 +148,9 @@ attribute table and every other QGIS tool.
   the native attribute table does (update a field or the geometry, new or
   virtual field; whole layer or only the selected features; it starts editing
   when needed).
-- **Quick update** is the native table's field calculation bar: field +
+- **Quick update** opens when editing starts, as the native table's field
+  calculation bar does (Settings › *Show Quick update when editing starts*;
+  its button still hides it). It is that bar: field +
   expression, then **Update All** (**Update Filtered** while the table is
   filtered) and **Update Selected** (every selected feature), plus an optional
   **Preview**. Values are calculated and stored as QGIS does it

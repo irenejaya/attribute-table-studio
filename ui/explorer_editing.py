@@ -20,6 +20,7 @@ from qgis.gui import (
 )
 
 from ..core import fields as F
+from ..core import settings
 from . import explorer_dialogs as D
 from . import explorer_edit as E
 from . import explorer_ops as OPS
@@ -123,6 +124,15 @@ class EditingMixin:
         b.edit_btn.blockSignals(True)
         b.edit_btn.setChecked(editing)
         b.edit_btn.blockSignals(False)
+        # editing just started: open Quick update (Settings), as QGIS does
+        started = editing and not getattr(self, "_was_editing", False)
+        self._was_editing = editing
+        if started and settings.value("explorer/quickUpdateOnEdit") \
+                and not b.quick_btn.isChecked():
+            b.quick_btn.blockSignals(True)
+            b.quick_btn.setChecked(True)
+            b.quick_btn.blockSignals(False)
+            self._quick_opened = True
         blocker = e.edit_blocker()
         b.edit_btn.setEnabled(not blocker or editing)
         b.edit_btn.setToolTip(
@@ -172,6 +182,9 @@ class EditingMixin:
             b.quick_btn.blockSignals(False)
             self.quick_bar.expression.setExpression("")
         self.quick_bar.setVisible(editing and b.quick_btn.isChecked())
+        if getattr(self, "_quick_opened", False) and editing:
+            self._quick_opened = False
+            self._update_quick_state()
         self._tip(b.new_field_btn, editing,
                   "New field: stored (provider types) or virtual (expression)",
                   "Start editing first")

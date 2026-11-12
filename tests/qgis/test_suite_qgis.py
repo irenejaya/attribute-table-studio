@@ -160,6 +160,50 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         self.assertEqual(len(panel.model.fids), self.layer.featureCount())
 
+    def test_03b_not_filters(self):
+        from qgis.PyQt.QtWidgets import QApplication, QLabel
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        layer = self.layer
+        cell = panel.header.cells[layer.fields().indexOf("LAND_USE")]
+        # each "not" operator sits under its positive twin, with its symbol
+        self.assertEqual(list(cell._op_actions)[:7], [
+            "contains", "ncontains", "eq", "ne", "starts", "in", "notin"])
+        self.assertEqual(cell._op_actions["notin"].text(), "is not one of")
+        self.assertFalse(cell._op_actions["ncontains"].icon().isNull())
+
+        def shown():
+            self.assertTrue(H.wait_for(lambda: idle(panel)))
+            return len(panel.model.fids)
+        keep_null = ' OR "LAND_USE" IS NULL'
+        cell.set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "ne", "RESIDENTIAL"),
+                        emit=True)
+        self.assertEqual(shown(), expected_count(
+            layer, "\"LAND_USE\" <> 'RESIDENTIAL'" + keep_null))
+        self.assertEqual(cell.op_btn.text(), "≠")
+        cell.set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "ncontains", "resid"),
+                        emit=True)
+        self.assertEqual(shown(), expected_count(
+            layer, "NOT (\"LAND_USE\" ILIKE '%resid%')" + keep_null))
+        # values picked from a "not" operator are left out
+        cell._on_values_applied(["RESIDENTIAL", "INDUSTRIAL"])
+        self.assertEqual(cell.op, "notin")
+        self.assertEqual(shown(), expected_count(
+            layer, "\"LAND_USE\" NOT IN ('RESIDENTIAL', 'INDUSTRIAL')" + keep_null))
+        cell._pick_values()
+        H.settle(0.2)
+        picker = [w for w in QApplication.topLevelWidgets()
+                  if type(w).__name__ == "ValuePicker" and w.isVisible()][-1]
+        self.assertTrue(any("leave out" in lbl.text()
+                            for lbl in picker.findChildren(QLabel)))
+        picker.close()
+        # from "is one of" the value list still keeps the values
+        cell.set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "contains", "x"))
+        cell._on_values_applied(["RESIDENTIAL"])
+        self.assertEqual(cell.op, "in")
+        cell.clear(emit=True)
+        self.assertEqual(shown(), layer.featureCount())
+
     def test_04_selection_sync_and_selected_only(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))

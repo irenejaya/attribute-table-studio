@@ -133,21 +133,31 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(b.edit_btn.isEnabled())
         self.assertTrue(b.reload_btn.isEnabled())
         self.assertFalse(p.quick_bar.isVisibleTo(p))
+        self.assertTrue(settings.value("explorer/quickUpdateOnEdit"))   # default
         self.start()
         self.assertTrue(extra.fullText().startswith("Editing layer  •  No unsaved changes"))
         self.assertEqual(extra.property("level"), "editing-clean")      # orange
         self.assertTrue(b.quick_btn.isEnabled())
-        self.assertFalse(b.quick_btn.isChecked())
-        self.assertFalse(p.quick_bar.isVisibleTo(p))     # editing alone: hidden
-        b.quick_btn.click()
+        # starting editing opens Quick update, as QGIS's attribute table
+        self.assertTrue(b.quick_btn.isChecked())
         self.assertTrue(p.quick_bar.isVisibleTo(p))
-        b.quick_btn.click()
+        b.quick_btn.click()                               # it can still be hidden
         self.assertFalse(p.quick_bar.isVisibleTo(p))
         b.quick_btn.click()
+        self.assertTrue(p.quick_bar.isVisibleTo(p))
         b.edit_btn.click()                                # stop (no changes)
         self.assertFalse(self.layer.isEditable())
         self.assertFalse(b.quick_btn.isChecked())
         self.assertFalse(p.quick_bar.isVisibleTo(p))
+        # Settings › "Show Quick update when editing starts" off: it stays shut
+        settings.set_value("explorer/quickUpdateOnEdit", False)
+        try:
+            self.start()
+            self.assertFalse(b.quick_btn.isChecked())
+            self.assertFalse(p.quick_bar.isVisibleTo(p))
+            b.edit_btn.click()
+        finally:
+            settings.set_value("explorer/quickUpdateOnEdit", True)
 
     def test_02_shared_session_and_stop_prompt(self):
         p, b = self.panel, self.panel.edit_bar

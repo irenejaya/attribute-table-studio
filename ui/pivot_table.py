@@ -407,7 +407,7 @@ class _FilterDialog(QDialog):
         self.op.clear()
         colour = self.palette().color(self.foregroundRole()).name()
         for op_id, label in FL.operators(kind):
-            if op_id == "in":
+            if op_id in FL.LIST_OPS:              # needs the value list
                 continue
             self.op.addItem(icons.text_glyph(FL.OP_SYMBOLS.get(op_id, ""), colour),
                             label, op_id)

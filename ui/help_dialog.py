@@ -26,10 +26,13 @@ table).</p>
 <h4>Filters</h4>
 <ul>
 <li>Every column has a filter below its name. Click the symbol on the left
-to choose the operator: text <i>contains, equals, starts with, is one of,
-is NULL, is not NULL</i>; numbers <i>=, ≠, &lt;, ≤, &gt;, ≥, between, is one
-of</i>; dates <i>on, before, after, between</i> (with a calendar);
-booleans <i>true, false, NULL</i>.</li>
+to choose the operator: text <i>contains, does not contain, equals, is not,
+starts with, is one of, is not one of, is NULL, is not NULL</i>; numbers
+<i>=, ≠, &lt;, ≤, &gt;, ≥, between, is one of, is not one of</i>; dates
+<i>on, before, after, between</i> (with a calendar); booleans <i>true, false,
+NULL</i>. The "not" filters keep the NULL records (a NULL value is not
+'Residential'), unless NULL is one of the values left out; picking values
+(▾) from a "not" filter leaves them out.</li>
 <li>Filters in different columns combine with <b>AND</b>; ticked values in
 one column combine with <b>OR</b> (use ▾ to pick values).</li>
 <li>Typing applies after a short pause; <b>Enter</b> applies at once. An
@@ -125,8 +128,10 @@ scope.</li>
 layer, exactly as the native attribute table does: update a field (or the
 geometry), or create a new or virtual field, for the whole layer or only the
 selected features. It starts editing when needed.</li>
-<li><b>Quick update</b> is the native attribute table's field calculation
-bar: pick a field and an expression, then <b>Update All</b> - or
+<li><b>Quick update</b> opens when editing starts, like the native
+attribute table's field calculation bar (turn this off in Settings, <i>Show
+Quick update when editing starts</i>; its button still hides it). Pick a
+field and an expression, then <b>Update All</b> - or
 <b>Update Filtered</b> while the table is filtered (column, expression or
 form filters, or a scope such as selected / visible on map) - or
 <b>Update Selected</b> (every selected feature, shown or not).

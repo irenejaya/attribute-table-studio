@@ -66,6 +66,12 @@ class SettingsDialog(QDialog):
         self.delay.setToolTip("How long to wait after typing before a filter "
                               "is applied (Enter applies at once)")
         ef.addRow("Filter delay while typing", self.delay)
+        self.quick_cb = QCheckBox("Show Quick update when editing starts")
+        self.quick_cb.setToolTip(
+            "Starting editing opens the Quick update row, as QGIS's attribute table "
+            "shows its field calculator bar.\nYou can still hide it with its button; "
+            "it closes when editing stops.")
+        ef.addRow(self.quick_cb)
         self.keys_cb = QCheckBox("Open Attribute Explorer with F6, Shift+F6 and Ctrl+F6")
         self.keys_cb.setToolTip(
             "F6 opens all records, Shift+F6 the selected records and Ctrl+F6 the "
@@ -120,6 +126,7 @@ class SettingsDialog(QDialog):
             cb.setChecked(get(f"{key}/openDocked"))
         self.summary_cb.setChecked(get("explorer/summaryVisible"))
         self.delay.setValue(get("explorer/filterDelayMs"))
+        self.quick_cb.setChecked(get("explorer/quickUpdateOnEdit"))
         self.keys_cb.setChecked(get("explorer/replaceTableKeys"))
         self.cell_limit.setValue(get("pivot/cellLimit"))
         self.decimals.setValue(get("pivot/decimals"))
@@ -132,6 +139,7 @@ class SettingsDialog(QDialog):
             settings.set_value(f"{key}/openDocked", cb.isChecked())
         settings.set_value("explorer/summaryVisible", self.summary_cb.isChecked())
         settings.set_value("explorer/filterDelayMs", self.delay.value())
+        settings.set_value("explorer/quickUpdateOnEdit", self.quick_cb.isChecked())
         settings.set_value("explorer/replaceTableKeys", self.keys_cb.isChecked())
         settings.set_value("pivot/cellLimit", self.cell_limit.value())
         settings.set_value("pivot/decimals", self.decimals.value())
