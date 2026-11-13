@@ -570,11 +570,26 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _on_schema_changed(self):
         if self.layer is None or self._closing:
             return
-        # keep filters of fields that still exist (by name)
-        old = {cell.name: cell.current_filter()
-               for cell in self.header.cells.values()}
-        self._save_layout()
         layer = self.layer
+        # one field renamed (here, by undo or in QGIS): its filter, width,
+        # place and sort follow it to the new name
+        before = [f.name() for f in self.model.fields]
+        after = [f.name() for f in layer.fields()]
+        renamed = {}
+        if len(before) == len(after):
+            changed = [(a, b) for a, b in zip(before, after) if a != b]
+            if len(changed) == 1:
+                renamed = dict(changed)
+        # keep filters of fields that still exist (by name)
+        old = {}
+        for cell in self.header.cells.values():
+            flt = cell.current_filter()
+            if flt is not None:
+                flt.field = renamed.get(flt.field, flt.field)
+            old[renamed.get(cell.name, cell.name)] = flt
+        self._save_layout()
+        if renamed:
+            self._rename_in_layout(renamed)
         self.runner.new_generation()
         self._revision += 1
         self.model.set_layer(layer)
@@ -1229,6 +1244,19 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                 "sort_expr": list(self.sort_expr) if self.sort_expr else None,
                 "selected_top": self.selected_top}
 
+    def _rename_in_layout(self, renamed):
+        """The saved column layout after a field rename (old -> new name)."""
+        try:
+            state = json.loads(self.layer.customProperty(LAYOUT_PROPERTY) or "")
+        except (TypeError, ValueError):
+            return
+        for col in state.get("columns", []):
+            col["name"] = renamed.get(col.get("name"), col.get("name"))
+        sort = state.get("sort")
+        if sort:
+            sort[0] = renamed.get(sort[0], sort[0])
+        self.layer.setCustomProperty(LAYOUT_PROPERTY, json.dumps(state))
+
     def _save_layout(self):
         if self.layer is None or not self.model.fields:
             return
@@ -1297,8 +1325,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         dlg = W.FieldChecklistDialog(
             entries, self.metrics, self.theme, "Columns",
             "Tick the columns to show; drag to change their order. "
-            "Hidden columns are not filtered or summarised on screen, and "
-            "never change the records in scope.", movable=True, parent=self)
+            "Shift+click selects a range and Ctrl+click adds one, then Space or "
+            "Toggle Selection ticks them together. Hidden columns are not "
+            "filtered or summarised on screen, and never change the records "
+            "in scope.", movable=True, parent=self, icon=icons.native(icons.COLUMNS))
         if dlg.exec() != dlg.DialogCode.Accepted:
             return
         shown = set(dlg.checked_names())

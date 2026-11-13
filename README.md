@@ -84,7 +84,14 @@ proposed and only assigned when no other command uses it; change it in
 
   ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
-  reorder; layouts are saved with the layer in the project.
+  reorder (Shift+click selects a range of fields, Ctrl+click adds one; Space or
+  *Toggle Selection* ticks them together); layouts are saved with the layer in
+  the project.
+- **Rename Field…** (right-click a column name) renames the field in the
+  layer, as QGIS's Fields tab does: it starts editing when needed, checks the
+  new name as you type (empty, already used, too long for a shapefile's 10
+  characters) and is one undo step, written by *Save edits*. The column keeps
+  its filter, width, place and sort.
 - **Go to field**: type part of a field name (or alias) and pick it from the
   list — type icon, name and QGIS type on each line, hidden columns marked —
   to scroll the table so that column is in the middle, with its heading

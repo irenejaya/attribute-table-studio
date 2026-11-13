@@ -103,7 +103,7 @@ expression too.</li>
 the filtered records, only moves the selection up), <i>Sort by
 Expression</i>, <i>Conditional Formatting</i> (the layer's own rules,
 painted in the table) and <i>Autosize All Columns</i>. Right-click a column name for sorting,
-widths, hiding, the field calculator and field properties.</li>
+widths, hiding, the field calculator, renaming, deleting and field properties.</li>
 </ul>
 <h4>Editing</h4>
 <p>The second row holds the editing commands (and, while in use, the
@@ -156,7 +156,12 @@ only the records the map shows.</li>
 you change are written. Field calculator, Quick update and Multi edit are
 each one undo step.</li>
 <li><b>New field</b> / <b>Delete field</b> change the layer's schema (stored
-or virtual fields); <b>Reload</b> re-reads the data source. The ☰ menu holds
+or virtual fields); <b>Reload</b> re-reads the data source. <i>Rename
+Field…</i> (right-click a column name) renames a field as QGIS's Fields tab
+does: it starts editing when needed, checks the new name as you type (empty,
+already used, longer than a shapefile's 10 characters) and is one undo step
+until <b>Save edits</b>; the column keeps its filter, width, place and sort.
+Expressions that use the old name are not changed. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review Unsaved
 Changes</i>, field properties and the native attribute table.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
@@ -191,8 +196,9 @@ of the table; its heading is highlighted for a moment, and a hidden column
 is shown again. The list shows each field's type icon, name and QGIS type.</p>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use the
-<b>Columns</b> icon to show, hide and reorder; the layout is saved with the
-layer in the project. <b>Export</b> writes the filtered records to Excel
+<b>Columns</b> icon to show, hide and reorder (Shift+click selects a range
+of fields, Ctrl+click adds one; <b>Space</b> or <b>Toggle Selection</b> ticks
+them together); the layout is saved with the layer in the project. <b>Export</b> writes the filtered records to Excel
 or CSV with the scope recorded; <b>Ctrl+Shift+C</b> copies the selected
 rows (<b>Ctrl+C</b> the framed cell).
 <b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>

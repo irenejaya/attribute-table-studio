@@ -2574,7 +2574,8 @@ class GeoTableCompareDialog(QWidget):
             entries, self.metrics, self.theme, "Field(s) to Compare",
             "Choose the fields used to decide whether a feature is "
             "<b>Modified</b>. Unticked fields are ignored "
-            "(e.g. fid, timestamps).", parent=self)
+            "(e.g. fid, timestamps).", parent=self,
+            icon=icons.native(icons.COLUMNS))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.columns_to_check = dlg.checked_names()
             if self._has_results:

@@ -424,6 +424,7 @@ class BrowseMixin:
             return
         name = self.model.fields[logical].name()
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
         menu.addAction(icons.native(icons.SORT), f"Sort {name} Ascending").triggered.connect(
             lambda: self.sort_by(logical, False))
         menu.addAction(icons.native(icons.SORT_REVERSE), f"Sort {name} Descending"
@@ -446,6 +447,11 @@ class BrowseMixin:
         act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
         act.setEnabled(self.can_calculate(name))
         act.triggered.connect(lambda: self.open_calculator(name))
+        ok, why = self.edit.field_renamable(logical)
+        act = menu.addAction(f"Rename Field {name}…")
+        act.setEnabled(ok)
+        act.setToolTip("Rename the field (starts editing when needed)" if ok else why)
+        act.triggered.connect(lambda: self.rename_field(name))
         act = menu.addAction(icons.native(icons.DELETE_FIELD), f"Delete Field {name}…")
         act.setEnabled(self.edit.editing)
         act.triggered.connect(lambda: self.delete_field(name))

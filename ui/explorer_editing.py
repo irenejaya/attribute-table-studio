@@ -11,6 +11,8 @@ land here.  Every command works on the layer's own edit session (through
 explains itself in its tooltip when it is unavailable.
 """
 
+import time
+
 from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtGui import QGuiApplication, QKeySequence
 from qgis.PyQt.QtWidgets import QComboBox, QGroupBox
@@ -434,6 +436,37 @@ class EditingMixin:
     def delete_field(self, name=None):
         self.flush_editors()
         D.DeleteFieldDialog(self, name).exec()
+
+    def rename_field(self, name):
+        """Rename Field (column name menu): starts editing when needed (a
+        virtual field needs none), asks for the new name and renames as one
+        undo step; cancelling an edit session started for it ends it."""
+        layer = self.layer
+        idx = layer.fields().indexOf(name) if layer is not None else -1
+        ok, why = self.edit.field_renamable(idx)
+        if not ok:
+            self.status.set_status(f"{name} cannot be renamed: {why}", "warning")
+            return
+        virtual = self.edit.is_virtual(idx)
+        started = False
+        if not virtual and not self.edit.editing:
+            if not self.edit.start():
+                return
+            started = True
+        self.flush_editors()
+        dlg = D.RenameFieldDialog(self, idx, virtual)
+        if not dlg.exec():
+            if started and not layer.isModified():
+                self.edit.stop()
+            return
+        new = dlg.name()
+        if not layer.renameAttribute(idx, new):
+            self.status.set_status(f"QGIS could not rename {name}", "error")
+            return
+        text = (f"Renamed {name} to {new}" + ("" if virtual else
+                " (unsaved: Save edits writes it, Ctrl+Z undoes it)"))
+        self._status_note = (time.monotonic() + 8, text)     # outlives the refresh
+        self.status.set_status(text, "success")
 
     def reload_layer(self):
         layer = self.layer

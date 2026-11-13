@@ -205,6 +205,49 @@ class SuiteTests(unittest.TestCase):
         cell.clear(emit=True)
         self.assertEqual(shown(), layer.featureCount())
 
+    def test_03c_columns_window_selection_and_icon(self):
+        from qgis.PyQt.QtCore import QItemSelectionModel
+        from qgis.PyQt.QtTest import QTest
+        from qgis.PyQt.QtWidgets import QAbstractItemView, QToolButton
+        from attribute_table_studio.ui import icons, widgets as W
+        on, off = Qt.CheckState.Checked, Qt.CheckState.Unchecked
+        entries = [(n, icons.native(icons.COLUMNS), "", True)
+                   for n in ("A", "B", "C", "D", "E")]
+        from qgis.PyQt.QtWidgets import QApplication
+        from attribute_table_studio.ui.theme import Metrics, Theme
+        dlg = W.FieldChecklistDialog(entries, Metrics(QApplication.font()), Theme(), "Columns",
+                                     movable=True, icon=icons.native(icons.COLUMNS))
+        lst = dlg.listw
+        # the window carries the Columns button's icon
+        self.assertEqual(dlg.windowIcon().pixmap(16, 16).toImage(),
+                         icons.native(icons.COLUMNS).pixmap(16, 16).toImage())
+        # Shift / Ctrl select several rows
+        self.assertEqual(lst.selectionMode(),
+                         QAbstractItemView.SelectionMode.ExtendedSelection)
+        sel = lst.selectionModel()
+        flags = QItemSelectionModel.SelectionFlag
+        lst.setCurrentRow(1, flags.ClearAndSelect)
+        for r in (2, 3):
+            sel.select(lst.model().index(r, 0), flags.Select)
+        # Space unticks (or ticks) every selected row like the current one
+        lst.setFocus()
+        QTest.keyClick(lst, Qt.Key.Key_Space)
+        self.assertEqual([lst.item(i).checkState() for i in range(5)],
+                         [on, off, off, off, on])
+        # Toggle Selection inverts the selected rows ...
+        toggle = next(b for b in dlg.findChildren(QToolButton)
+                      if b.text().strip() == "Toggle Selection")
+        lst.item(2).setCheckState(on)
+        toggle.click()
+        self.assertEqual([lst.item(i).checkState() for i in range(5)],
+                         [on, on, off, on, on])
+        # ... or every listed row when none is selected
+        lst.clearSelection()
+        toggle.click()
+        self.assertEqual([lst.item(i).checkState() for i in range(5)],
+                         [off, off, on, off, off])
+        dlg.close()
+
     def test_04_selection_sync_and_selected_only(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))

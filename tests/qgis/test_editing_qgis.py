@@ -596,6 +596,80 @@ class EditingTests(unittest.TestCase):
         self.assertFalse(bar.isVisibleTo(p))
         self.assertEqual(len(p.model.fids), total)
 
+    def test_14c_rename_field(self):
+        p, layer = self.panel, self.layer
+        lu = self.lu
+        original = D.RenameFieldDialog.exec
+
+        def answer(name):
+            def fake(dlg):
+                dlg.edit.setText(name)
+                return 1 if dlg.ok_btn.isEnabled() else 0
+            return fake
+        try:
+            # the column name menu offers it while browsing (it starts editing)
+            p.header.cells[lu].set_filter(
+                FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"), emit=True)
+            settle(p)
+            shown = len(p.model.fids)
+            p.header.resizeSection(lu, 333)
+            self.assertEqual(p.edit.field_renamable(lu), (True, ""))
+            self.assertFalse(layer.isEditable())
+            # cancelled: the edit session started for it ends again
+            D.RenameFieldDialog.exec = lambda dlg: 0
+            p.rename_field("LAND_USE")
+            self.assertFalse(layer.isEditable())
+            # renamed: one undo step; filter, width and place follow the field
+            D.RenameFieldDialog.exec = answer("LU_CODE")
+            p.rename_field("LAND_USE")
+            settle(p)
+            self.assertTrue(layer.isEditable())
+            self.assertEqual(layer.fields().at(lu).name(), "LU_CODE")
+            self.assertEqual(p.header.cells[lu].current_filter().field, "LU_CODE")
+            self.assertEqual(len(p.model.fids), shown)
+            self.assertEqual(p.header.sectionSize(lu), 333)
+            self.assertIn("Renamed LAND_USE to LU_CODE", p.status.message.fullText())
+            p.edit.undo()
+            settle(p)
+            self.assertEqual(layer.fields().at(lu).name(), "LAND_USE")
+            self.assertEqual(p.header.cells[lu].current_filter().field, "LAND_USE")
+            self.assertEqual(len(p.model.fids), shown)
+        finally:
+            D.RenameFieldDialog.exec = original
+        # the name is checked as it is typed
+        dlg = D.RenameFieldDialog(p, lu)
+        for text, ok in (("", False), ("parcel_id", False), ("LAND_USE", False),
+                         ("Land_Use", True), ("LU_CODE", True)):
+            dlg.edit.setText(text)
+            self.assertEqual(dlg.ok_btn.isEnabled(), ok, text)
+        dlg.edit.setText("parcel_id")
+        self.assertIn("already named PARCEL_ID", dlg.problem.text())
+        dlg.close()
+        # a shapefile keeps 10 characters
+        import tempfile
+        from qgis.core import QgsProject, QgsVectorFileWriter, QgsVectorLayer
+        path = os.path.join(tempfile.mkdtemp(), "parcels.shp")
+        opts = QgsVectorFileWriter.SaveVectorOptions()
+        opts.driverName = "ESRI Shapefile"
+        QgsVectorFileWriter.writeAsVectorFormatV3(
+            layer, path, QgsProject.instance().transformContext(), opts)
+        shp = QgsVectorLayer(path, "shp", "ogr")
+        self.assertTrue(shp.isValid())
+        QgsProject.instance().addMapLayer(shp)
+        try:
+            panel = self.plugin.open_explorer(shp)
+            settle(panel)
+            dlg = D.RenameFieldDialog(panel, shp.fields().indexOf("LAND_USE"))
+            dlg.edit.setText("LAND_USE_CODE")
+            self.assertFalse(dlg.ok_btn.isEnabled())
+            self.assertIn("10 characters", dlg.problem.text())
+            dlg.edit.setText("LU_CODE")
+            self.assertTrue(dlg.ok_btn.isEnabled())
+            dlg.close()
+            self.plugin.explorers[shp.id()].close()
+        finally:
+            QgsProject.instance().removeMapLayer(shp.id())
+
     def test_15_select_menu_sort_and_selected_top(self):
         p = self.panel
         layer = self.layer
