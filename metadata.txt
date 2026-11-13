@@ -11,7 +11,7 @@ about=Attribute Table Studio is an advanced version of QGIS Attribute Table and 
     <b>Geometry and Table Compare</b> - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
     Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
 
-version=1.1
+version=1.2
 author=Irene Jaya
 email=irenejaya1@gmail.com
 
@@ -30,6 +30,14 @@ hasProcessingProvider=no
 server=False
 
 changelog=
+    1.2 - Compare feature export, "not" filters, expression filter bar, Rename Field, Pivot List distinct
+        * New: Geometry and Table Compare - Export > GeoPackage (.gpkg) - features: the features of the rows shown, one layer per kind (added, deleted, modified, unchanged) with the table's columns plus CHANGE, DECISION and CHANGED_FIELDS; each column holds the reviewed value (NEW, or OLD where the change was rejected) and a changed column also gets <name>_OLD; the layers are added to the map as a group
+        * New: Attribute Explorer - "not" quick filters: is not, does not contain, is not one of (NULL records are kept)
+        * New: Attribute Explorer - Quick update opens when editing starts, like the native attribute table (can be turned off in Settings)
+        * New: Attribute Explorer - Advanced Filter (Expression) is an editable bar in the second toolbar row, with the expression builder and stored expressions; the scope and filter summary are now part of the status bar
+        * New: Attribute Explorer - Rename Field from a column's right-click menu
+        * Attribute Explorer - the Columns window selects several rows (Shift+click, Ctrl+click) and Space or Toggle Selection ticks them together; it shows the Columns icon
+        * New: Pivot Table - List distinct operator; the Values row puts the operator first, with symbols and explanations
 	1.1 - Bug fix and Add a search (Ctrl+F) and replace (Ctrl+H)
 		* New: Ctrl+F now works like Excel workbook and Ctrl+H will show the replace bar
     1.0 - Attribute Table Studio
