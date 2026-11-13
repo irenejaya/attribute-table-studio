@@ -27,9 +27,12 @@ from . import fields as F
 # operator id -> label, per kind
 TEXT_OPS = (
     ("contains", "contains"),
+    ("ncontains", "does not contain"),
     ("eq", "equals"),
+    ("ne", "is not"),
     ("starts", "starts with"),
     ("in", "is one of"),
+    ("notin", "is not one of"),
     ("null", "is NULL"),
     ("notnull", "is not NULL"),
 )
@@ -42,6 +45,7 @@ NUMBER_OPS = (
     ("ge", "greater than or equal to"),
     ("between", "between"),
     ("in", "is one of"),
+    ("notin", "is not one of"),
     ("null", "is NULL"),
     ("notnull", "is not NULL"),
 )
@@ -80,10 +84,15 @@ OTHER_OPS = (
 # short symbol shown on the operator button of a filter cell (and next to
 # the words in the operator menu)
 OP_SYMBOLS = {
-    "contains": "≈", "starts": "a*", "eq": "=", "ne": "≠", "lt": "<",
-    "le": "≤", "gt": ">", "ge": "≥", "between": "↔", "in": "∈",
-    "null": "∅", "notnull": "≠∅", "true": "✓", "false": "✗",
+    "contains": "≈", "ncontains": "≉", "starts": "a*", "eq": "=", "ne": "≠",
+    "lt": "<", "le": "≤", "gt": ">", "ge": "≥", "between": "↔", "in": "∈",
+    "notin": "∉", "null": "∅", "notnull": "≠∅", "true": "✓", "false": "✗",
 }
+
+# a "not" operator is its positive twin negated.  It keeps NULL records (a
+# NULL value is not 'Residential'), unless NULL is one of the values left out
+NEGATED = {"ne": "eq", "ncontains": "contains", "notin": "in"}
+LIST_OPS = ("in", "notin")                  # values chosen in the value list
 
 NO_VALUE_OPS = ("null", "notnull", "true", "false")
 COMPARISON_OPS = ("eq", "ne", "lt", "le", "gt", "ge")
@@ -113,14 +122,16 @@ def operator_label(kind, op):
     return dict(operators(kind)).get(op, op)
 
 
-_HINTS = {"contains": "contains", "starts": "starts with", "in": "choose values",
-          "null": "is NULL", "notnull": "is not NULL"}
+_HINTS = {"contains": "contains", "ncontains": "does not contain",
+          "starts": "starts with", "in": "choose values",
+          "notin": "choose values to leave out", "null": "is NULL",
+          "notnull": "is not NULL"}
 
 
 def value_hints(kind, op):
     """Placeholder texts of the first and second value box: the expected
     format for dates and times, otherwise what the operator wants."""
-    if op in ("null", "notnull", "in"):
+    if op in ("null", "notnull") or op in LIST_OPS:
         return _HINTS[op], ""
     if kind in (F.DATE, F.DATETIME):
         return "YYYY-MM-DD", "YYYY-MM-DD"
@@ -230,6 +241,15 @@ class ColumnFilter:
         self.value2 = value2
         self.values = list(values) if values else []
 
+    def positive(self):
+        """The filter a "not" operator negates (is not -> equals ...)."""
+        return ColumnFilter(self.field, self.kind, NEGATED.get(self.op, self.op),
+                            self.value, self.value2, self.values)
+
+    def keeps_null(self):
+        """A "not" filter keeps NULL records unless NULL is left out."""
+        return not (self.op == "notin" and any(v is None for v in self.values))
+
     def copy(self):
         return ColumnFilter(self.field, self.kind, self.op, self.value,
                             self.value2, self.values)
@@ -249,7 +269,7 @@ class ColumnFilter:
     def is_active(self):
         if self.op in NO_VALUE_OPS:
             return True
-        if self.op == "in":
+        if self.op in LIST_OPS:
             return bool(self.values)
         if self.op == "between":
             return bool(str(self.value).strip() or str(self.value2).strip())
@@ -263,7 +283,7 @@ class ColumnFilter:
             label = OP_SYMBOLS[self.op]          # 'AREA_M2 > 500'
         if self.op in NO_VALUE_OPS:
             return f"{self.field} {label}"
-        if self.op == "in":
+        if self.op in LIST_OPS:
             shown = ", ".join(F.display_value(v) for v in self.values[:3])
             more = f" +{len(self.values) - 3}" if len(self.values) > 3 else ""
             return f"{self.field} {label} ({shown}{more})"
@@ -287,6 +307,9 @@ class ColumnFilter:
             return f"{col} IS NULL"
         if op == "notnull":
             return f"{col} IS NOT NULL"
+        if op in NEGATED:
+            return negate(self.positive().build(case_sensitive), col,
+                          self.keeps_null())
         if op == "in":
             return self._build_in(col)
         if self.kind in F.NUMERIC:
@@ -384,6 +407,11 @@ class ColumnFilter:
         if literal_safe and self.kind == F.TEXT:
             return f"{target} ILIKE {quote_string('%' + text + '%')}"
         return f"strpos(lower({target}), {quote_string(text.lower())}) > 0"
+
+
+def negate(positive, col, keep_null=True):
+    """NOT of a filter expression; *keep_null* keeps the NULL records."""
+    return f"(NOT ({positive}) OR {col} IS NULL)" if keep_null else f"NOT ({positive})"
 
 
 def combine(filters, case_sensitive=False):

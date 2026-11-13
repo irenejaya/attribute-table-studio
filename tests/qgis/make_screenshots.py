@@ -241,6 +241,7 @@ layer.selectByIds(ex.model.fids[1:4])
 H.settle(0.3)
 ex.edit_bar.edit_btn.click()
 H.settle(0.3)
+ex.edit_bar.quick_btn.setChecked(False)     # opened by editing; shown on its own below
 value_col = col(ex, "LAND_VALUE")
 for r in (1, 2, 3):
     ex.model.setData(ex.model.index(r, value_col),
@@ -251,7 +252,7 @@ ex.view.setCurrentIndex(ex.model.index(5, value_col))
 save(win, "editing")
 
 if THEME == "dark":
-    ex.edit_bar.quick_btn.click()
+    ex.edit_bar.quick_btn.setChecked(True)
     H.settle(0.3)
     ex.quick_bar.field_combo.setField("LAND_VALUE")
     ex.quick_bar.expression.setExpression('round("LAND_VALUE" * 1.05, -3)')
@@ -261,7 +262,7 @@ if THEME == "dark":
     save(win, "quick_update")
     ex.quick_bar.preview_btn.setChecked(False)
     ex.quick_preview()
-    ex.edit_bar.quick_btn.click()
+    ex.edit_bar.quick_btn.setChecked(False)
     H.settle(0.2)
 
     ex.set_form_view(True)

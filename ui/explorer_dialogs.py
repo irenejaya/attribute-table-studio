@@ -11,7 +11,7 @@ look.
 from qgis.PyQt.QtCore import QMetaType, Qt
 from qgis.PyQt.QtGui import QGuiApplication
 from qgis.PyQt.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QScrollArea,
     QSpinBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
@@ -329,28 +329,17 @@ class DeleteFieldDialog(_Dialog):
 # ============================================================================
 
 class ExpressionDialog(_Dialog):
-    """The QGIS expression builder with how to combine the result
-    (filters) or the sort direction (sorting)."""
+    """The QGIS expression builder with the sort direction (Sort by
+    expression; the filter expression is edited in its own bar)."""
 
-    def __init__(self, panel, title, text="", purpose="filter", has_current=False):
-        super().__init__(panel, title, icons.ADVANCED_FILTER if purpose == "filter"
-                         else icons.EXPRESSION)
+    def __init__(self, panel, title, text=""):
+        super().__init__(panel, title, icons.EXPRESSION)
         self.resize(760, 560)
         self.builder = _expression_builder(panel.layer, text)
         self.lay.addWidget(self.builder, 1)
         row = QHBoxLayout()
-        self.combine = QButtonGroup(self)
         self.descending = QCheckBox("Descending")
-        if purpose == "filter":
-            for i, label in enumerate(("Replace the expression filter",
-                                       "AND with it", "OR with it")):
-                rb = QRadioButton(label)
-                rb.setEnabled(has_current or i == 0)
-                self.combine.addButton(rb, i)
-                row.addWidget(rb)
-            self.combine.button(0).setChecked(True)
-        else:
-            row.addWidget(self.descending)
+        row.addWidget(self.descending)
         row.addStretch()
         self.lay.addLayout(row)
         box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
@@ -369,8 +358,71 @@ class ExpressionDialog(_Dialog):
     def expression(self):
         return self.builder.expressionText().strip()
 
-    def mode(self):
-        return ("replace", "and", "or")[max(self.combine.checkedId(), 0)]
+
+def _name_limit(layer):
+    """(longest field name, the format's name) where the format limits it."""
+    provider = layer.dataProvider()
+    if provider is None:
+        return None, ""
+    if provider.name() == "ogr" and provider.storageType() == "ESRI Shapefile":
+        return 10, "A shapefile"
+    if provider.name() == "postgres":
+        return 63, "PostgreSQL"
+    return None, ""
+
+
+class RenameFieldDialog(_Dialog):
+    """A new name for one field, checked as you type: empty, already used by
+    another field (letter case ignored, as most formats do), too long for
+    the format."""
+
+    def __init__(self, panel, index, virtual=False):
+        layer = panel.layer
+        self.fields = layer.fields()
+        self.index = index
+        self.old = self.fields.at(index).name()
+        super().__init__(panel, f"Rename Field — {self.old}")
+        self.limit, self.format = _name_limit(layer)
+        form = QFormLayout()
+        self.edit = QLineEdit(self.old)
+        self.edit.setFixedHeight(self.metrics.control_h)
+        self.edit.selectAll()
+        form.addRow("New name", self.edit)
+        self.lay.addLayout(form)
+        self.problem = QLabel("")
+        self.problem.setStyleSheet(f"color: {self.theme.danger};")
+        self.lay.addWidget(self.problem)
+        self.note("A virtual field: renamed in the project at once." if virtual else
+                  "Written to the data source by Save edits; Ctrl+Z undoes it. "
+                  "Expressions that use the old name are not changed.")
+        box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
+                               | QDialogButtonBox.StandardButton.Cancel)
+        self.ok_btn = box.button(QDialogButtonBox.StandardButton.Ok)
+        self.ok_btn.setText("Rename")
+        box.accepted.connect(self.accept)
+        box.rejected.connect(self.reject)
+        self.lay.addWidget(box)
+        self.setMinimumWidth(420)
+        self.edit.textChanged.connect(self._check)
+        self._check()
+
+    def name(self):
+        return self.edit.text().strip()
+
+    def _check(self, *_args):
+        new = self.name()
+        other = self.fields.lookupField(new) if new else -1
+        if not new:
+            problem = "Enter a name"
+        elif other >= 0 and other != self.index:
+            problem = f"Another field is already named {self.fields.at(other).name()}"
+        elif self.limit and len(new) > self.limit:
+            problem = f"{self.format} keeps at most {self.limit} characters in a field name"
+        else:
+            problem = ""
+        self.problem.setText(problem)
+        self.problem.setVisible(bool(problem))
+        self.ok_btn.setEnabled(not problem and new != self.old)
 
 
 class StoredExpressionsDialog(_Dialog):

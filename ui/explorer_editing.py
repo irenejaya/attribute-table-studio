@@ -11,6 +11,8 @@ land here.  Every command works on the layer's own edit session (through
 explains itself in its tooltip when it is unavailable.
 """
 
+import time
+
 from qgis.PyQt.QtCore import QTimer
 from qgis.PyQt.QtGui import QGuiApplication, QKeySequence
 from qgis.PyQt.QtWidgets import QComboBox, QGroupBox
@@ -20,6 +22,7 @@ from qgis.gui import (
 )
 
 from ..core import fields as F
+from ..core import settings
 from . import explorer_dialogs as D
 from . import explorer_edit as E
 from . import explorer_ops as OPS
@@ -123,6 +126,15 @@ class EditingMixin:
         b.edit_btn.blockSignals(True)
         b.edit_btn.setChecked(editing)
         b.edit_btn.blockSignals(False)
+        # editing just started: open Quick update (Settings), as QGIS does
+        started = editing and not getattr(self, "_was_editing", False)
+        self._was_editing = editing
+        if started and settings.value("explorer/quickUpdateOnEdit") \
+                and not b.quick_btn.isChecked():
+            b.quick_btn.blockSignals(True)
+            b.quick_btn.setChecked(True)
+            b.quick_btn.blockSignals(False)
+            self._quick_opened = True
         blocker = e.edit_blocker()
         b.edit_btn.setEnabled(not blocker or editing)
         b.edit_btn.setToolTip(
@@ -172,6 +184,9 @@ class EditingMixin:
             b.quick_btn.blockSignals(False)
             self.quick_bar.expression.setExpression("")
         self.quick_bar.setVisible(editing and b.quick_btn.isChecked())
+        if getattr(self, "_quick_opened", False) and editing:
+            self._quick_opened = False
+            self._update_quick_state()
         self._tip(b.new_field_btn, editing,
                   "New field: stored (provider types) or virtual (expression)",
                   "Start editing first")
@@ -421,6 +436,37 @@ class EditingMixin:
     def delete_field(self, name=None):
         self.flush_editors()
         D.DeleteFieldDialog(self, name).exec()
+
+    def rename_field(self, name):
+        """Rename Field (column name menu): starts editing when needed (a
+        virtual field needs none), asks for the new name and renames as one
+        undo step; cancelling an edit session started for it ends it."""
+        layer = self.layer
+        idx = layer.fields().indexOf(name) if layer is not None else -1
+        ok, why = self.edit.field_renamable(idx)
+        if not ok:
+            self.status.set_status(f"{name} cannot be renamed: {why}", "warning")
+            return
+        virtual = self.edit.is_virtual(idx)
+        started = False
+        if not virtual and not self.edit.editing:
+            if not self.edit.start():
+                return
+            started = True
+        self.flush_editors()
+        dlg = D.RenameFieldDialog(self, idx, virtual)
+        if not dlg.exec():
+            if started and not layer.isModified():
+                self.edit.stop()
+            return
+        new = dlg.name()
+        if not layer.renameAttribute(idx, new):
+            self.status.set_status(f"QGIS could not rename {name}", "error")
+            return
+        text = (f"Renamed {name} to {new}" + ("" if virtual else
+                " (unsaved: Save edits writes it, Ctrl+Z undoes it)"))
+        self._status_note = (time.monotonic() + 8, text)     # outlives the refresh
+        self.status.set_status(text, "success")
 
     def reload_layer(self):
         layer = self.layer

@@ -82,6 +82,10 @@ def filter_sql(flt, dialect_name, case_sensitive=False):
         return flt.build(case_sensitive)
     col = FL.quote_column(flt.field)
     op, kind = flt.op, flt.kind
+    if op in FL.NEGATED:                         # its positive twin, negated
+        positive = filter_sql(flt.positive(), dialect_name, case_sensitive)
+        return None if positive is None else FL.negate(positive, col,
+                                                       flt.keeps_null())
     if op == "null":
         return f"{col} IS NULL"
     if op == "notnull":

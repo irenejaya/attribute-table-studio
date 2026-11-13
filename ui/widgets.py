@@ -725,15 +725,20 @@ class FieldChecklistDialog(QDialog):
     """Searchable list of fields with tick boxes.
 
     *movable* lets the user drag fields into a new order (Explorer
-    columns).  Show All / Hide All / Toggle Selection act on the visible
-    (search-matched) entries.
+    columns).  Shift+click selects a range of rows, Ctrl+click adds one;
+    Toggle Selection and Space then act on the selected rows (Toggle
+    Selection on every listed row when none is selected).  Show All / Hide
+    All act on the visible (search-matched) entries.
     """
 
     def __init__(self, entries, metrics, theme, title, info="",
-                 movable=False, parent=None):
-        """*entries*: [(name, icon, tooltip, checked)] in display order."""
+                 movable=False, parent=None, icon=None):
+        """*entries*: [(name, icon, tooltip, checked)] in display order;
+        *icon*: the window's (the button that opens it)."""
         super().__init__(parent)
         self.setWindowTitle(title)
+        if icon is not None:
+            self.setWindowIcon(icon)
         self.setMinimumSize(420, 500)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(metrics.margin, metrics.margin,
@@ -755,6 +760,8 @@ class FieldChecklistDialog(QDialog):
         self.listw = QListWidget()
         self.listw.setIconSize(QSize(metrics.icon, metrics.icon))
         self.listw.setUniformItemSizes(True)
+        self.listw.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.listw.installEventFilter(self)
         if movable:
             self.listw.setDragDropMode(
                 QAbstractItemView.DragDropMode.InternalMove)
@@ -774,8 +781,9 @@ class FieldChecklistDialog(QDialog):
         for text, tip, fn in (
                 ("Show All", "Tick every listed field", lambda: self._set_all(True)),
                 ("Hide All", "Untick every listed field", lambda: self._set_all(False)),
-                ("Toggle Selection", "Invert the tick of every listed field",
-                 self._toggle_all)):
+                ("Toggle Selection", "Invert the ticks of the selected fields "
+                 "(Shift+click a range, Ctrl+click to add; Space does the same);\n"
+                 "with none selected, of every listed field", self._toggle_selected)):
             b = button(metrics, text, tooltip=tip)
             b.clicked.connect(fn)
             row.addWidget(b)
@@ -806,13 +814,31 @@ class FieldChecklistDialog(QDialog):
             if not item.isHidden():
                 item.setCheckState(check)
 
-    def _toggle_all(self):
-        for item in self._items():
-            if not item.isHidden():
-                item.setCheckState(
-                    Qt.CheckState.Unchecked
-                    if item.checkState() == Qt.CheckState.Checked
-                    else Qt.CheckState.Checked)
+    def _selected(self):
+        return [i for i in self.listw.selectedItems() if not i.isHidden()]
+
+    def _toggle_selected(self):
+        """Invert each selected row's tick (every listed row's when none is
+        selected)."""
+        for item in self._selected() or [i for i in self._items() if not i.isHidden()]:
+            item.setCheckState(
+                Qt.CheckState.Unchecked if item.checkState() == Qt.CheckState.Checked
+                else Qt.CheckState.Checked)
+
+    def eventFilter(self, obj, event):
+        # Space ticks (or unticks) every selected row like the current one
+        if obj is self.listw and event.type() == QEvent.Type.KeyPress \
+                and event.key() == Qt.Key.Key_Space:
+            current = self.listw.currentItem()
+            rows = self._selected()
+            if current is not None and rows:
+                check = (Qt.CheckState.Unchecked
+                         if current.checkState() == Qt.CheckState.Checked
+                         else Qt.CheckState.Checked)
+                for item in rows:
+                    item.setCheckState(check)
+                return True
+        return super().eventFilter(obj, event)
 
     def checked_names(self):
         return [i.text() for i in self._items()

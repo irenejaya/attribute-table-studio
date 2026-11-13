@@ -97,6 +97,7 @@ TABLE_INVALID = "/mActionOpenTableInvalid.svg"
 TABLE_EDITED = "/mActionOpenTableEdited.svg"
 ADVANCED_FILTER = "/mActionFilter.svg"
 STORED_FILTER = "/mActionHandleStoreFilterExpressionChecked.svg"
+STORED_FILTER_OFF = "/mActionHandleStoreFilterExpressionUnchecked.svg"
 HISTORY = "/mActionHistory.svg"
 QUERY = "/mIndicatorFilter.svg"      # the Layers panel's "filtered" mark
 SEARCH = "/search.svg"               # Find and Replace (Ctrl+F)

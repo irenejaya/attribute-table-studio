@@ -26,10 +26,13 @@ table).</p>
 <h4>Filters</h4>
 <ul>
 <li>Every column has a filter below its name. Click the symbol on the left
-to choose the operator: text <i>contains, equals, starts with, is one of,
-is NULL, is not NULL</i>; numbers <i>=, ≠, &lt;, ≤, &gt;, ≥, between, is one
-of</i>; dates <i>on, before, after, between</i> (with a calendar);
-booleans <i>true, false, NULL</i>.</li>
+to choose the operator: text <i>contains, does not contain, equals, is not,
+starts with, is one of, is not one of, is NULL, is not NULL</i>; numbers
+<i>=, ≠, &lt;, ≤, &gt;, ≥, between, is one of, is not one of</i>; dates
+<i>on, before, after, between</i> (with a calendar); booleans <i>true, false,
+NULL</i>. The "not" filters keep the NULL records (a NULL value is not
+'Residential'), unless NULL is one of the values left out; picking values
+(▾) from a "not" filter leaves them out.</li>
 <li>Filters in different columns combine with <b>AND</b>; ticked values in
 one column combine with <b>OR</b> (use ▾ to pick values).</li>
 <li>Typing applies after a short pause; <b>Enter</b> applies at once. An
@@ -82,22 +85,31 @@ written when you move to another record or back to the table).</li>
 <li>Scope, named as in the QGIS attribute table: <i>Show All Features</i>,
 <i>Show Selected Features</i> (same as <b>Selected only</b>), <i>Show
 Features Visible on Map</i> (follows the map extent), <i>Show Features with
-Failing Constraints</i> (hard and soft counts in the scope line) and
+Failing Constraints</i> (hard and soft counts in the status bar) and
 <i>Show Edited and New Features</i> (unsaved changes). Column filters
 always apply on top.</li>
-<li><i>Advanced Filter (Expression)</i> replaces it or combines it with AND /
-OR; <i>Stored Filter Expressions</i> reuses the layer's saved ones;
-<i>Filter by Form</i> uses the layer's form in search mode. The expression shows as a
-chip in the scope line; <b>Clear filters</b> clears it too.</li>
+<li><i>Advanced Filter (Expression)</i> opens the expression bar on the
+left of the edit row, as the QGIS attribute table's filter box: type or edit
+the expression there and press <b>Enter</b> or <b>Apply</b> (an invalid one
+says why and cannot be applied; <b>Escape</b> puts the applied one back;
+<b>…</b> opens QGIS's Expression Builder). <b>☆</b> saves the expression
+among the layer's stored filter expressions (shared with QGIS) or loads one;
+<b>×</b> removes the filter. In a narrow window the edit row moves its
+less used commands into <b>More</b> to keep room for the box. <i>Stored
+Filter Expressions</i> reuses the layer's saved ones; <i>Filter by Form</i>
+uses the layer's form in search mode. <b>Clear filters</b> clears the
+expression too.</li>
 <li><i>Case-Sensitive Text Filters</i>, <i>Move Selection to Top</i> (keeps
 the filtered records, only moves the selection up), <i>Sort by
 Expression</i>, <i>Conditional Formatting</i> (the layer's own rules,
 painted in the table) and <i>Autosize All Columns</i>. Right-click a column name for sorting,
-widths, hiding, the field calculator and field properties.</li>
+widths, hiding, the field calculator, renaming, deleting and field properties.</li>
 </ul>
 <h4>Editing</h4>
-<p>The second row holds the <i>Statistics for</i> line on the left and the
-editing commands on the right. <b>Edit</b> starts or stops editing the
+<p>The second row holds the editing commands (and, while in use, the
+expression filter on its left). The status bar's line says what the table
+and its statistics show: the scope, the records shown of those available,
+the selection and the filters (listed on hover). <b>Edit</b> starts or stops editing the
 layer. The edit session is the layer's own: the map, the native attribute
 table and every other QGIS tool share it, and edits made there show up here.
 The right of the status bar says whether the layer is read only or being
@@ -125,8 +137,10 @@ scope.</li>
 layer, exactly as the native attribute table does: update a field (or the
 geometry), or create a new or virtual field, for the whole layer or only the
 selected features. It starts editing when needed.</li>
-<li><b>Quick update</b> is the native attribute table's field calculation
-bar: pick a field and an expression, then <b>Update All</b> - or
+<li><b>Quick update</b> opens when editing starts, like the native
+attribute table's field calculation bar (turn this off in Settings, <i>Show
+Quick update when editing starts</i>; its button still hides it). Pick a
+field and an expression, then <b>Update All</b> - or
 <b>Update Filtered</b> while the table is filtered (column, expression or
 form filters, or a scope such as selected / visible on map) - or
 <b>Update Selected</b> (every selected feature, shown or not).
@@ -142,7 +156,12 @@ only the records the map shows.</li>
 you change are written. Field calculator, Quick update and Multi edit are
 each one undo step.</li>
 <li><b>New field</b> / <b>Delete field</b> change the layer's schema (stored
-or virtual fields); <b>Reload</b> re-reads the data source. The ☰ menu holds
+or virtual fields); <b>Reload</b> re-reads the data source. <i>Rename
+Field…</i> (right-click a column name) renames a field as QGIS's Fields tab
+does: it starts editing when needed, checks the new name as you type (empty,
+already used, longer than a shapefile's 10 characters) and is one undo step
+until <b>Save edits</b>; the column keeps its filter, width, place and sort.
+Expressions that use the old name are not changed. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review Unsaved
 Changes</i>, field properties and the native attribute table.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
@@ -177,8 +196,9 @@ of the table; its heading is highlighted for a moment, and a hidden column
 is shown again. The list shows each field's type icon, name and QGIS type.</p>
 <p>Click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use the
-<b>Columns</b> icon to show, hide and reorder; the layout is saved with the
-layer in the project. <b>Export</b> writes the filtered records to Excel
+<b>Columns</b> icon to show, hide and reorder (Shift+click selects a range
+of fields, Ctrl+click adds one; <b>Space</b> or <b>Toggle Selection</b> ticks
+them together); the layout is saved with the layer in the project. <b>Export</b> writes the filtered records to Excel
 or CSV with the scope recorded; <b>Ctrl+Shift+C</b> copies the selected
 rows (<b>Ctrl+C</b> the framed cell).
 <b>Pivot Table</b> passes the filtered records to the Pivot Table.</p>
@@ -331,6 +351,18 @@ changes on the map.</p>
 <p>Excel (coloured, as shown) or CSV (plain values) of the visible rows. A
 rejected value exports its OLD value; accepted and pending values export the
 NEW value. The Decision column records each row's decision.</p>
+<p><b>GeoPackage - features</b> writes the features of the visible rows to
+one file, one layer per kind (<i>added</i>, <i>deleted</i>, <i>modified</i>,
+<i>unchanged</i>), and adds them to the map in a group named after the file.
+Every layer has the same fields: <b>CHANGE</b>, <b>DECISION</b> and
+<b>CHANGED_FIELDS</b> (the columns that changed, and <i>geometry</i> when the
+shape changed), then the table's columns. Each column holds the reviewed
+value: NEW, or OLD where the change was rejected (a deleted feature keeps its
+OLD values). A column that changed in a modified row is followed by
+<b>&lt;name&gt;_OLD</b> with the OLD value (empty where it did not change).
+Numbers, dates and yes / no values keep their types. The shape is NEW, or OLD
+for deleted features and where a shape value (such as <i>_geom_area</i>) was
+rejected, in the NEW layer's CRS.</p>
 """
 
 GENERAL_HELP = """

@@ -16,6 +16,8 @@ DEFAULTS = {
     "explorer/filterDelayMs": 350,
     # opt in: F6 / Shift+F6 / Ctrl+F6 open Attribute Explorer
     "explorer/replaceTableKeys": False,
+    # starting editing opens the Quick update row (as QGIS's attribute table)
+    "explorer/quickUpdateOnEdit": True,
     "pivot/cellLimit": 100000,
     "pivot/decimals": 2,
 }

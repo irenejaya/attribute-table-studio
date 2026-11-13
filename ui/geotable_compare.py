@@ -10,7 +10,8 @@ Compares an OLD (baseline) layer against a NEW (updated) layer:
 - Pre-flight validation (duplicate IDs, field structure, null checks)
 - Optional geometry property comparison (length / area / centroid / vertices)
 - Colour-coded results with status filters, live counts and text search
-- Review workflow (accept / reject changes) and Excel / CSV export
+- Review workflow (accept / reject changes); Excel / CSV export of the
+  table and GeoPackage export of the features (core/compare_export.py)
 
 The comparison logic is unchanged from the standalone plugin (v1.1); the
 interface uses the shared Attribute Table Studio theme, buttons and status strip
@@ -39,9 +40,10 @@ from qgis.core import (
     QgsVectorLayer, QgsProject, QgsRectangle, QgsCoordinateTransform,
     QgsSymbol, QgsSingleSymbolRenderer, QgsFeatureRequest, QgsSpatialIndex,
     QgsVectorFileWriter, QgsCategorizedSymbolRenderer, QgsRendererCategory,
-    QgsMarkerSymbol,
+    QgsMarkerSymbol, QgsFillSymbol,
 )
 
+from ..core import compare_export as CX
 from ..core import fields as FK
 from ..core.compat import SELECT_SET
 from . import icons
@@ -615,6 +617,8 @@ class GeoTableCompareDialog(QWidget):
         self._geom_crs = None
         self._geom_gtype = None
         self._map_layer_ids = []
+        self._columns = []               # (kind, name) of the field columns
+        self._feature_export = ("", [])  # last GeoPackage: path, layer ids
         self._part_cache = {}
         self._mode_choice = "parts"       # user's last pick; default: split
         self._review_saved = ""
@@ -981,13 +985,20 @@ class GeoTableCompareDialog(QWidget):
             _qgis_icon(icons.XLSX), "Excel (.xlsx) — coloured, as shown")
         self.export_csv_action = export_menu.addAction(
             _qgis_icon(icons.CSV), "CSV (.csv) — plain values")
+        self.export_gpkg_action = export_menu.addAction(
+            _qgis_icon(icons.GPKG), "GeoPackage (.gpkg) — features")
+        self.export_gpkg_action.setToolTip(
+            "The features of the rows shown, one layer per kind of change, "
+            "with the table's columns; added to the map")
+        export_menu.setToolTipsVisible(True)
         if not HAS_OPENPYXL:
             self.export_xlsx_action.setEnabled(False)
             self.export_xlsx_action.setToolTip(
                 "Excel export needs the 'openpyxl' Python package")
         self.export_btn = W.menu_square(
             m, icons.native(icons.EXPORT),
-            "Export\nThe rows shown in the table to Excel or CSV", export_menu)
+            "Export\nThe rows shown in the table to Excel or CSV, or their "
+            "features to a GeoPackage", export_menu)
         self.export_btn.setEnabled(False)
         lay.addWidget(self.export_btn)
         return bar
@@ -1279,6 +1290,7 @@ class GeoTableCompareDialog(QWidget):
         self.column_filter_btn.clicked.connect(self.select_columns_to_check)
         self.export_xlsx_action.triggered.connect(self.export_xlsx)
         self.export_csv_action.triggered.connect(self.export_results)
+        self.export_gpkg_action.triggered.connect(self.export_features)
 
         for btn in self.filter_buttons.values():
             btn.toggled.connect(self.apply_filters)
@@ -2542,6 +2554,185 @@ class GeoTableCompareDialog(QWidget):
                 self, "Error", f"Failed to export:\n{str(e)}"
             )
 
+    # -- GeoPackage of the features ------------------------------------
+
+    def _export_rows(self):
+        """The rows shown, in table order, as core.compare_export.Row."""
+        tbl = self.results_table
+        names = [name for _kind, name in self._columns]
+        rows = []
+        for r in range(tbl.rowCount()):
+            if tbl.isRowHidden(r):
+                continue
+            st = tbl.item(r, COL_STATUS)
+            if st is None:
+                continue
+            key, status = st.data(_ROLE_USER), st.text()
+            changed, rejected = [], set()
+            for c, name in enumerate(names, COL_FIRST_FIELD):
+                item = tbl.item(r, c)
+                if self._reviewable(item):
+                    changed.append(name)
+                    if item.data(_ROLE_DECISION) == "Rejected":
+                        rejected.add(name)
+            decision = (self.decisions.get(key) or "Pending") \
+                if status in REVIEWABLE else None
+            rows.append(CX.Row(key, status, decision, changed, rejected))
+        return rows
+
+    def export_features(self):
+        """Write the features of the rows shown to a GeoPackage, one layer
+        per kind of change with the table's columns, and add the layers to
+        the map (the schema is described in core/compare_export.py)."""
+        if self.results_table.rowCount() == 0:
+            QMessageBox.warning(self, "Warning", "No data to export!")
+            return
+        rows = self._export_rows()
+        if not rows:
+            QMessageBox.warning(
+                self, "Export features",
+                "No rows are shown. Tick a kind in the Results row or clear "
+                "Filter by value.")
+            return
+        project = QgsProject.instance()
+        old_layer = project.mapLayer(self._run_layer_ids[0] or "")
+        new_layer = project.mapLayer(self._run_layer_ids[1] or "")
+        if old_layer is None or new_layer is None:
+            QMessageBox.warning(
+                self, "Export features",
+                "The compared layers are no longer in the project. "
+                "Press Compare again.")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export features to GeoPackage", "comparison_features.gpkg",
+            "GeoPackage (*.gpkg)")
+        if not filename:
+            return
+        if not filename.lower().endswith(".gpkg"):
+            filename += ".gpkg"
+        target = os.path.normcase(os.path.abspath(filename))
+
+        # the layers of an earlier export to this file are replaced; any
+        # other layer reading the file keeps it from being overwritten
+        last_path, last_ids = self._feature_export
+        ours = set(last_ids) if last_path == target else set()
+        busy = [lyr.name() for lyr in project.mapLayers().values()
+                if lyr.id() not in ours and CX.layer_file(lyr) == target]
+        if busy:
+            QMessageBox.warning(
+                self, "Export features",
+                f"{os.path.basename(filename)} is open in the project "
+                f"({', '.join(sorted(busy)[:3])}"
+                f"{', …' if len(busy) > 3 else ''}).\n"
+                "Remove its layers from the project or choose another file.")
+            return
+        if ours:
+            self._remove_layers(ours)
+            self._feature_export = ("", [])
+
+        self.progress_bar.setValue(0)
+        self.progress_bar.setVisible(True)
+        self._set_status("Exporting features…", "busy")
+        QApplication.processEvents()
+
+        def progress(done, total):
+            self.progress_bar.setValue(int(100 * done / max(total, 1)))
+            QApplication.processEvents()
+
+        try:
+            written, skipped = CX.export(
+                filename, rows, self._columns, old_layer, new_layer,
+                self._fid_maps, project.transformContext(),
+                self._geom_diffs, progress)
+        except PermissionError:
+            self._set_status("Export failed — the file is in use", "error")
+            QMessageBox.critical(
+                self, "Error",
+                "Could not write the file. Is it open in another program?")
+            return
+        except Exception as e:
+            self._set_status("Export failed", "error")
+            QMessageBox.critical(
+                self, "Error", f"Failed to export:\n{str(e)}")
+            return
+        finally:
+            QTimer.singleShot(1500, self.progress_bar.hide)
+
+        added = self._add_feature_layers(filename, written)
+        self._feature_export = (target, added)
+        counts = " · ".join(f"{n:,} {kind.lower()}" for kind, _l, n in written)
+        total = sum(n for _k, _l, n in written)
+        note = (f" ({skipped:,} row(s) skipped: the feature is no longer in "
+                f"its layer)" if skipped else "")
+        self._set_status(
+            f"Exported {total:,} feature(s) to {os.path.basename(filename)}: "
+            f"{counts}{note}", "success")
+        QMessageBox.information(
+            self, "Export Complete",
+            f"Features exported to:\n{filename}\n\n"
+            + "\n".join(f"{name}: {n:,} feature(s)" for _k, name, n in written)
+            + (f"\n\n{skipped:,} row(s) skipped: the feature is no longer in "
+               f"its layer." if skipped else "")
+            + "\n\nThe layers are added to the map.")
+
+    def _remove_layers(self, layer_ids):
+        project = QgsProject.instance()
+        root = project.layerTreeRoot()
+        groups = set()
+        for layer_id in layer_ids:
+            node = root.findLayer(layer_id)
+            if node is not None and node.parent() is not None:
+                groups.add(node.parent())
+            if project.mapLayer(layer_id):
+                project.removeMapLayer(layer_id)
+        for group in groups:
+            if group is not root and not group.children() \
+                    and group.parent() is not None:
+                group.parent().removeChildNode(group)
+
+    def _add_feature_layers(self, path, written):
+        """Add the exported layers to a group named after the file."""
+        project = QgsProject.instance()
+        root = project.layerTreeRoot()
+        group = root.insertGroup(0, os.path.splitext(os.path.basename(path))[0])
+        ids = []
+        for kind, name, _n in written:
+            layer = QgsVectorLayer(f"{path}|layername={name}", kind, "ogr")
+            if not layer.isValid():
+                continue
+            self._style_feature_layer(layer, kind)
+            project.addMapLayer(layer, False)
+            group.addLayer(layer)
+            ids.append(layer.id())
+        if not ids:
+            root.removeChildNode(group)
+        return ids
+
+    @staticmethod
+    def _style_feature_layer(layer, kind):
+        """The kind's colour from the Results legend."""
+        if not layer.isSpatial():
+            return
+        colour = QColor(Theme.LIGHT_STATUS[kind][1])
+        gtype = layer.geometryType()
+        if gtype == _GEOM_POLYGON:
+            fill = QColor(colour)
+            fill.setAlpha(90)
+            symbol = QgsFillSymbol.createSimple({
+                "color": ",".join(str(v) for v in fill.getRgb()),
+                "outline_color": colour.name(), "outline_width": "0.5"})
+        else:
+            symbol = QgsSymbol.defaultSymbol(gtype)
+            if symbol is None:
+                return
+            symbol.setColor(colour)
+            if gtype == _GEOM_LINE:
+                symbol.setWidth(0.7)
+            elif gtype == _GEOM_POINT:
+                symbol.setSize(2.6)
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+
     # ====================================================================
     # COLUMN SELECTION
     # ====================================================================
@@ -2574,7 +2765,8 @@ class GeoTableCompareDialog(QWidget):
             entries, self.metrics, self.theme, "Field(s) to Compare",
             "Choose the fields used to decide whether a feature is "
             "<b>Modified</b>. Unticked fields are ignored "
-            "(e.g. fid, timestamps).", parent=self)
+            "(e.g. fid, timestamps).", parent=self,
+            icon=icons.native(icons.COLUMNS))
         if dlg.exec() == QDialog.DialogCode.Accepted:
             self.columns_to_check = dlg.checked_names()
             if self._has_results:
@@ -2921,6 +3113,11 @@ class GeoTableCompareDialog(QWidget):
         tbl.setHorizontalHeaderLabels(
             ["Change", "Decision"] + display_fields + extra_names
         )
+        geom_props = set(self._get_geom_field_names())
+        self._columns = (
+            [("prop" if fn in geom_props else "attr", fn)
+             for fn in display_fields]
+            + [("extra", name) for name in extra_names])
         extra_tips = {
             "_geom_status": "Exact geometry comparison (within the "
                             "tolerance): Same or Changed",

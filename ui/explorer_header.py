@@ -468,7 +468,7 @@ class FilterCell(QFrame):
 
     # ------------------------------------------------------------------
     def _on_clear_button(self):
-        if self.op == "in" and self.values:
+        if self.op in FL.LIST_OPS and self.values:
             self.values = []
             self.edit.clear()
             self._emit(True)
@@ -478,15 +478,15 @@ class FilterCell(QFrame):
         if op is None:
             return
         self.set_op(op)
-        if op == "in" and not self.values:
+        if op in FL.LIST_OPS and not self.values:
             self._pick_values()
             return
         self._emit(True)
 
     def set_op(self, op):
-        if op != "in":
+        if op not in FL.LIST_OPS:                # is (not) one of keeps its values
             self.values = []
-            if self.op == "in":
+            if self.op in FL.LIST_OPS:
                 self.edit.clear()
         self.op = op
         self._apply_op_ui()
@@ -513,7 +513,7 @@ class FilterCell(QFrame):
         between = op == "between"
         self.edit.setVisible(not no_value or kind != F.BOOL)
         self.edit.setEnabled(not no_value)
-        self.edit.setReadOnly(op == "in")
+        self.edit.setReadOnly(op in FL.LIST_OPS)
         if self._clear_action is not None:
             self._clear_action.setEnabled(True)
         if kind == F.BOOL:
@@ -529,9 +529,10 @@ class FilterCell(QFrame):
         self.dash.setVisible(between)
         self.edit2.setVisible(between)
         self.aux_btn.setVisible(kind != F.BOOL and not no_value
-                                and (op in ("in", "eq", "contains", "starts")
+                                and (op in ("in", "eq", "contains", "starts", "notin",
+                                            "ne", "ncontains")
                                      or kind in (F.DATE, F.DATETIME)))
-        if op == "in":
+        if op in FL.LIST_OPS:
             self.edit.setText(self._values_summary())
         self._update_state()
 
@@ -578,7 +579,7 @@ class FilterCell(QFrame):
             self.op = flt.op
             self.values = list(flt.values)
             self._bool_set = self.kind == F.BOOL
-            if flt.op != "in":
+            if flt.op not in FL.LIST_OPS:
                 self.edit.setText(str(flt.value))
             self.edit2.setText(str(flt.value2))
         self._apply_op_ui()
@@ -626,17 +627,21 @@ class FilterCell(QFrame):
             return
         entries = self.values_provider(self.logical)
         picker = ValuePicker(self.name, entries, self.values, self.theme,
-                             self.metrics, self)
+                             self.metrics, self, exclude=self._excluding())
         picker.applied.connect(self._on_values_applied)
         picker.move(self._popup_pos(picker))
         picker.show()
         picker.search.setFocus()
 
+    def _excluding(self):
+        """Picking values from a "not" operator leaves them out."""
+        return self.op in ("notin", "ne", "ncontains")
+
     def _on_values_applied(self, values):
         if values:
-            self.op = "in"
+            self.op = "notin" if self._excluding() else "in"
             self.values = values
-        elif self.op == "in":
+        elif self.op in FL.LIST_OPS:
             self.op = FL.default_operator(self.kind)
             self.values = []
             self.edit.clear()
@@ -696,7 +701,8 @@ class ValuePicker(QFrame):
 
     applied = pyqtSignal(list)
 
-    def __init__(self, name, entries, current, theme, metrics, parent=None):
+    def __init__(self, name, entries, current, theme, metrics, parent=None,
+                 exclude=False):
         super().__init__(parent, Qt.WindowType.Popup)
         self.setObjectName("gtsPopup")
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -716,7 +722,8 @@ class ValuePicker(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
-        title = QLabel(f"<b>{name}</b> — choose values (matched with OR)")
+        title = QLabel(f"<b>{name}</b> — choose values to leave out" if exclude
+                       else f"<b>{name}</b> — choose values (matched with OR)")
         lay.addWidget(title)
         self.search = QLineEdit()
         self.search.setPlaceholderText("Search values")

@@ -71,7 +71,8 @@ class BrowseMixin:
         self.sort_expr = None
         self.view_scope = "all"
         self._failing_counts = None
-        self.expr_chip.setVisible(False)
+        self.expr_bar.set_layer(layer)
+        self._show_expression(None)
         if getattr(self, "_styles_signal", None) is not None:
             try:
                 self._styles_signal.disconnect(self._on_styles_changed)
@@ -112,7 +113,7 @@ class BrowseMixin:
             scopes.addAction(act)
             act.triggered.connect(lambda _c=False, k=key: self.set_view_scope(k))
         menu.addSeparator()
-        menu.addAction(icons.native(icons.ADVANCED_FILTER), "Advanced Filter (Expression)…"
+        menu.addAction(icons.native(icons.ADVANCED_FILTER), "Advanced Filter (Expression)"
                        ).triggered.connect(self.edit_expression_filter)
         act = menu.addAction("Clear Expression Filter")
         act.setEnabled(bool(self.expr_filter))
@@ -189,24 +190,30 @@ class BrowseMixin:
     # ------------------------------------------------------------------
     # expression filter
     # ------------------------------------------------------------------
-    def set_expression_filter(self, expression, mode="replace"):
+    def set_expression_filter(self, expression, mode="replace", keep_bar=False):
+        """Set (None: remove) the expression filter.  *keep_bar* keeps the
+        expression bar open with an empty expression (its own Apply)."""
         expression = (expression or "").strip() or None
         current = self.expr_filter
         if expression and current and mode in ("and", "or"):
             expression = f"({current}) {mode.upper()} ({expression})"
         self.expr_filter = expression
-        if expression:
-            short = expression if len(expression) < 60 else expression[:57] + "…"
-            self.expr_chip.setText(f"  Expression: {short}")
-            self.expr_chip.setToolTip(f"{expression}\nClick to remove the expression filter")
-        self.expr_chip.setVisible(bool(expression))
+        self._show_expression(expression, keep_bar)
         self.refresh()
 
+    def _show_expression(self, expression, keep_bar=False):
+        """The expression bar shows the filter in force; it hides when there
+        is none (unless kept open to type one)."""
+        self.expr_bar.set_applied(expression)
+        self.expr_bar.setVisible(bool(expression) or keep_bar)
+
     def edit_expression_filter(self):
-        dlg = D.ExpressionDialog(self, "Advanced Filter (Expression)", self.expr_filter or "",
-                                 "filter", has_current=bool(self.expr_filter))
-        if dlg.exec():
-            self.set_expression_filter(dlg.expression(), dlg.mode())
+        """View › Advanced Filter (Expression): the expression bar, ready to
+        type (… opens QGIS's Expression Builder)."""
+        if self.is_form_view():
+            self.set_form_view(False)
+        self.expr_bar.setVisible(True)
+        self.expr_bar.focus()
 
     def stored_expressions(self):
         dlg = D.StoredExpressionsDialog(self)
@@ -235,7 +242,7 @@ class BrowseMixin:
 
     def edit_sort_expression(self):
         current = self.sort_expr[0] if self.sort_expr else ""
-        dlg = D.ExpressionDialog(self, "Sort by expression", current, "sort")
+        dlg = D.ExpressionDialog(self, "Sort by expression", current)
         if self.sort_expr:
             dlg.descending.setChecked(self.sort_expr[1])
         if dlg.exec():
@@ -417,6 +424,7 @@ class BrowseMixin:
             return
         name = self.model.fields[logical].name()
         menu = QMenu(self)
+        menu.setToolTipsVisible(True)
         menu.addAction(icons.native(icons.SORT), f"Sort {name} Ascending").triggered.connect(
             lambda: self.sort_by(logical, False))
         menu.addAction(icons.native(icons.SORT_REVERSE), f"Sort {name} Descending"
@@ -439,6 +447,11 @@ class BrowseMixin:
         act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
         act.setEnabled(self.can_calculate(name))
         act.triggered.connect(lambda: self.open_calculator(name))
+        ok, why = self.edit.field_renamable(logical)
+        act = menu.addAction(f"Rename Field {name}…")
+        act.setEnabled(ok)
+        act.setToolTip("Rename the field (starts editing when needed)" if ok else why)
+        act.triggered.connect(lambda: self.rename_field(name))
         act = menu.addAction(icons.native(icons.DELETE_FIELD), f"Delete Field {name}…")
         act.setEnabled(self.edit.editing)
         act.triggered.connect(lambda: self.delete_field(name))

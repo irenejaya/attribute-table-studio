@@ -48,10 +48,12 @@ proposed and only assigned when no other command uses it; change it in
   Distribution sheets, or CSV; shares as numbers, scope recorded).
 
   ![Statistics](docs/screenshots/dark_statistics.png)
-- **Filters** under every heading — text: contains, equals, starts with, is
-  one of, is NULL, is not NULL; numbers: =, ≠, <, ≤, >, ≥, between, is one of;
-  dates: on, before, after, between (calendar, YYYY-MM-DD hints); booleans:
-  true, false, NULL.
+- **Filters** under every heading — text: contains, does not contain,
+  equals, is not, starts with, is one of, is not one of, is NULL, is not NULL;
+  numbers: =, ≠, <, ≤, >, ≥, between, is one of, is not one of; dates: on,
+  before, after, between (calendar, YYYY-MM-DD hints); booleans: true, false,
+  NULL. The "not" filters keep the NULL records (a NULL value is not
+  'Residential'), unless NULL is one of the values left out.
   Columns combine with AND, values within a column with OR. Invalid input is
   outlined red and the last valid result stays. The ✕ in a filter box clears
   it (also for *is one of*); the value list sorts by value or by records.
@@ -82,7 +84,14 @@ proposed and only assigned when no other command uses it; change it in
 
   ![Map filter](docs/screenshots/dark_map_filter.png)
 - Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
-  reorder; layouts are saved with the layer in the project.
+  reorder (Shift+click selects a range of fields, Ctrl+click adds one; Space or
+  *Toggle Selection* ticks them together); layouts are saved with the layer in
+  the project.
+- **Rename Field…** (right-click a column name) renames the field in the
+  layer, as QGIS's Fields tab does: it starts editing when needed, checks the
+  new name as you type (empty, already used, too long for a shapefile's 10
+  characters) and is one undo step, written by *Save edits*. The column keeps
+  its filter, width, place and sort.
 - **Go to field**: type part of a field name (or alias) and pick it from the
   list — type icon, name and QGIS type on each line, hidden columns marked —
   to scroll the table so that column is in the middle, with its heading
@@ -116,7 +125,7 @@ proposed and only assigned when no other command uses it; change it in
   the names and icons of the QGIS attribute table (*Show All Features*, *Show
   Selected Features*, *Show Features Visible on Map*, *Show Features with
   Failing Constraints*, *Show Edited and New Features*); *Advanced Filter
-  (Expression)…* (replace / AND / OR), *Stored Filter Expressions…*, *Filter
+  (Expression)* (an editable expression bar, below), *Stored Filter Expressions…*, *Filter
   by Form…*, *Case-Sensitive Text Filters*, *Move Selection to Top*, *Sort by
   Expression…*, *Conditional Formatting…*, *Autosize All Columns*. Column
   filters always apply on top of the scope.
@@ -146,7 +155,9 @@ attribute table and every other QGIS tool.
   the native attribute table does (update a field or the geometry, new or
   virtual field; whole layer or only the selected features; it starts editing
   when needed).
-- **Quick update** is the native table's field calculation bar: field +
+- **Quick update** opens when editing starts, as the native table's field
+  calculation bar does (Settings › *Show Quick update when editing starts*;
+  its button still hides it). It is that bar: field +
   expression, then **Update All** (**Update Filtered** while the table is
   filtered) and **Update Selected** (every selected feature), plus an optional
   **Preview**. Values are calculated and stored as QGIS does it
@@ -160,6 +171,14 @@ attribute table and every other QGIS tool.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
   changes, field properties, native attribute table.
+- **Advanced Filter (Expression)** is edited in place, as in QGIS's attribute
+  table: a bar on the left of the edit row with QGIS's expression box —
+  *Enter* or *Apply* applies, an invalid expression says why, *Escape* puts
+  the applied one back, … opens the Expression Builder, ☆ saves or loads the
+  layer's stored filter expressions and × removes the filter. In a narrow
+  window the edit row moves its less used commands into *More* to keep room.
+- The status bar's line says what the table and its statistics show (scope,
+  records shown of those available, selection, filters — listed on hover).
 - The right of the status bar shows the session state and the unsaved counts
   (orange while editing, red when a save failed); disabled buttons say why in
   their tooltip.
@@ -224,6 +243,14 @@ plugin v1.1 (the regression test checks that exports match it byte for byte).
   value of whole rows. The Decision column follows the values: Accepted,
   Rejected, Mixed or *Pending 1/3*. Exports keep OLD for rejected values and
   NEW otherwise.
+- **Export ▾ › GeoPackage — features** writes the features of the rows shown
+  to one GeoPackage, one layer per kind (added, deleted, modified, unchanged),
+  and adds them to the map as a group named after the file. Every layer has
+  the same fields: `CHANGE`, `DECISION`, `CHANGED_FIELDS`, then the table's
+  columns holding the reviewed value (NEW, or OLD where the change was
+  rejected); a column that changed also gets `<name>_OLD` with the OLD value.
+  Numbers and dates keep their types. The shape is NEW, or OLD for deleted
+  features and rejected shape changes, in the NEW layer's CRS.
 - **Zoom to selection** (button or right-click) selects the rows' features in
   the OLD and NEW layers, zooms to them and flashes them.
 - The help button explains the tool; the broom button clears the validation
@@ -257,6 +284,7 @@ core/                  UI-free engines (pure Python where possible)
   subset.py            map filter (table filters → layer subset)
   jobs.py              QgsTask wrapper with stale-result protection
   export.py            CSV / Excel writers with scope records
+  compare_export.py    Compare's GeoPackage of the features (one layer per kind)
 ui/
   theme.py             shared palette, metrics and style sheet
   widgets.py           uniform buttons, status strip, field dialogs

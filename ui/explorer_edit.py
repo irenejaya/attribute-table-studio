@@ -32,6 +32,7 @@ CAP_DELETE = _CAP.DeleteFeatures
 CAP_CHANGE = _CAP.ChangeAttributeValues
 CAP_ADD_FIELD = _CAP.AddAttributes
 CAP_DELETE_FIELD = _CAP.DeleteAttributes
+CAP_RENAME_FIELD = _CAP.RenameAttributes
 
 _ORIGIN = Qgis.FieldOrigin
 
@@ -158,6 +159,28 @@ class EditController(QObject):
         if not layer.supportsEditing():
             return "The data source does not support editing"
         return ""
+
+    def field_renamable(self, idx):
+        """(possible, reason) to rename a field.  A stored field needs the
+        data source's rename and an edit session (Rename Field starts one);
+        a virtual field is renamed in the project; a joined one cannot."""
+        layer = self.layer
+        if layer is None or not 0 <= idx < layer.fields().count():
+            return False, "Unknown field"
+        origin = layer.fields().fieldOrigin(idx)
+        if origin == _ORIGIN.Expression:
+            return True, ""
+        if origin == _ORIGIN.Join:
+            return False, "Joined field: rename it in its own layer"
+        blocker = "" if self.editing else self.edit_blocker()
+        if blocker:
+            return False, blocker
+        if not self.capable(CAP_RENAME_FIELD):
+            return False, "The data source cannot rename fields"
+        return True, ""
+
+    def is_virtual(self, idx):
+        return self.layer.fields().fieldOrigin(idx) == _ORIGIN.Expression
 
     def field_editable(self, idx, editing=None):
         """(editable, reason) for a field while editing."""

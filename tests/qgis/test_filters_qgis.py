@@ -25,6 +25,7 @@ APP.initQgis()
 
 from core import fields as F  # noqa: E402
 from core import filters as FL  # noqa: E402
+from core import subset as SUB  # noqa: E402
 
 ROWS = [
     # name,        v,     d,                 b,     dt
@@ -79,7 +80,13 @@ CASES = [
     (("name", F.TEXT, "null", ""), [None]),
     (("v", F.REAL, "eq", "0"), ["residential"]),
     (("v", F.REAL, "gt", "60"), ["", "RESIDENTIAL"]),
-    (("v", F.REAL, "ne", "0"), ["", "RESIDENTIAL", "Zürich_x", None]),
+    # "not" filters keep NULL records (O'Brien has no v; the last row no name)
+    (("v", F.REAL, "ne", "0"), ["", "O'Brien 50%", "RESIDENTIAL", "Zürich_x", None]),
+    (("name", F.TEXT, "ne", "RESIDENTIAL"),
+     ["", "O'Brien 50%", "residential", "Zürich_x", None]),
+    (("name", F.TEXT, "ncontains", "resid"), ["", "O'Brien 50%", "Zürich_x", None]),
+    (("name", F.TEXT, "ncontains", "50%"),
+     ["", "residential", "RESIDENTIAL", "Zürich_x", None]),
     (("v", F.REAL, "between", "60", "61.5"), ["", "Zürich_x"]),
     (("v", F.REAL, "null", ""), ["O'Brien 50%"]),
     (("d", F.DATE, "eq", "2024-01-02"), ["", "RESIDENTIAL"]),
@@ -90,6 +97,16 @@ CASES = [
     (("dt", F.DATETIME, "ge", "2024-01-03"), ["residential", None]),
     (("b", F.BOOL, "true", ""), ["RESIDENTIAL", "Zürich_x"]),
     (("b", F.BOOL, "false", ""), ["", "residential"]),
+]
+
+
+NOT_IN = [
+    (FL.ColumnFilter("name", F.TEXT, "notin", values=["RESIDENTIAL", ""]),
+     ["O'Brien 50%", "residential", "Zürich_x", None]),
+    (FL.ColumnFilter("name", F.TEXT, "notin", values=["RESIDENTIAL", None]),
+     ["", "O'Brien 50%", "residential", "Zürich_x"]),
+    (FL.ColumnFilter("v", F.REAL, "notin", values=[0.0, 60]),
+     ["", "O'Brien 50%", "RESIDENTIAL", None]),
 ]
 
 
@@ -110,6 +127,27 @@ class QgisFilterTests(unittest.TestCase):
         self.assertEqual(names(layer, expr), ["RESIDENTIAL", None])
         expr = FL.ColumnFilter("v", F.REAL, "in", values=[0.0, 60]).build()
         self.assertEqual(names(layer, expr), ["residential", "Zürich_x"])
+        # is not one of: NULL kept, unless it is one of the values left out
+        for flt, expected in NOT_IN:
+            self.assertEqual(names(layer, flt.build()), expected, flt.describe())
+
+    def test_not_filters_in_provider_sql(self):
+        """The Query Builder text of the "not" filters gives the same records
+        as the table (GeoPackage: SQLite SQL)."""
+        layer = self.gpkg
+        cases = [(FL.ColumnFilter(f, k, op, v), sorted(e, key=F.sort_key))
+                 for (f, k, op, v, *_r), e in CASES if op in FL.NEGATED]
+        cases += NOT_IN
+        try:
+            for flt, expected in cases:
+                sql = SUB.filter_sql(flt, SUB.dialect(layer))
+                self.assertIsNotNone(sql, flt.describe())
+                self.assertTrue(layer.setSubsetString(sql), sql)
+                got = sorted((f["name"] if not F.is_null(f["name"]) else None
+                              for f in layer.getFeatures()), key=F.sort_key)
+                self.assertEqual(got, expected, sql)
+        finally:
+            layer.setSubsetString("")
 
     def test_memory(self):
         self.check(self.mem)

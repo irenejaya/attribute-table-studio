@@ -112,12 +112,13 @@ class EditingTests(unittest.TestCase):
         self.assertLessEqual(abs(right(p.dock_btn) - right(b.more_btn)), 2)
         self.assertNotEqual(icons.CALCULATE, icons.QUICK_UPDATE)
         self.assertEqual(icons.QUICK_UPDATE, "/mActionProcessSelected.svg")
-        # the scope line sits on the left of the edit row (no row of its own);
-        # the edit status is in the status bar, dim while read only
-        y = lambda w: w.mapTo(p, QPoint(0, w.height() // 2)).y()
-        self.assertLessEqual(abs(y(p.scope_label) - y(b.edit_btn)), 2)
-        self.assertLess(x(p.scope_label), x(b.edit_btn))
-        self.assertTrue(p.scope_label.fullText().startswith("Statistics for:"))
+        # the scope line is the status bar's (one line with the counts);
+        # the edit status is on its right, dim while read only
+        status = p.status.message.fullText()
+        self.assertTrue(status.startswith(p.scope_name()), status)
+        self.assertIn(f"of {self.layer.featureCount():,}", status)
+        self.assertIn("selected", status)
+        self.assertFalse(p.expr_bar.isVisibleTo(p))      # the edit row's left: free
         self.assertLess(p.edit_bar.mapTo(p, QPoint(0, b.height())).y(),
                         p.view.mapTo(p, QPoint(0, 0)).y())
         extra = p.status.extra
@@ -133,21 +134,31 @@ class EditingTests(unittest.TestCase):
         self.assertTrue(b.edit_btn.isEnabled())
         self.assertTrue(b.reload_btn.isEnabled())
         self.assertFalse(p.quick_bar.isVisibleTo(p))
+        self.assertTrue(settings.value("explorer/quickUpdateOnEdit"))   # default
         self.start()
         self.assertTrue(extra.fullText().startswith("Editing layer  •  No unsaved changes"))
         self.assertEqual(extra.property("level"), "editing-clean")      # orange
         self.assertTrue(b.quick_btn.isEnabled())
-        self.assertFalse(b.quick_btn.isChecked())
-        self.assertFalse(p.quick_bar.isVisibleTo(p))     # editing alone: hidden
-        b.quick_btn.click()
+        # starting editing opens Quick update, as QGIS's attribute table
+        self.assertTrue(b.quick_btn.isChecked())
         self.assertTrue(p.quick_bar.isVisibleTo(p))
-        b.quick_btn.click()
+        b.quick_btn.click()                               # it can still be hidden
         self.assertFalse(p.quick_bar.isVisibleTo(p))
         b.quick_btn.click()
+        self.assertTrue(p.quick_bar.isVisibleTo(p))
         b.edit_btn.click()                                # stop (no changes)
         self.assertFalse(self.layer.isEditable())
         self.assertFalse(b.quick_btn.isChecked())
         self.assertFalse(p.quick_bar.isVisibleTo(p))
+        # Settings › "Show Quick update when editing starts" off: it stays shut
+        settings.set_value("explorer/quickUpdateOnEdit", False)
+        try:
+            self.start()
+            self.assertFalse(b.quick_btn.isChecked())
+            self.assertFalse(p.quick_bar.isVisibleTo(p))
+            b.edit_btn.click()
+        finally:
+            settings.set_value("explorer/quickUpdateOnEdit", True)
 
     def test_02_shared_session_and_stop_prompt(self):
         p, b = self.panel, self.panel.edit_bar
@@ -465,7 +476,7 @@ class EditingTests(unittest.TestCase):
         settle(p)
         self.assertGreater(len(p.model.fids), 0)
         self.assertLess(len(p.model.fids), layer.featureCount())
-        self.assertIn("visible on the map", p.scope_label.fullText())
+        self.assertIn("visible on the map", p.status.message.fullText())
         # failing constraints
         layer.setFieldConstraint(self.lu, QgsFieldConstraints.Constraint.ConstraintExpression,
                                  QgsFieldConstraints.ConstraintStrength.ConstraintStrengthSoft)
@@ -474,7 +485,7 @@ class EditingTests(unittest.TestCase):
         settle(p)
         rural = sum(1 for f in layer.getFeatures() if f["LAND_USE"] == "RURAL")
         self.assertEqual(len(p.model.fids), rural)
-        self.assertIn(f"(0 hard, {rural} soft)", p.scope_label.fullText())
+        self.assertIn(f"(0 hard, {rural} soft)", p.status.message.fullText())
 
     def test_14_expression_filter_and_stored(self):
         p = self.panel
@@ -483,8 +494,9 @@ class EditingTests(unittest.TestCase):
         settle(p)
         a = len(p.model.fids)
         self.assertLess(a, total)
-        self.assertIn("Expression", p.scope_label.toolTip())
-        self.assertTrue(p.expr_chip.isVisibleTo(p))
+        self.assertIn("Expression", p.status.toolTip())
+        self.assertTrue(p.expr_bar.isVisibleTo(p))
+        self.assertEqual(p.expr_bar.text(), '"SCORE_MAX" > 80')
         p.set_expression_filter('"LAND_USE" = \'RESIDENTIAL\'', "and")
         settle(p)
         self.assertLessEqual(len(p.model.fids), a)
@@ -505,6 +517,158 @@ class EditingTests(unittest.TestCase):
         settle(p)
         self.assertIsNone(p.expr_filter)
         self.assertEqual(len(p.model.fids), total)
+
+    def test_14b_expression_bar(self):
+        from qgis.PyQt.QtTest import QTest
+        p, layer = self.panel, self.layer
+        bar = p.expr_bar
+        total = layer.featureCount()
+        # View › Advanced Filter (Expression) opens the bar in the edit row,
+        # ready to type
+        self.assertFalse(bar.isVisibleTo(p))
+        p.edit_expression_filter()
+        self.assertTrue(bar.isVisibleTo(p))
+        self.assertTrue(bar.line.hasFocus())
+        y = lambda w: w.mapTo(p, QPoint(0, w.height() // 2)).y()
+        self.assertLessEqual(abs(y(bar) - y(p.edit_bar.edit_btn)), 2)
+        self.assertFalse(bar.apply_btn.isEnabled())            # nothing to apply
+        # typing marks Apply; Enter applies
+        QTest.keyClicks(bar.line, '"SCORE_MAX" > 80')
+        self.assertTrue(bar.apply_btn.isEnabled())
+        self.assertTrue(bar.apply_btn.property("pending"))
+        QTest.keyClick(bar.line, Qt.Key.Key_Return)
+        settle(p)
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 80')
+        n = len(p.model.fids)
+        self.assertEqual(n, sum(1 for f in layer.getFeatures() if f["SCORE_MAX"] is not None
+                                and not F.is_null(f["SCORE_MAX"]) and f["SCORE_MAX"] > 80))
+        self.assertFalse(bar.apply_btn.isEnabled())
+        # edit it in place: an invalid expression cannot be applied
+        QTest.keyClicks(bar.line, " AND")
+        self.assertFalse(bar.apply_btn.isEnabled())
+        self.assertIn("not valid", bar.apply_btn.toolTip())
+        QTest.keyClick(bar.line, Qt.Key.Key_Return)            # nothing happens
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 80')
+        # Escape puts the applied expression back
+        QTest.keyClick(bar.line, Qt.Key.Key_Escape)
+        self.assertEqual(bar.text(), '"SCORE_MAX" > 80')
+        # a changed expression replaces the filter
+        bar.box.setExpression('"SCORE_MAX" > 90')
+        bar.apply_btn.click()
+        settle(p)
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 90')
+        self.assertLess(len(p.model.fids), n)
+        # stored expressions: save the current one, load it back from ☆
+        manager = layer.storedExpressionManager()
+        before = len(manager.storedExpressions())
+        from qgis.PyQt.QtWidgets import QInputDialog
+        original = QInputDialog.getText
+        QInputDialog.getText = staticmethod(lambda *a, **k: ("over 90", True))
+        try:
+            bar._fill_store_menu()
+            save = bar.store_menu.actions()[0]
+            self.assertTrue(save.isEnabled())
+            save.trigger()
+        finally:
+            QInputDialog.getText = original
+        self.assertEqual(len(manager.storedExpressions()), before + 1)
+        self.assertIn("over 90", bar.store_btn.toolTip())
+        bar.box.setExpression("")
+        bar.apply_btn.click()                                  # empty: no filter,
+        settle(p)                                              # the bar stays
+        self.assertIsNone(p.expr_filter)
+        self.assertTrue(bar.isVisibleTo(p))
+        bar._fill_store_menu()
+        load = next(a for a in bar.store_menu.actions() if a.text() == "over 90")
+        load.trigger()
+        settle(p)
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 90')
+        # a narrow window: commands move into More, the box keeps its room
+        win = self.plugin.explorers[layer.id()]._window
+        win.resize(1000, 700)
+        H.settle(0.4)
+        self.assertGreater(len(p.edit_bar.overflow_buttons()), 0)
+        self.assertGreaterEqual(bar.width(), bar.MIN_WIDTH)
+        # × removes the filter and hides the bar
+        bar.close_btn.click()
+        settle(p)
+        self.assertIsNone(p.expr_filter)
+        self.assertFalse(bar.isVisibleTo(p))
+        self.assertEqual(len(p.model.fids), total)
+
+    def test_14c_rename_field(self):
+        p, layer = self.panel, self.layer
+        lu = self.lu
+        original = D.RenameFieldDialog.exec
+
+        def answer(name):
+            def fake(dlg):
+                dlg.edit.setText(name)
+                return 1 if dlg.ok_btn.isEnabled() else 0
+            return fake
+        try:
+            # the column name menu offers it while browsing (it starts editing)
+            p.header.cells[lu].set_filter(
+                FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"), emit=True)
+            settle(p)
+            shown = len(p.model.fids)
+            p.header.resizeSection(lu, 333)
+            self.assertEqual(p.edit.field_renamable(lu), (True, ""))
+            self.assertFalse(layer.isEditable())
+            # cancelled: the edit session started for it ends again
+            D.RenameFieldDialog.exec = lambda dlg: 0
+            p.rename_field("LAND_USE")
+            self.assertFalse(layer.isEditable())
+            # renamed: one undo step; filter, width and place follow the field
+            D.RenameFieldDialog.exec = answer("LU_CODE")
+            p.rename_field("LAND_USE")
+            settle(p)
+            self.assertTrue(layer.isEditable())
+            self.assertEqual(layer.fields().at(lu).name(), "LU_CODE")
+            self.assertEqual(p.header.cells[lu].current_filter().field, "LU_CODE")
+            self.assertEqual(len(p.model.fids), shown)
+            self.assertEqual(p.header.sectionSize(lu), 333)
+            self.assertIn("Renamed LAND_USE to LU_CODE", p.status.message.fullText())
+            p.edit.undo()
+            settle(p)
+            self.assertEqual(layer.fields().at(lu).name(), "LAND_USE")
+            self.assertEqual(p.header.cells[lu].current_filter().field, "LAND_USE")
+            self.assertEqual(len(p.model.fids), shown)
+        finally:
+            D.RenameFieldDialog.exec = original
+        # the name is checked as it is typed
+        dlg = D.RenameFieldDialog(p, lu)
+        for text, ok in (("", False), ("parcel_id", False), ("LAND_USE", False),
+                         ("Land_Use", True), ("LU_CODE", True)):
+            dlg.edit.setText(text)
+            self.assertEqual(dlg.ok_btn.isEnabled(), ok, text)
+        dlg.edit.setText("parcel_id")
+        self.assertIn("already named PARCEL_ID", dlg.problem.text())
+        dlg.close()
+        # a shapefile keeps 10 characters
+        import tempfile
+        from qgis.core import QgsProject, QgsVectorFileWriter, QgsVectorLayer
+        path = os.path.join(tempfile.mkdtemp(), "parcels.shp")
+        opts = QgsVectorFileWriter.SaveVectorOptions()
+        opts.driverName = "ESRI Shapefile"
+        QgsVectorFileWriter.writeAsVectorFormatV3(
+            layer, path, QgsProject.instance().transformContext(), opts)
+        shp = QgsVectorLayer(path, "shp", "ogr")
+        self.assertTrue(shp.isValid())
+        QgsProject.instance().addMapLayer(shp)
+        try:
+            panel = self.plugin.open_explorer(shp)
+            settle(panel)
+            dlg = D.RenameFieldDialog(panel, shp.fields().indexOf("LAND_USE"))
+            dlg.edit.setText("LAND_USE_CODE")
+            self.assertFalse(dlg.ok_btn.isEnabled())
+            self.assertIn("10 characters", dlg.problem.text())
+            dlg.edit.setText("LU_CODE")
+            self.assertTrue(dlg.ok_btn.isEnabled())
+            dlg.close()
+            self.plugin.explorers[shp.id()].close()
+        finally:
+            QgsProject.instance().removeMapLayer(shp.id())
 
     def test_15_select_menu_sort_and_selected_top(self):
         p = self.panel

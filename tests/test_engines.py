@@ -154,6 +154,25 @@ class FilterTests(unittest.TestCase):
                          "strpos(lower(\"F\"), '50%') > 0")
         self.assertIsNone(self.expr(F.TEXT, "contains", ""))
 
+    def test_not_filters_keep_null(self):
+        self.assertEqual(self.expr(F.TEXT, "ne", "Residential"),
+                         "(NOT (\"F\" = 'Residential') OR \"F\" IS NULL)")
+        self.assertEqual(self.expr(F.TEXT, "ncontains", "trust"),
+                         "(NOT (\"F\" ILIKE '%trust%') OR \"F\" IS NULL)")
+        self.assertEqual(self.expr(F.TEXT, "notin", values=["A", "B"]),
+                         "(NOT (\"F\" IN ('A', 'B')) OR \"F\" IS NULL)")
+        # NULL ticked among the values left out: NULL goes too
+        self.assertEqual(self.expr(F.INTEGER, "notin", values=[1, None]),
+                         'NOT (("F" IN (1) OR "F" IS NULL))')
+        self.assertIsNone(self.expr(F.TEXT, "notin"))         # nothing chosen
+        self.assertIsNone(self.expr(F.TEXT, "ne", ""))
+        self.assertEqual(FL.ColumnFilter("F", F.TEXT, "notin", values=["A"]).describe(),
+                         "F is not one of (A)")
+        self.assertEqual(FL.value_hints(F.TEXT, "notin")[0], "choose values to leave out")
+        ops = [op for op, _label in FL.operators(F.TEXT)]
+        self.assertEqual(ops[:4], ["contains", "ncontains", "eq", "ne"])
+        self.assertIn("notin", [op for op, _label in FL.operators(F.REAL)])
+
     def test_quoted_column(self):
         self.assertEqual(self.expr(F.TEXT, "null", field='a"b'),
                          '"a""b" IS NULL')
@@ -161,7 +180,9 @@ class FilterTests(unittest.TestCase):
     def test_numbers(self):
         self.assertEqual(self.expr(F.REAL, "gt", "60"), '"F" > 60')
         self.assertEqual(self.expr(F.REAL, "eq", "0"), '"F" = 0')
-        self.assertEqual(self.expr(F.REAL, "ne", "88.44"), '"F" <> 88.44')
+        # "not equal to" keeps NULL records, like every "not" filter
+        self.assertEqual(self.expr(F.REAL, "ne", "88.44"),
+                         '(NOT ("F" = 88.44) OR "F" IS NULL)')
         self.assertEqual(self.expr(F.REAL, "between", "20", "10"),
                          '("F" >= 10 AND "F" <= 20)')
         self.assertEqual(self.expr(F.INTEGER, "between", "5", ""), '"F" >= 5')
