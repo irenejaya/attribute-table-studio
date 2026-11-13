@@ -795,6 +795,204 @@ class SuiteTests(unittest.TestCase):
         canvas_extent = self.iface.mapCanvas().extent()
         self.assertFalse(canvas_extent.isEmpty())
 
+    def test_13n_compare_feature_export(self):
+        from attribute_table_studio.core import compare_export as CX
+        from qgis.core import QgsFeature, QgsField
+        from qgis.PyQt.QtCore import QMetaType
+        base = H.demo_layer(n=300, name="Export baseline")
+        new = H.demo_updated_layer(base)
+        i_lu = new.fields().indexOf("LAND_USE")
+        new.dataProvider().changeAttributeValues({
+            f.id(): {i_lu: "MIXED USE"}
+            for k, f in enumerate(new.getFeatures()) if k % 40 == 21})
+        panel = self.plugin.open_compare()
+        panel.old_table_combo.setLayer(base)
+        panel.new_table_combo.setLayer(new)
+        panel.join_field_combo.setCurrentIndex(
+            panel.join_field_combo.findText("PARCEL_ID"))
+        panel.geom_compare_cb.setChecked(True)
+        panel.columns_to_check = []
+        panel.compare_tables()
+        tbl = panel.results_table
+        user = Qt.ItemDataRole.UserRole
+        names = [tbl.horizontalHeaderItem(c).text() for c in range(tbl.columnCount())]
+
+        def rows_of(status):
+            return [r for r in range(tbl.rowCount()) if tbl.item(r, 0).text() == status]
+
+        def key(r):
+            return tbl.item(r, 0).data(user)
+
+        modified = rows_of("Modified")
+        scored = [r for r in modified if "SCORE_MAX" in
+                  [names[it.column()] for it in panel._row_values(r)]]
+        rejected_row, accepted_row = scored[0], scored[1]
+        panel._decide_rows([rejected_row], "Rejected")
+        panel._decide_rows([accepted_row], "Accepted")
+        # a moved feature: rejecting its geometry values keeps the OLD shape
+        moved = [r for r in modified
+                 if tbl.item(r, names.index("_geom_status")).text() == "Changed"]
+        self.assertGreaterEqual(len(moved), 2)
+        tbl.clearSelection()
+        for it in panel._row_values(moved[0]):
+            if names[it.column()] in CX.GEOMETRY_VALUES:
+                it.setSelected(True)
+        panel._decide_values("Rejected")
+        # only the rows shown are exported: hide Unchanged
+        panel.filter_buttons["Unchanged"].setChecked(False)
+        H.pump()
+
+        path = os.path.join(OUT, "compare_features.gpkg")
+        _next_save.append(path)
+        panel.export_features()
+        out = {n: QgsVectorLayer(f"{path}|layername={n}", n, "ogr")
+               for n in ("added", "deleted", "modified", "unchanged")}
+        self.assertFalse(out["unchanged"].isValid())
+        counts = panel._compare_info["counts"]
+        for kind in ("Added", "Deleted", "Modified"):
+            self.assertTrue(out[kind.lower()].isValid())
+            self.assertEqual(out[kind.lower()].featureCount(), counts[kind])
+
+        # one schema for every layer: fixed columns, then the table's columns,
+        # each changed column followed by its _OLD
+        fields = [f.name() for f in out["modified"].fields()]
+        for layer in out.values():
+            if layer.isValid():
+                self.assertEqual([f.name() for f in layer.fields()], fields)
+        self.assertEqual(fields[:4], ["fid", "CHANGE", "DECISION", "CHANGED_FIELDS"])
+        fixed = ("CHANGE", "DECISION", "CHANGED_FIELDS")
+        self.assertEqual([n for n in fields if n not in fixed
+                          and not n.endswith("_OLD")], names[2:])
+        self.assertEqual(fields[fields.index("SCORE_MAX") + 1], "SCORE_MAX_OLD")
+        self.assertEqual(fields[fields.index("LAND_USE") + 1], "LAND_USE_OLD")
+        self.assertNotIn("OWNER_ID_OLD", fields)
+        ofields = out["modified"].fields()
+        self.assertEqual(F.field_kind(ofields.field("SCORE_MAX")), F.REAL)
+        self.assertEqual(F.field_kind(ofields.field("SURVEY_DATE")), F.DATE)
+        self.assertEqual(F.field_kind(ofields.field("_centroid_x")), F.REAL)
+
+        def feature(layer, k):
+            return next(f for f in out[layer].getFeatures() if f["PARCEL_ID"] == k)
+
+        def source(layer, k):
+            side = "old" if layer is base else "new"
+            return layer.getFeature(panel._fid_maps[side][k])
+
+        k = key(rejected_row)
+        f, old, upd = feature("modified", k), source(base, k), source(new, k)
+        self.assertEqual(f["CHANGE"], "Modified")
+        self.assertEqual(f["DECISION"], "Rejected")
+        self.assertIn("SCORE_MAX", f["CHANGED_FIELDS"])
+        self.assertEqual(f["SCORE_MAX"], old["SCORE_MAX"])          # OLD kept
+        self.assertEqual(f["SCORE_MAX_OLD"], old["SCORE_MAX"])
+        self.assertEqual(f["fid"], upd["fid"])         # the GeoPackage id stays
+        k = key(accepted_row)
+        f, old, upd = feature("modified", k), source(base, k), source(new, k)
+        self.assertEqual(f["DECISION"], "Accepted")
+        self.assertEqual(f["SCORE_MAX"], upd["SCORE_MAX"])          # NEW kept
+        self.assertEqual(f["SCORE_MAX_OLD"], old["SCORE_MAX"])
+        if old["LAND_USE"] == upd["LAND_USE"]:
+            self.assertTrue(F.is_null(f["LAND_USE_OLD"]))
+        self.assertEqual(f.geometry().asWkt(6), upd.geometry().asWkt(6))
+        k = key(moved[0])
+        f, old, upd = feature("modified", k), source(base, k), source(new, k)
+        self.assertIn("geometry", f["CHANGED_FIELDS"])
+        self.assertEqual(f["_geom_status"], "Changed")
+        self.assertEqual(f.geometry().asWkt(6), old.geometry().asWkt(6))        # OLD shape
+        self.assertEqual(f["_centroid_x_OLD"], f["_centroid_x"])
+        k = key(moved[1])
+        f, upd = feature("modified", k), source(new, k)
+        self.assertEqual(f["DECISION"], "Pending")
+        self.assertEqual(f.geometry().asWkt(6), upd.geometry().asWkt(6))        # NEW shape
+        k = key(rows_of("Deleted")[0])
+        f, old = feature("deleted", k), source(base, k)
+        self.assertTrue(F.is_null(f["DECISION"]))
+        self.assertTrue(F.is_null(f["CHANGED_FIELDS"]))
+        self.assertTrue(F.is_null(f["SCORE_MAX_OLD"]))
+        self.assertEqual(f["SCORE_MAX"], old["SCORE_MAX"])
+        self.assertEqual(f["fid"], old["fid"])
+        self.assertEqual(f.geometry().asWkt(6), old.geometry().asWkt(6))
+        f = feature("added", key(rows_of("Added")[0]))
+        self.assertEqual((f["CHANGE"], f["DECISION"]), ("Added", "Pending"))
+
+        # added to the map as a group named after the file; exporting to the
+        # same file again replaces those layers
+        root = QgsProject.instance().layerTreeRoot()
+
+        def groups():
+            return [g for g in root.children() if g.name() == "compare_features"]
+        self.assertEqual(len(groups()), 1)
+        self.assertEqual([n.name() for n in groups()[0].children()],
+                         ["Added", "Deleted", "Modified"])
+        first_ids = list(panel._feature_export[1])
+        _next_save.append(path)
+        panel.export_features()
+        self.assertEqual(len(groups()), 1)
+        self.assertTrue(all(QgsProject.instance().mapLayer(i) is None for i in first_ids))
+        self.assertEqual(len(panel._feature_export[1]), 3)
+        # a file other layers of the project still read is not overwritten
+        stamp = os.path.getmtime(path)
+        other = QgsVectorLayer(f"{path}|layername=added", "Other", "ogr")
+        QgsProject.instance().addMapLayer(other)
+        kept = list(panel._feature_export[1])
+        _next_save.append(path)
+        panel.export_features()
+        self.assertEqual(os.path.getmtime(path), stamp)
+        self.assertEqual(panel._feature_export[1], kept)       # nothing removed
+        self.assertTrue(all(QgsProject.instance().mapLayer(i) for i in kept))
+        QgsProject.instance().removeMapLayer(other.id())
+
+        # field definitions: OLD values must fit, differing types become text
+        _MT = getattr(QMetaType, "Type", QMetaType)
+        merged = CX.merged_field
+        self.assertEqual(F.type_id(merged("A", QgsField("A", _MT.Int), QgsField("A", _MT.LongLong))[0].type()),
+                         F.type_id(_MT.LongLong))
+        self.assertEqual(F.field_kind(merged("A", QgsField("A", _MT.Int), QgsField("A", _MT.Double))[0]), F.REAL)
+        self.assertEqual(merged("A", QgsField("A", _MT.QString, "string", 20),
+                                QgsField("A", _MT.QString, "string", 30))[0].length(), 30)
+        self.assertEqual(merged("A", QgsField("A", _MT.QDate), QgsField("A", _MT.QString))[1], True)
+
+        # tables without geometry; a column called fid that is not the key
+        old_t = QgsVectorLayer("None?field=ID:string(10)&field=V:integer&field=fid:integer",
+                               "Old table", "memory")
+        new_t = QgsVectorLayer("None?field=ID:string(10)&field=V:string(10)&field=fid:integer",
+                               "New table", "memory")
+        for layer, rows in ((old_t, [("A", 1, 7), ("B", 2, 7), ("C", 3, 8)]),
+                            (new_t, [("A", "1", 7), ("B", "two", 7), ("D", "4", 9)])):
+            feats = []
+            for values in rows:
+                f = QgsFeature(layer.fields())
+                f.setAttributes(list(values))
+                feats.append(f)
+            layer.dataProvider().addFeatures(feats)
+        QgsProject.instance().addMapLayers([old_t, new_t])
+        panel.geom_compare_cb.setChecked(False)
+        panel.old_table_combo.setLayer(old_t)
+        panel.new_table_combo.setLayer(new_t)
+        panel.join_field_combo.setCurrentIndex(panel.join_field_combo.findText("ID"))
+        panel.columns_to_check = []
+        panel.compare_tables()
+        for status in ("Added", "Deleted", "Modified", "Unchanged"):
+            panel.filter_buttons[status].setChecked(True)
+        H.pump()
+        path = os.path.join(OUT, "compare_tables.gpkg")
+        _next_save.append(path)
+        panel.export_features()
+        mod = QgsVectorLayer(f"{path}|layername=modified", "m", "ogr")
+        dele = QgsVectorLayer(f"{path}|layername=deleted", "d", "ogr")
+        self.assertTrue(mod.isValid() and dele.isValid())
+        self.assertFalse(mod.isSpatial())
+        self.assertEqual([f.name() for f in mod.fields()][:5],
+                         ["ogc_fid", "CHANGE", "DECISION", "CHANGED_FIELDS", "ID"])
+        self.assertEqual(F.field_kind(mod.fields().field("V")), F.TEXT)
+        self.assertEqual(F.field_kind(mod.fields().field("V_OLD")), F.INTEGER)
+        f = next(f for f in mod.getFeatures() if f["ID"] == "B")
+        self.assertEqual((f["V"], f["V_OLD"], f["fid"]), ("two", 2, 7))
+        self.assertEqual(sorted(f["fid"] for f in dele.getFeatures()), [8])
+        unchanged = QgsVectorLayer(f"{path}|layername=unchanged", "u", "ogr")
+        self.assertEqual([f["fid"] for f in unchanged.getFeatures()], [7])
+        QgsProject.instance().removeMapLayers([old_t.id(), new_t.id()])
+
     def test_13g_round9_ui(self):
         from qgis.PyQt.QtWidgets import QToolButton
         from attribute_table_studio.ui import icons

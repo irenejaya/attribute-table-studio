@@ -351,6 +351,18 @@ changes on the map.</p>
 <p>Excel (coloured, as shown) or CSV (plain values) of the visible rows. A
 rejected value exports its OLD value; accepted and pending values export the
 NEW value. The Decision column records each row's decision.</p>
+<p><b>GeoPackage - features</b> writes the features of the visible rows to
+one file, one layer per kind (<i>added</i>, <i>deleted</i>, <i>modified</i>,
+<i>unchanged</i>), and adds them to the map in a group named after the file.
+Every layer has the same fields: <b>CHANGE</b>, <b>DECISION</b> and
+<b>CHANGED_FIELDS</b> (the columns that changed, and <i>geometry</i> when the
+shape changed), then the table's columns. Each column holds the reviewed
+value: NEW, or OLD where the change was rejected (a deleted feature keeps its
+OLD values). A column that changed in a modified row is followed by
+<b>&lt;name&gt;_OLD</b> with the OLD value (empty where it did not change).
+Numbers, dates and yes / no values keep their types. The shape is NEW, or OLD
+for deleted features and where a shape value (such as <i>_geom_area</i>) was
+rejected, in the NEW layer's CRS.</p>
 """
 
 GENERAL_HELP = """

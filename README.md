@@ -243,6 +243,14 @@ plugin v1.1 (the regression test checks that exports match it byte for byte).
   value of whole rows. The Decision column follows the values: Accepted,
   Rejected, Mixed or *Pending 1/3*. Exports keep OLD for rejected values and
   NEW otherwise.
+- **Export ▾ › GeoPackage — features** writes the features of the rows shown
+  to one GeoPackage, one layer per kind (added, deleted, modified, unchanged),
+  and adds them to the map as a group named after the file. Every layer has
+  the same fields: `CHANGE`, `DECISION`, `CHANGED_FIELDS`, then the table's
+  columns holding the reviewed value (NEW, or OLD where the change was
+  rejected); a column that changed also gets `<name>_OLD` with the OLD value.
+  Numbers and dates keep their types. The shape is NEW, or OLD for deleted
+  features and rejected shape changes, in the NEW layer's CRS.
 - **Zoom to selection** (button or right-click) selects the rows' features in
   the OLD and NEW layers, zooms to them and flashes them.
 - The help button explains the tool; the broom button clears the validation
@@ -276,6 +284,7 @@ core/                  UI-free engines (pure Python where possible)
   subset.py            map filter (table filters → layer subset)
   jobs.py              QgsTask wrapper with stale-result protection
   export.py            CSV / Excel writers with scope records
+  compare_export.py    Compare's GeoPackage of the features (one layer per kind)
 ui/
   theme.py             shared palette, metrics and style sheet
   widgets.py           uniform buttons, status strip, field dialogs
