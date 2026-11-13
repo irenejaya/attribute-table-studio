@@ -11,7 +11,7 @@ look.
 from qgis.PyQt.QtCore import QMetaType, Qt
 from qgis.PyQt.QtGui import QGuiApplication
 from qgis.PyQt.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox,
     QFormLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel,
     QLineEdit, QListWidget, QListWidgetItem, QRadioButton, QScrollArea,
     QSpinBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
@@ -329,28 +329,17 @@ class DeleteFieldDialog(_Dialog):
 # ============================================================================
 
 class ExpressionDialog(_Dialog):
-    """The QGIS expression builder with how to combine the result
-    (filters) or the sort direction (sorting)."""
+    """The QGIS expression builder with the sort direction (Sort by
+    expression; the filter expression is edited in its own bar)."""
 
-    def __init__(self, panel, title, text="", purpose="filter", has_current=False):
-        super().__init__(panel, title, icons.ADVANCED_FILTER if purpose == "filter"
-                         else icons.EXPRESSION)
+    def __init__(self, panel, title, text=""):
+        super().__init__(panel, title, icons.EXPRESSION)
         self.resize(760, 560)
         self.builder = _expression_builder(panel.layer, text)
         self.lay.addWidget(self.builder, 1)
         row = QHBoxLayout()
-        self.combine = QButtonGroup(self)
         self.descending = QCheckBox("Descending")
-        if purpose == "filter":
-            for i, label in enumerate(("Replace the expression filter",
-                                       "AND with it", "OR with it")):
-                rb = QRadioButton(label)
-                rb.setEnabled(has_current or i == 0)
-                self.combine.addButton(rb, i)
-                row.addWidget(rb)
-            self.combine.button(0).setChecked(True)
-        else:
-            row.addWidget(self.descending)
+        row.addWidget(self.descending)
         row.addStretch()
         self.lay.addLayout(row)
         box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok
@@ -368,9 +357,6 @@ class ExpressionDialog(_Dialog):
 
     def expression(self):
         return self.builder.expressionText().strip()
-
-    def mode(self):
-        return ("replace", "and", "or")[max(self.combine.checkedId(), 0)]
 
 
 class StoredExpressionsDialog(_Dialog):

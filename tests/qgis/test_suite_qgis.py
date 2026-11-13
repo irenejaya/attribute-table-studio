@@ -148,7 +148,8 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: fl in panel.profiles))
         self.assertEqual(panel.profiles[fl].count, n)
         self.assertGreater(panel.profiles[fl].minimum, 60)
-        self.assertIn("2 active filters", panel.scope_label.fullText())
+        self.assertIn("2 filters: LAND_USE, SCORE_MAX", panel.status.message.fullText())
+        self.assertIn("2 active filters", panel.scope_description())
         # invalid input keeps the last valid result
         before = list(panel.model.fids)
         panel.header.cells[fl].edit.setText("abc")
@@ -869,7 +870,7 @@ class SuiteTests(unittest.TestCase):
         for name, icon in (("Show Features Visible on Map", icons.TABLE_VISIBLE),
                            ("Show Features with Failing Constraints", icons.TABLE_INVALID),
                            ("Show Edited and New Features", icons.TABLE_EDITED),
-                           ("Advanced Filter (Expression)…", icons.ADVANCED_FILTER),
+                           ("Advanced Filter (Expression)", icons.ADVANCED_FILTER),
                            ("Stored Filter Expressions…", icons.STORED_FILTER)):
             self.assertIn(name, actions)
             self.assertFalse(icons.native(icon).isNull())
@@ -1259,8 +1260,7 @@ class SuiteTests(unittest.TestCase):
                          '("LAND_USE" = \'RESIDENTIAL\') AND ("SCORE_MAX" > 60)')
         self.assertEqual(layer.featureCount(), shown)
         self.assertEqual(len(panel.model.fids), shown)
-        self.assertIn(f"{shown:,} shown / {total:,} available",
-                      panel.status.message.fullText())
+        self.assertIn(f"{shown:,} of {total:,}", panel.status.message.fullText())
         self.assertIn("Map filter on", panel.status.extra.fullText())
         held = SUB.held(layer)                     # kept in memory, not on the layer
         self.assertEqual((held.base, held.applied), ("", layer.subsetString()))

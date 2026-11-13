@@ -118,7 +118,7 @@ proposed and only assigned when no other command uses it; change it in
   the names and icons of the QGIS attribute table (*Show All Features*, *Show
   Selected Features*, *Show Features Visible on Map*, *Show Features with
   Failing Constraints*, *Show Edited and New Features*); *Advanced Filter
-  (Expression)…* (replace / AND / OR), *Stored Filter Expressions…*, *Filter
+  (Expression)* (an editable expression bar, below), *Stored Filter Expressions…*, *Filter
   by Form…*, *Case-Sensitive Text Filters*, *Move Selection to Top*, *Sort by
   Expression…*, *Conditional Formatting…*, *Autosize All Columns*. Column
   filters always apply on top of the scope.
@@ -164,6 +164,14 @@ attribute table and every other QGIS tool.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
   changes, field properties, native attribute table.
+- **Advanced Filter (Expression)** is edited in place, as in QGIS's attribute
+  table: a bar on the left of the edit row with QGIS's expression box —
+  *Enter* or *Apply* applies, an invalid expression says why, *Escape* puts
+  the applied one back, … opens the Expression Builder, ☆ saves or loads the
+  layer's stored filter expressions and × removes the filter. In a narrow
+  window the edit row moves its less used commands into *More* to keep room.
+- The status bar's line says what the table and its statistics show (scope,
+  records shown of those available, selection, filters — listed on hover).
 - The right of the status bar shows the session state and the unsaved counts
   (orange while editing, red when a save failed); disabled buttons say why in
   their tooltip.

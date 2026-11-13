@@ -67,6 +67,7 @@ from . import widgets as W
 from .explorer_browse import BrowseMixin
 from .explorer_edit import CAP_DELETE
 from .explorer_editing import EditingMixin
+from .explorer_bars import ExpressionBar
 from .explorer_find import FindBar
 from .explorer_form import FormView
 from .explorer_header import ExplorerHeader, ProfileDetails
@@ -246,10 +247,15 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         # ---- editing rows (row 2 always; row 3 = Quick update) ----
         self._build_edit_rows(root)
 
-        # ---- scope line: left of the edit row (no row of its own) ----
-        self.scope_label = W.ElideLabel()
-        self.scope_label.setObjectName("gtsDim")
-        self.edit_bar.add_info(self.scope_label, 1)
+        # ---- left of the edit row: the expression filter, the Pivot chip
+        # (the scope line is in the status bar) ----
+        self.expr_bar = ExpressionBar(m, t)
+        self.expr_bar.setVisible(False)
+        self.expr_bar.applyRequested.connect(
+            lambda text: self.set_expression_filter(text, keep_bar=True))
+        self.expr_bar.closeRequested.connect(lambda: self.set_expression_filter(None))
+        self.expr_bar.manageRequested.connect(self.stored_expressions)
+        self.edit_bar.add_info(self.expr_bar, grow=True)
         self.external_chip = W.button(m, "", icons.glyph("cross", t.text_dim),
                                       "Remove the records handed over from "
                                       "the Pivot Table")
@@ -258,12 +264,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.external_chip.setVisible(False)
         self.external_chip.clicked.connect(self.clear_external_scope)
         self.edit_bar.add_info(self.external_chip)
-        self.expr_chip = W.button(m, "", icons.glyph("cross", t.text_dim), "")
-        self.expr_chip.setFixedHeight(m.compact_h)
-        self.expr_chip.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
-        self.expr_chip.setVisible(False)
-        self.expr_chip.clicked.connect(lambda: self.set_expression_filter(None))
-        self.edit_bar.add_info(self.expr_chip)
+        self.edit_bar.end_info()
 
         # ---- table / form ----
         self.model = FeatureTableModel(self.theme, self)
@@ -885,24 +886,20 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         shown = len(self.model.fids)
         available = self._available_count()
         self.count_label.setText(f"{available:,} records" if available >= 0 else "")
-        scope = self.scope_name()
-        filters = list(getattr(self, "_filters_text", []))
-        if filters:
-            names = ", ".join(sorted({f.split(" ")[0] for f in filters}))
-            ftext = (f"{len(filters)} active filter{'s' if len(filters) > 1 else ''}"
-                     f": {names}")
-        else:
-            ftext = "No active filters"
-        if self.sort_expr:
-            ftext += f"  •  Sorted by {self.sort_expr[0]}"
-        if self.edit.modified():
-            ftext += "  •  Unsaved layer values"
-        self.scope_label.setText(
-            f"Statistics for: {scope}  •  Exact  •  {shown:,} of "
-            f"{max(available, 0):,}  •  {ftext}")
-        self.scope_label.setToolTip("<br>".join(
-            ["<b>Active filters</b>"] + filters) if filters else "")
+        self._scope_text = (
+            f"{self.scope_name()}  •  Exact  •  {shown:,} of {max(available, 0):,}"
+            f"  •  {self._filters_summary('active filter')}"
+            + (f"  •  Sorted by {self.sort_expr[0]}" if self.sort_expr else "")
+            + ("  •  Unsaved layer values" if self.edit.modified() else ""))
         self._update_status()
+
+    def _filters_summary(self, noun="filter"):
+        """'2 filters: LAND_USE, LAND_VALUE' (expression: 'Expression')."""
+        filters = list(getattr(self, "_filters_text", []))
+        if not filters:
+            return f"No {noun}s"
+        names = ", ".join(sorted({f.split(" ")[0].rstrip(":") for f in filters}))
+        return f"{len(filters)} {noun}{'s' if len(filters) > 1 else ''}: {names}"
 
     def _update_status(self):
         if self.layer is None:
@@ -919,9 +916,21 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if note and time.monotonic() > note[0]:
             note = self._status_note = None
         note = note[1] if note else None
-        self.status.set_status(
-            f"{shown:,} shown / {available:,} available  •  {sel:,} selected"
-            + (f" ({hidden:,} hidden)" if hidden else "") + (f"  •  {note}" if note else ""))
+        # one line: what the table (and its statistics) shows, the
+        # selection and the filters (listed on hover)
+        parts = [self.scope_name(), f"{shown:,} of {max(available, 0):,}",
+                 f"{sel:,} selected" + (f" ({hidden:,} hidden)" if hidden else ""),
+                 self._filters_summary()]
+        if self.sort_expr:
+            parts.append(f"Sorted by {self.sort_expr[0]}")
+        if self.header.profiles_visible:
+            parts.append("Statistics exact")
+        if note:
+            parts.append(note)
+        self.status.set_status("  •  ".join(parts))
+        filters = list(getattr(self, "_filters_text", []))
+        self.status.setToolTip("<br>".join(["<b>Active filters</b>"] + filters)
+                               if filters else "")
 
     def _update_edit_status(self):
         """Edit session state on the right of the status bar (orange while
@@ -937,7 +946,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.status.set_extra("  •  ".join(p for p in parts if p), level)
 
     def scope_description(self):
-        return self.scope_label.fullText().replace("Statistics for: ", "")
+        """The scope as exports and the statistics popup record it."""
+        return getattr(self, "_scope_text", self.scope_name())
 
     # ====================================================================
     # TOGGLES
@@ -960,7 +970,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.external = None
         self.external_chip.setVisible(False)
         self.expr_filter = None
-        self.expr_chip.setVisible(False)
+        self._show_expression(None)
         self.refresh()
 
     # ====================================================================
@@ -1125,11 +1135,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.case_sensitive = bool(state.get("case"))
         expression = state.get("expr") or None
         self.expr_filter = expression
-        if expression:
-            short = expression if len(expression) < 60 else expression[:57] + "…"
-            self.expr_chip.setText(f"  Expression: {short}")
-            self.expr_chip.setToolTip(f"{expression}\nClick to remove the expression filter")
-        self.expr_chip.setVisible(bool(expression))
+        self._show_expression(expression)
         self._map_filter = True
         self._base_subset = entry.base
         self._applied_subset = entry.applied

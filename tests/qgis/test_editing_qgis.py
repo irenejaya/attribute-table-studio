@@ -112,12 +112,13 @@ class EditingTests(unittest.TestCase):
         self.assertLessEqual(abs(right(p.dock_btn) - right(b.more_btn)), 2)
         self.assertNotEqual(icons.CALCULATE, icons.QUICK_UPDATE)
         self.assertEqual(icons.QUICK_UPDATE, "/mActionProcessSelected.svg")
-        # the scope line sits on the left of the edit row (no row of its own);
-        # the edit status is in the status bar, dim while read only
-        y = lambda w: w.mapTo(p, QPoint(0, w.height() // 2)).y()
-        self.assertLessEqual(abs(y(p.scope_label) - y(b.edit_btn)), 2)
-        self.assertLess(x(p.scope_label), x(b.edit_btn))
-        self.assertTrue(p.scope_label.fullText().startswith("Statistics for:"))
+        # the scope line is the status bar's (one line with the counts);
+        # the edit status is on its right, dim while read only
+        status = p.status.message.fullText()
+        self.assertTrue(status.startswith(p.scope_name()), status)
+        self.assertIn(f"of {self.layer.featureCount():,}", status)
+        self.assertIn("selected", status)
+        self.assertFalse(p.expr_bar.isVisibleTo(p))      # the edit row's left: free
         self.assertLess(p.edit_bar.mapTo(p, QPoint(0, b.height())).y(),
                         p.view.mapTo(p, QPoint(0, 0)).y())
         extra = p.status.extra
@@ -475,7 +476,7 @@ class EditingTests(unittest.TestCase):
         settle(p)
         self.assertGreater(len(p.model.fids), 0)
         self.assertLess(len(p.model.fids), layer.featureCount())
-        self.assertIn("visible on the map", p.scope_label.fullText())
+        self.assertIn("visible on the map", p.status.message.fullText())
         # failing constraints
         layer.setFieldConstraint(self.lu, QgsFieldConstraints.Constraint.ConstraintExpression,
                                  QgsFieldConstraints.ConstraintStrength.ConstraintStrengthSoft)
@@ -484,7 +485,7 @@ class EditingTests(unittest.TestCase):
         settle(p)
         rural = sum(1 for f in layer.getFeatures() if f["LAND_USE"] == "RURAL")
         self.assertEqual(len(p.model.fids), rural)
-        self.assertIn(f"(0 hard, {rural} soft)", p.scope_label.fullText())
+        self.assertIn(f"(0 hard, {rural} soft)", p.status.message.fullText())
 
     def test_14_expression_filter_and_stored(self):
         p = self.panel
@@ -493,8 +494,9 @@ class EditingTests(unittest.TestCase):
         settle(p)
         a = len(p.model.fids)
         self.assertLess(a, total)
-        self.assertIn("Expression", p.scope_label.toolTip())
-        self.assertTrue(p.expr_chip.isVisibleTo(p))
+        self.assertIn("Expression", p.status.toolTip())
+        self.assertTrue(p.expr_bar.isVisibleTo(p))
+        self.assertEqual(p.expr_bar.text(), '"SCORE_MAX" > 80')
         p.set_expression_filter('"LAND_USE" = \'RESIDENTIAL\'', "and")
         settle(p)
         self.assertLessEqual(len(p.model.fids), a)
@@ -514,6 +516,84 @@ class EditingTests(unittest.TestCase):
         p.clear_filters()
         settle(p)
         self.assertIsNone(p.expr_filter)
+        self.assertEqual(len(p.model.fids), total)
+
+    def test_14b_expression_bar(self):
+        from qgis.PyQt.QtTest import QTest
+        p, layer = self.panel, self.layer
+        bar = p.expr_bar
+        total = layer.featureCount()
+        # View › Advanced Filter (Expression) opens the bar in the edit row,
+        # ready to type
+        self.assertFalse(bar.isVisibleTo(p))
+        p.edit_expression_filter()
+        self.assertTrue(bar.isVisibleTo(p))
+        self.assertTrue(bar.line.hasFocus())
+        y = lambda w: w.mapTo(p, QPoint(0, w.height() // 2)).y()
+        self.assertLessEqual(abs(y(bar) - y(p.edit_bar.edit_btn)), 2)
+        self.assertFalse(bar.apply_btn.isEnabled())            # nothing to apply
+        # typing marks Apply; Enter applies
+        QTest.keyClicks(bar.line, '"SCORE_MAX" > 80')
+        self.assertTrue(bar.apply_btn.isEnabled())
+        self.assertTrue(bar.apply_btn.property("pending"))
+        QTest.keyClick(bar.line, Qt.Key.Key_Return)
+        settle(p)
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 80')
+        n = len(p.model.fids)
+        self.assertEqual(n, sum(1 for f in layer.getFeatures() if f["SCORE_MAX"] is not None
+                                and not F.is_null(f["SCORE_MAX"]) and f["SCORE_MAX"] > 80))
+        self.assertFalse(bar.apply_btn.isEnabled())
+        # edit it in place: an invalid expression cannot be applied
+        QTest.keyClicks(bar.line, " AND")
+        self.assertFalse(bar.apply_btn.isEnabled())
+        self.assertIn("not valid", bar.apply_btn.toolTip())
+        QTest.keyClick(bar.line, Qt.Key.Key_Return)            # nothing happens
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 80')
+        # Escape puts the applied expression back
+        QTest.keyClick(bar.line, Qt.Key.Key_Escape)
+        self.assertEqual(bar.text(), '"SCORE_MAX" > 80')
+        # a changed expression replaces the filter
+        bar.box.setExpression('"SCORE_MAX" > 90')
+        bar.apply_btn.click()
+        settle(p)
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 90')
+        self.assertLess(len(p.model.fids), n)
+        # stored expressions: save the current one, load it back from ☆
+        manager = layer.storedExpressionManager()
+        before = len(manager.storedExpressions())
+        from qgis.PyQt.QtWidgets import QInputDialog
+        original = QInputDialog.getText
+        QInputDialog.getText = staticmethod(lambda *a, **k: ("over 90", True))
+        try:
+            bar._fill_store_menu()
+            save = bar.store_menu.actions()[0]
+            self.assertTrue(save.isEnabled())
+            save.trigger()
+        finally:
+            QInputDialog.getText = original
+        self.assertEqual(len(manager.storedExpressions()), before + 1)
+        self.assertIn("over 90", bar.store_btn.toolTip())
+        bar.box.setExpression("")
+        bar.apply_btn.click()                                  # empty: no filter,
+        settle(p)                                              # the bar stays
+        self.assertIsNone(p.expr_filter)
+        self.assertTrue(bar.isVisibleTo(p))
+        bar._fill_store_menu()
+        load = next(a for a in bar.store_menu.actions() if a.text() == "over 90")
+        load.trigger()
+        settle(p)
+        self.assertEqual(p.expr_filter, '"SCORE_MAX" > 90')
+        # a narrow window: commands move into More, the box keeps its room
+        win = self.plugin.explorers[layer.id()]._window
+        win.resize(1000, 700)
+        H.settle(0.4)
+        self.assertGreater(len(p.edit_bar.overflow_buttons()), 0)
+        self.assertGreaterEqual(bar.width(), bar.MIN_WIDTH)
+        # × removes the filter and hides the bar
+        bar.close_btn.click()
+        settle(p)
+        self.assertIsNone(p.expr_filter)
+        self.assertFalse(bar.isVisibleTo(p))
         self.assertEqual(len(p.model.fids), total)
 
     def test_15_select_menu_sort_and_selected_top(self):

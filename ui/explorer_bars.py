@@ -5,11 +5,14 @@
 """
 Attribute Explorer editing rows.
 
-- :class:`EditBar` is the second permanent toolbar row: the panel's scope
-  line ("Statistics for: ...") on the left, the editing commands right
-  aligned (ending at the Dock button's right edge).  The edit status lives
-  in the status bar.  In a narrow window the lower-priority groups move into
-  the More menu, so the row never wraps.
+- :class:`EditBar` is the second permanent toolbar row: the editing
+  commands right aligned (ending at the Dock button's right edge), and on
+  the left the expression filter bar and chips while they are in use.  The
+  scope line and the edit status live in the status bar.  In a narrow
+  window the lower-priority groups move into the More menu, so the row
+  never wraps.
+- :class:`ExpressionBar` is the Advanced Filter (Expression), editable in
+  place as in QGIS's attribute table.
 - :class:`QuickUpdateBar` is the optional third row, shown only while
   editing AND its separate Quick update toggle is on; it works like the
   native attribute table's field calculation bar.
@@ -17,11 +20,11 @@ Attribute Explorer editing rows.
 
 from qgis.PyQt.QtCore import QEvent, QSize, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QMenu, QSizePolicy, QVBoxLayout,
-    QWidget,
+    QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QMenu, QSizePolicy,
+    QVBoxLayout, QWidget,
 )
-from qgis.core import QgsFieldProxyModel
-from qgis.gui import QgsFieldComboBox, QgsFieldExpressionWidget
+from qgis.core import QgsFieldProxyModel, QgsStoredExpression
+from qgis.gui import QgsExpressionLineEdit, QgsFieldComboBox, QgsFieldExpressionWidget
 
 from . import icons
 from . import widgets as W
@@ -29,11 +32,11 @@ from .explorer_ops import geometry_calculator
 
 
 class EditBar(QWidget):
-    """Scope line (left, filled by the panel) and the editing commands
-    (right)."""
+    """The editing commands (right) and, on the left, the expression filter
+    bar and chips while they are in use (filled by the panel)."""
 
-    LEFT = 220          # kept for the scope line before groups move into More
-    LEFT_MIN = 140
+    LEFT = 40           # kept free on the left before groups move into More
+    LEFT_MIN = 40
 
     def __init__(self, metrics, theme, parent=None):
         super().__init__(parent)
@@ -118,13 +121,17 @@ class EditBar(QWidget):
         lay.addWidget(self.more_btn)
         self.hidden_groups = set()
 
-    def add_info(self, widget, stretch=0):
-        """Put *widget* on the left of the row: the scope line (stretch 1)
-        or one of its chips, which take room from the commands when shown."""
-        self.info_layout.addWidget(widget, stretch)
-        if not stretch:
-            self._chips.append(widget)
-            widget.installEventFilter(self)
+    def add_info(self, widget, grow=False):
+        """Put *widget* on the left of the row: the expression bar (*grow*:
+        it takes the free width) or a chip.  While shown, each keeps its
+        width there and the commands move into More instead."""
+        self.info_layout.addWidget(widget, 1 if grow else 0)
+        self._chips.append(widget)
+        widget.installEventFilter(self)
+
+    def end_info(self):
+        """Keep the chips on the left when nothing grows."""
+        self.info_layout.addStretch(0)
 
     def eventFilter(self, obj, event):
         if event.type() in (QEvent.Type.Show, QEvent.Type.Hide):
@@ -178,6 +185,175 @@ class EditBar(QWidget):
         """Buttons currently moved into More (in row order)."""
         return [b for i, g in enumerate(self.groups) if i in self.hidden_groups
                 for b in g]
+
+
+class ExpressionBar(QFrame):
+    """The Advanced Filter (Expression) in the edit row, editable as in QGIS's
+    attribute table: QGIS's expression box (… opens the Expression Builder,
+    an invalid expression says why), Apply or Enter, the layer's stored
+    filter expressions (☆) and × to remove the filter.  Escape puts the
+    applied expression back."""
+
+    applyRequested = pyqtSignal(str)
+    closeRequested = pyqtSignal()
+    manageRequested = pyqtSignal()
+
+    WIDTH = 440         # room the row keeps for it (commands move into More)
+    MIN_WIDTH = 260
+
+    def __init__(self, metrics, theme, parent=None):
+        super().__init__(parent)
+        m = metrics
+        self.metrics = m
+        self.layer = None
+        self.applied = ""
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(m.gap)
+        icon = QLabel()
+        icon.setPixmap(icons.native(icons.ADVANCED_FILTER).pixmap(m.icon, m.icon))
+        icon.setToolTip("Advanced Filter (Expression)")
+        lay.addWidget(icon)
+        self.box = QgsExpressionLineEdit()
+        self.box.setExpressionDialogTitle("Advanced Filter (Expression)")
+        self.box.setToolTip("Filter expression: edit it and press Enter or Apply "
+                            "(Escape puts the applied one back; … opens the "
+                            "Expression Builder)")
+        lay.addWidget(self.box, 1)
+        self.line = self.box.findChild(QLineEdit)
+        self.line.setPlaceholderText("Filter expression, e.g. \"AREA_M2\" > 500")
+        self.line.returnPressed.connect(self.apply)
+        self.line.installEventFilter(self)
+        self.apply_btn = W.button(m, "Apply", None, "")
+        self.apply_btn.setObjectName("gtsExprApply")
+        self.apply_btn.clicked.connect(self.apply)
+        lay.addWidget(self.apply_btn)
+        self.store_menu = QMenu(self)
+        self.store_menu.aboutToShow.connect(self._fill_store_menu)
+        self.store_btn = W.menu_square(m, icons.native(icons.STORED_FILTER_OFF),
+                                       "Stored filter expressions", self.store_menu)
+        lay.addWidget(self.store_btn)
+        self.close_btn = W.square_button(m, icons.glyph("cross", theme.text_dim),
+                                         "Remove the expression filter")
+        self.close_btn.clicked.connect(self.closeRequested.emit)
+        lay.addWidget(self.close_btn)
+        self.setStyleSheet(
+            f"QToolButton#gtsExprApply[pending=\"true\"] {{ background: {theme.accent};"
+            f" color: #FFFFFF; border: 1px solid {theme.accent}; }}")
+        self.box.expressionChanged.connect(self._update)
+        self._update()
+
+    def sizeHint(self):
+        return QSize(self.WIDTH, self.metrics.control_h)
+
+    def minimumSizeHint(self):
+        return QSize(self.MIN_WIDTH, self.metrics.control_h)
+
+    def set_layer(self, layer):
+        self.layer = layer
+        self.box.setLayer(layer)
+
+    def set_applied(self, expression):
+        """The expression filter in force (shown in the box)."""
+        self.applied = expression or ""
+        self.box.setExpression(self.applied)
+        if not self.line.hasFocus():
+            self.line.setCursorPosition(0)        # show it from its start
+        self._update()
+
+    def text(self):
+        return self.box.expression().strip()
+
+    def focus(self):
+        self.line.setFocus()
+        self.line.selectAll()
+
+    def _valid(self):
+        text = self.text()
+        if not text:
+            return True, ""
+        ok, message = self.box.isValidExpression()
+        return ok, message.strip()
+
+    def _update(self, *_args):
+        ok, message = self._valid()
+        pending = self.text() != self.applied
+        self.apply_btn.setEnabled(pending and ok)
+        self.apply_btn.setToolTip(
+            f"The expression is not valid: {message}" if not ok else
+            "Apply the expression (Enter)" if pending else "The expression is applied")
+        if bool(self.apply_btn.property("pending")) != (pending and ok):
+            self.apply_btn.setProperty("pending", pending and ok)
+            self.apply_btn.style().unpolish(self.apply_btn)
+            self.apply_btn.style().polish(self.apply_btn)
+        self.line.setToolTip(
+            f"The expression is not valid: {message}" if not ok else
+            f"{self.text()}\n\nEnter applies it, Escape puts the applied one back; "
+            "… opens the Expression Builder" if self.text() else "")
+        stored = self._stored_name(self.applied) if self.applied else None
+        self.store_btn.setIcon(icons.native(icons.STORED_FILTER if stored
+                                            else icons.STORED_FILTER_OFF))
+        self.store_btn.setToolTip(f"Stored filter expression: {stored}" if stored
+                                  else "Stored filter expressions")
+
+    def apply(self):
+        if self.apply_btn.isEnabled():
+            self.applyRequested.emit(self.text())
+
+    def eventFilter(self, obj, event):
+        if obj is not self.line:
+            return False
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Escape \
+                and self.text() != self.applied:
+            self.set_applied(self.applied)
+            return True
+        if event.type() == QEvent.Type.FocusOut:
+            QTimer.singleShot(0, lambda: self.line.setCursorPosition(0))
+        return False
+
+    # stored filter expressions (the layer's own, shared with QGIS) -------
+    def _stored(self):
+        if self.layer is None:
+            return []
+        return self.layer.storedExpressionManager().storedExpressions(
+            QgsStoredExpression.Category.FilterExpression)
+
+    def _stored_name(self, expression):
+        return next((se.name for se in self._stored()
+                     if se.expression.strip() == expression.strip()), None)
+
+    def _fill_store_menu(self):
+        menu = self.store_menu
+        menu.clear()
+        text = self.text()
+        save = menu.addAction(icons.native(icons.SAVE), "Save Expression As…")
+        save.setEnabled(bool(text) and self._valid()[0] and not self._stored_name(text))
+        save.triggered.connect(self._save_as)
+        stored = self._stored()
+        if stored:
+            menu.addSeparator()
+            for se in stored:
+                act = menu.addAction(se.name)
+                act.setToolTip(se.expression)
+                act.triggered.connect(lambda _c=False, e=se.expression: self._load(e))
+        menu.addSeparator()
+        menu.addAction(icons.native(icons.STORED_FILTER), "Manage Stored Expressions…"
+                       ).triggered.connect(self.manageRequested.emit)
+
+    def _save_as(self):
+        text = self.text()
+        name, ok = QInputDialog.getText(self, "Save Expression As", "Name",
+                                        text=text[:40])
+        if ok and name.strip():
+            self.layer.storedExpressionManager().addStoredExpression(
+                name.strip(), text, QgsStoredExpression.Category.FilterExpression)
+            self._update()
+
+    def _load(self, expression):
+        self.box.setExpression(expression)
+        self._update()
+        self.apply()
 
 
 class QuickUpdateBar(QFrame):

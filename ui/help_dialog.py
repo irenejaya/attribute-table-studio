@@ -85,13 +85,20 @@ written when you move to another record or back to the table).</li>
 <li>Scope, named as in the QGIS attribute table: <i>Show All Features</i>,
 <i>Show Selected Features</i> (same as <b>Selected only</b>), <i>Show
 Features Visible on Map</i> (follows the map extent), <i>Show Features with
-Failing Constraints</i> (hard and soft counts in the scope line) and
+Failing Constraints</i> (hard and soft counts in the status bar) and
 <i>Show Edited and New Features</i> (unsaved changes). Column filters
 always apply on top.</li>
-<li><i>Advanced Filter (Expression)</i> replaces it or combines it with AND /
-OR; <i>Stored Filter Expressions</i> reuses the layer's saved ones;
-<i>Filter by Form</i> uses the layer's form in search mode. The expression shows as a
-chip in the scope line; <b>Clear filters</b> clears it too.</li>
+<li><i>Advanced Filter (Expression)</i> opens the expression bar on the
+left of the edit row, as the QGIS attribute table's filter box: type or edit
+the expression there and press <b>Enter</b> or <b>Apply</b> (an invalid one
+says why and cannot be applied; <b>Escape</b> puts the applied one back;
+<b>…</b> opens QGIS's Expression Builder). <b>☆</b> saves the expression
+among the layer's stored filter expressions (shared with QGIS) or loads one;
+<b>×</b> removes the filter. In a narrow window the edit row moves its
+less used commands into <b>More</b> to keep room for the box. <i>Stored
+Filter Expressions</i> reuses the layer's saved ones; <i>Filter by Form</i>
+uses the layer's form in search mode. <b>Clear filters</b> clears the
+expression too.</li>
 <li><i>Case-Sensitive Text Filters</i>, <i>Move Selection to Top</i> (keeps
 the filtered records, only moves the selection up), <i>Sort by
 Expression</i>, <i>Conditional Formatting</i> (the layer's own rules,
@@ -99,8 +106,10 @@ painted in the table) and <i>Autosize All Columns</i>. Right-click a column name
 widths, hiding, the field calculator and field properties.</li>
 </ul>
 <h4>Editing</h4>
-<p>The second row holds the <i>Statistics for</i> line on the left and the
-editing commands on the right. <b>Edit</b> starts or stops editing the
+<p>The second row holds the editing commands (and, while in use, the
+expression filter on its left). The status bar's line says what the table
+and its statistics show: the scope, the records shown of those available,
+the selection and the filters (listed on hover). <b>Edit</b> starts or stops editing the
 layer. The edit session is the layer's own: the map, the native attribute
 table and every other QGIS tool share it, and edits made there show up here.
 The right of the status bar says whether the layer is read only or being
