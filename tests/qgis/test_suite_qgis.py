@@ -999,6 +999,140 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual([f["fid"] for f in unchanged.getFeatures()], [7])
         QgsProject.instance().removeMapLayers([old_t.id(), new_t.id()])
 
+    def test_13o_count_and_join_table(self):
+        from qgis.core import QgsFeature, QgsLayerTreeModel
+        from qgis.PyQt.QtCore import QMimeData, QUrl
+        from attribute_table_studio.core import joins as J
+        from attribute_table_studio.ui import explorer_join as EJ
+        base = H.demo_layer(n=400, name="Join parcels")
+        panel = self.plugin.open_explorer(base)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+
+        # the count: the layer's records, then the records shown when fewer
+        self.assertEqual(panel.count_label.text(), "400")
+        lu = base.fields().indexOf("LAND_USE")
+        panel.header.cells[lu].set_filter(
+            FL.ColumnFilter("LAND_USE", F.TEXT, "eq", "RESIDENTIAL"))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        shown = len(panel.model.fids)
+        self.assertLess(shown, 400)
+        self.assertEqual(panel.count_label.text(), f"400 ({shown:,})")
+        self.assertIn(f"{shown:,} of 400", panel.status.message.fullText())
+        panel.clear_filters()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(panel.count_label.text(), "400")
+
+        # matching rules: text of the value, NULL never matches
+        self.assertEqual([J.join_key(v) for v in (12, 12.0, "12", 2.5, True, None)],
+                         ["12", "12", "12", "2.5", "true", None])
+
+        # a made-up zones table: ZONE_CODE as text, one code repeats
+        zones = QgsVectorLayer("None?field=ZONE_CODE:string(5)&field=ZONE_NAME:string(30)"
+                               "&field=MAX_HEIGHT:double", "Zones", "memory")
+        rows = [("1", "Low density", 9.0), ("2", "Medium density", 12.5),
+                ("3", "High density (old)", 18.0), ("3", "High density", 21.0),
+                ("4", "Mixed use", 15.0)]
+        feats = []
+        for values in rows:
+            f = QgsFeature(zones.fields())
+            f.setAttributes(list(values))
+            feats.append(f)
+        zones.dataProvider().addFeatures(feats)
+        QgsProject.instance().addMapLayer(zones)
+
+        # the Join table button sits with New field / Delete field
+        bar = panel.edit_bar
+        self.assertIn(bar.join_btn, bar.groups[5])
+        self.assertTrue(bar.join_btn.isEnabled())
+        dlg = EJ.JoinTableDialog(panel)
+        self.assertFalse(dlg.join_btn.isEnabled())
+        self.assertEqual(dlg.chosen_fields(), [])
+        # dragged from the Layers panel
+        tree = QgsLayerTreeModel(QgsProject.instance().layerTreeRoot())
+        node = QgsProject.instance().layerTreeRoot().findLayer(zones.id())
+        self.assertIs(dlg.accept_mime(tree.mimeData([tree.node2index(node)])), zones)
+        self.assertIs(dlg.join_layer(), zones)
+        # the shared field name is matched; the join field is not offered
+        self.assertEqual((dlg.target_combo.current_name(), dlg.join_combo.current_name()),
+                         ("ZONE_CODE", "ZONE_CODE"))
+        self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME", "MAX_HEIGHT"])
+        self.assertEqual(dlg.prefix(), "Zones_")
+        self.assertTrue(H.wait_for(lambda: dlg.counts is not None, 20))
+        codes = [f["ZONE_CODE"] for f in base.getFeatures()]
+        matched = sum(1 for c in codes if c in (1, 2, 3, 4))
+        self.assertEqual(dlg.counts["matched"], matched)
+        self.assertEqual(dlg.counts["repeated"], 1)
+        self.assertEqual(dlg.counts["repeated_records"], codes.count(3))
+        self.assertTrue(dlg.match_head.text().startswith(f"{matched:,} of 400 records match"))
+        self.assertIn("compared as text", dlg.match_detail.text())
+        # a name already in the layer is left out by QGIS: say so
+        dlg.prefix_edit.setText("")
+        dlg._on_prefix_edited("")
+        dlg.field_list.item(0).setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(J.clashes(base.fields(), dlg.chosen_fields(), ""), [])
+        self.assertEqual(J.clashes(base.fields(), ["ZONE_CODE", "LAND_USE"], ""),
+                         ["ZONE_CODE", "LAND_USE"])
+        dlg.field_list.item(0).setCheckState(Qt.CheckState.Checked)
+        dlg.prefix_edit.setText("Z_")
+        dlg._on_prefix_edited("Z_")
+        dlg.field_list.item(1).setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME"])
+        self.assertTrue(dlg.join_btn.isEnabled())
+        self.assertTrue(dlg.add_join())
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        names = [f.name() for f in base.fields()]
+        self.assertEqual(names[-1], "Z_ZONE_NAME")
+        self.assertNotIn("Z_MAX_HEIGHT", names)
+        self.assertIn("Z_ZONE_NAME", [f.name() for f in panel.model.fields])
+        self.assertIn("Joined Zones", panel.status.message.fullText())
+        # QGIS gives a repeated code the last matching row
+        f3 = next(f for f in base.getFeatures() if f["ZONE_CODE"] == 3)
+        self.assertEqual(f3["Z_ZONE_NAME"], "High density")
+        # listed with Remove; removing takes the column away
+        dlg2 = EJ.JoinTableDialog(panel)
+        self.assertEqual(dlg2.joins_layout.count(), 1)
+        dlg2.remove_join(zones.id(), "Zones")
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertNotIn("Z_ZONE_NAME", [f.name() for f in base.fields()])
+        self.assertEqual(len(base.vectorJoins()), 0)
+        dlg2.reject()
+
+        # a CSV dropped from the file manager joins once Join is pressed;
+        # cancelled, it never reaches the project
+        path = os.path.join(OUT, "zone_heights.csv")
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            fh.write("ZONE_CODE,HEIGHT_LIMIT\n1,9\n2,12.5\n5,30\n")
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(path)])
+        before = set(QgsProject.instance().mapLayers())
+        dlg3 = EJ.JoinTableDialog(panel)
+        csv_layer = dlg3.accept_mime(mime)
+        self.assertIsNotNone(csv_layer)
+        self.assertEqual(csv_layer.providerType(), "delimitedtext")
+        self.assertEqual(set(QgsProject.instance().mapLayers()), before)
+        self.assertEqual(F.field_kind(csv_layer.fields().field("ZONE_CODE")), F.INTEGER)
+        self.assertTrue(H.wait_for(lambda: dlg3.counts is not None, 20))
+        self.assertEqual(dlg3.counts["matched"],
+                         codes.count(1) + codes.count(2) + codes.count(5))
+        dlg3.reject()
+        self.assertEqual(set(QgsProject.instance().mapLayers()), before)
+        dlg4 = EJ.JoinTableDialog(panel)
+        csv_layer = dlg4.accept_mime(mime)
+        self.assertTrue(H.wait_for(lambda: dlg4.counts is not None, 20))
+        self.assertTrue(dlg4.add_join())
+        self.assertIsNotNone(QgsProject.instance().mapLayer(csv_layer.id()))
+        self.assertIn("zone_heights_HEIGHT_LIMIT", [f.name() for f in base.fields()])
+        # this layer itself cannot be the join layer
+        dlg5 = EJ.JoinTableDialog(panel)
+        node = QgsProject.instance().layerTreeRoot().findLayer(base.id())
+        self.assertIsNone(dlg5.accept_mime(tree.mimeData([tree.node2index(node)])))
+        self.assertTrue(dlg5.drop_problem.text())
+        dlg5.reject()
+        base.removeJoin(csv_layer.id())
+        panel.close()
+        H.settle(0.1)
+
     def test_13g_round9_ui(self):
         from qgis.PyQt.QtWidgets import QToolButton
         from attribute_table_studio.ui import icons

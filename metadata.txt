@@ -36,6 +36,8 @@ changelog=
         * New: Attribute Explorer - Quick update opens when editing starts, like the native attribute table (can be turned off in Settings)
         * New: Attribute Explorer - Advanced Filter (Expression) is an editable bar in the second toolbar row, with the expression builder and stored expressions; the scope and filter summary are now part of the status bar
         * New: Attribute Explorer - Rename Field from a column's right-click menu
+        * New: Attribute Explorer - Join table: add a QGIS layer join from one window; drop a layer or a file (CSV, Excel, GeoPackage, shapefile) or choose it, see how many records will match before joining, pick the fields and prefix, and remove existing joins
+        * Attribute Explorer - the record count at the top follows the table: the layer's records, then the records shown in brackets when fewer, e.g. 9,434 (484); it also updates while editing
         * Attribute Explorer - the Columns window selects several rows (Shift+click, Ctrl+click) and Space or Toggle Selection ticks them together; it shows the Columns icon
         * New: Pivot Table - List distinct operator; the Values row puts the operator first, with symbols and explanations
 	1.1 - Bug fix and Add a search (Ctrl+F) and replace (Ctrl+H)
