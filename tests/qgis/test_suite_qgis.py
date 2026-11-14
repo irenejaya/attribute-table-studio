@@ -1047,6 +1047,13 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(bar.join_btn.isEnabled())
         dlg = EJ.JoinTableDialog(panel)
         self.assertFalse(dlg.join_btn.isEnabled())
+        # Join is a plain text button like Cancel: no icon, not blue, same size
+        self.assertTrue(dlg.join_btn.icon().isNull())
+        self.assertEqual(dlg.join_btn.text().strip(), "Join")
+        self.assertEqual(dlg.join_btn.objectName(), dlg.cancel_btn.objectName())
+        dlg.show()
+        H.settle(0.1)
+        self.assertEqual(dlg.join_btn.size(), dlg.cancel_btn.size())
         self.assertEqual(dlg.chosen_fields(), [])
         # dragged from the Layers panel
         tree = QgsLayerTreeModel(QgsProject.instance().layerTreeRoot())
