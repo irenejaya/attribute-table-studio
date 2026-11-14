@@ -233,6 +233,31 @@ if THEME == "dark":
     save(cell.op_menu, "filter_menu")
     cell.op_menu.hide()
 
+    # Join table: a made-up zones table (one land use missing, so not every
+    # record matches)
+    from attribute_table_studio.ui.explorer_join import JoinTableDialog
+    zones = QgsVectorLayer("None?field=LAND_USE:string(20)&field=ZONE:string(10)"
+                           "&field=MAX_STOREYS:integer&field=LU_CODE:string(4)",
+                           "Land use zones", "memory")
+    zone_rows = [("Residential", "R2", 3, "RES"), ("Commercial", "B4", 8, "COM"),
+                 ("Industrial", "IN1", 3, "IND"), ("Rural", "RU1", 2, "RUR"),
+                 ("Open space", "RE1", 1, "OSP")]
+    feats = []
+    for values in zone_rows:
+        f = QgsFeature(zones.fields())
+        f.setAttributes(list(values))
+        feats.append(f)
+    zones.dataProvider().addFeatures(feats)
+    QgsProject.instance().addMapLayer(zones)
+    dlg = JoinTableDialog(ex)
+    dlg.layer_combo.setLayer(zones)
+    H.wait_for(lambda: dlg.counts is not None, 30)
+    dlg.show()
+    dlg.resize(600, dlg.sizeHint().height())
+    save(dlg, "join_table")
+    dlg.reject()
+    QgsProject.instance().removeMapLayer(zones.id())
+
 # editing: a second filter, three selected rows, three unsaved values
 filt(ex, "LAND_VALUE", F.INTEGER, "gt", "650000")
 ex.refresh()
