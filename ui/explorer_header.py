@@ -733,6 +733,7 @@ class ValuePicker(QFrame):
         lay.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setObjectName("gtsValueList")
+        self.tree.setItemDelegateForColumn(0, W.TickDelegate(theme, self.tree))
         self.tree.setHeader(W.SortHeader(theme, self.tree))
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)
@@ -904,6 +905,7 @@ class ExplorerHeader(QHeaderView):
         self.cells = {}
         self._name_press = False
         self.values_provider = None
+        self.selected_cols = set()        # names highlighted as selected
         self.setSectionsClickable(True)
         self.setSectionsMovable(True)
         self.setHighlightSections(False)
@@ -924,6 +926,7 @@ class ExplorerHeader(QHeaderView):
 
     # ------------------------------------------------------------------
     def rebuild(self, fields, kinds):
+        self.selected_cols = set()
         for w in list(self.cards.values()) + list(self.cells.values()):
             w.deleteLater()
         self.cards, self.cells = {}, {}
@@ -1021,6 +1024,29 @@ class ExplorerHeader(QHeaderView):
         painter.restore()
         name_rect = QRect(rect.left(), rect.top() + top, rect.width(), self.name_h)
         super().paintSection(painter, name_rect, logical)
+        if logical in self.selected_cols:
+            # a selected column: its name on the selection blue (bold, as the
+            # header draws it: 8 px left, 22 px right for the sort arrow) with
+            # an accent line along the bottom
+            t = self.theme
+            painter.save()
+            cell = name_rect.adjusted(0, 0, -1, -1)
+            painter.fillRect(cell, QColor(t.selected))
+            painter.fillRect(QRect(cell.left(), cell.bottom() - 1, cell.width(), 2),
+                             QColor(t.accent))
+            painter.setPen(QPen(QColor(t.border), 1))
+            painter.drawLine(name_rect.topRight(), name_rect.bottomRight())
+            font = QFont(self.font())
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QColor(t.selected_text))
+            text_rect = name_rect.adjusted(8, 0, -22, 0)
+            name = str(self.model().headerData(
+                logical, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole) or "")
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                             QFontMetrics(font).elidedText(
+                                 name, Qt.TextElideMode.ElideRight, text_rect.width()))
+            painter.restore()
         W.paint_sort_arrow(self, painter, name_rect, logical, self.theme.text_dim)
 
     def paintEvent(self, event):

@@ -456,5 +456,5 @@ class BrowseMixin:
         act.setEnabled(self.edit.editing)
         act.triggered.connect(lambda: self.delete_field(name))
         menu.addAction(icons.native(icons.FIELD_PROPS), "Field Properties…").triggered.connect(
-            self.open_field_properties)
+            lambda: self.field_properties(name))
         menu.exec(self.header.mapToGlobal(pos))

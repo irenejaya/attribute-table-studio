@@ -861,7 +861,7 @@ class EditingTests(unittest.TestCase):
             QMenu.exec = original
         for text in ("Open Feature Form…", "Layer Feature Actions", "Copy Selected Rows as Text",
                      "Copy Cell Value", "Set Cell to NULL", "Review Unsaved Changes…",
-                     "Layer Field Properties…", "Open Native Attribute Table", "Help"):
+                     "Layer Properties…", "Open Native Attribute Table", "Help"):
             self.assertIn(text, texts)
         for text in ("Sort SCORE_MAX Ascending", "Autosize This Column",
                      "Set Column Width…", "Calculate SCORE_MAX…"):

@@ -85,7 +85,9 @@ by the records shown in the table when that is different: **9,434 (484)**.
   back as soon as editing stops.
 
   ![Map filter](docs/screenshots/dark_map_filter.png)
-- Sort by clicking a column name, drag to reorder, *Columns* to show / hide /
+- Click a column name to select the whole column (Ctrl / Shift+click for
+  more; Ctrl+C copies their values with the field names); double-click it to
+  sort (ascending, descending, off). Drag to reorder, *Columns* to show / hide /
   reorder (Shift+click selects a range of fields, Ctrl+click adds one; Space or
   *Toggle Selection* ticks them together); layouts are saved with the layer in
   the project.
@@ -172,14 +174,27 @@ attribute table and every other QGIS tool.
   Multi edit are each one undo step.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
-  changes, field properties, native attribute table.
+  changes, *Layer Properties…* (QGIS's own), native attribute table.
+- **Field properties** (beside *Join table*; also *Field Properties…* when
+  right-clicking a column name) shows every field in one grid, like QGIS's
+  Fields tab and ArcGIS Pro's Fields view: change *Visible*, *Read only*, the
+  *Field name*, *Alias*, *Allow NULL*, *Unique* and the *Default value* (also
+  *On update*); type, length, precision, origin and comment are shown. A
+  filter box narrows the rows, changed rows show their name in bold, and *OK*
+  applies everything together (a rename is in the edit session, like *Rename
+  Field*; the rest is saved in the project). *Layer Properties…* opens QGIS's
+  Fields page.
+
+  ![Field properties](docs/screenshots/dark_field_properties.png)
 - **Join table** (beside *New field*, no editing needed) adds a QGIS layer
-  join, as *Layer Properties › Joins* does. Drop a layer or table on the
-  window (Layers or Browser panel, or a CSV, Excel, GeoPackage or shapefile
-  from your files) or choose it in the box; the match fields are proposed and
-  the window counts the records that will match before you join (values
-  match as text, NULL never matches, a repeated join value gives the last
-  matching row). Pick the fields to add and their name prefix; names the
+  join, as *Layer Properties › Joins* does. Choose the *Join layer* in the
+  box (or drop a CSV, Excel, GeoPackage or shapefile on the window from your
+  file manager); under *Field match* the two fields are proposed and the
+  window counts the records that will match before you join (values match as
+  text, NULL never matches, a repeated join value gives the last matching
+  row). Tick the fields to add (none at first; a filter box narrows the list,
+  *All* / *None* tick the fields shown); the names get QGIS's default prefix unless
+  *Custom field name prefix* is ticked, as in QGIS's own window. Names the
   layer already has are flagged, since QGIS leaves them out. *Joins on this
   layer* lists the joins with Remove.
 

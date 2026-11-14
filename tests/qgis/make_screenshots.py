@@ -252,11 +252,28 @@ if THEME == "dark":
     dlg = JoinTableDialog(ex)
     dlg.layer_combo.setLayer(zones)
     H.wait_for(lambda: dlg.counts is not None, 30)
+    for i in (0, 1):                     # none are ticked at first
+        dlg.field_list.item(i).setCheckState(Qt.CheckState.Checked)
     dlg.show()
     dlg.resize(600, dlg.sizeHint().height())
     save(dlg, "join_table")
     dlg.reject()
     QgsProject.instance().removeMapLayer(zones.id())
+
+    # Field properties: an alias and a Not null rule changed, not applied
+    from attribute_table_studio.ui.explorer_fields import COL, FieldPropertiesDialog
+    fdlg = FieldPropertiesDialog(ex, "LAND_USE")
+    names = [f.name() for f in layer.fields()]
+    fdlg.table.item(names.index("OWNER_TYPE"), COL["alias"]).setText("Owner type")
+    fdlg.table.item(names.index("LAND_VALUE"), COL["allownull"]).setCheckState(
+        Qt.CheckState.Unchecked)
+    fdlg.table.item(names.index("SURVEY_DATE"), COL["default"]).setText("now()")
+    fdlg.show()
+    hh = fdlg.table.horizontalHeader()      # the whole grid (the window opens that
+    grid = sum(hh.sectionSize(i) for i in range(hh.count()))   # wide on a big screen)
+    fdlg.resize(grid + 2 * 14 + 24, 470)
+    save(fdlg, "field_properties")
+    fdlg.reject()
 
 # editing: a second filter, three selected rows, three unsaved values
 filt(ex, "LAND_VALUE", F.INTEGER, "gt", "650000")

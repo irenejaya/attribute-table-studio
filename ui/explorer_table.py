@@ -46,6 +46,7 @@ from qgis.gui import QgsGui
 
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY, enum_int
+from . import widgets as W
 
 _ALIGN_LEFT = enum_int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 _ALIGN_RIGHT = enum_int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -81,6 +82,7 @@ class FeatureTableModel(QAbstractTableModel):
         self._italic = QFont()
         self._italic.setItalic(True)
         self.highlight = None              # Find: (row, col) -> 0, 1 match, 2 current
+        self.selected_cols = set()         # columns selected by a header click
         # editing
         self.editing = False
         self.editable_cols = set()
@@ -96,6 +98,7 @@ class FeatureTableModel(QAbstractTableModel):
     def set_layer(self, layer):
         self.beginResetModel()
         self.layer = layer
+        self.selected_cols = set()
         flds = layer.fields() if layer is not None else None
         self.fields = [flds.at(i) for i in range(flds.count())] if flds else []
         self.kinds = [F.field_kind(f) for f in self.fields]
@@ -369,7 +372,7 @@ class FeatureTableModel(QAbstractTableModel):
                 tip = f"<b>{fld.name()}</b><br>{kind}"
                 if fld.alias():
                     tip += f"<br><i>Alias: {fld.alias()}</i>"
-                return tip + "<br><br>Click to sort · drag to move"
+                return tip + "<br><br>Click to select · double-click to sort · drag to move"
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 return _ALIGN_LEFT
             return None
@@ -407,7 +410,8 @@ class RowDelegate(QStyledItemDelegate):
         model = index.model()
         row, col = index.row(), index.column()
         fid = model.fids[row] if row < len(model.fids) else None
-        selected = fid in model.selected
+        # a selected feature (row) or a column selected by its name
+        selected = fid in model.selected or col in model.selected_cols
         painter.save()
         if selected:
             painter.fillRect(opt.rect, self._sel_bg)
@@ -536,8 +540,6 @@ class RowHeader(QHeaderView):
         self.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self._dim = QColor(theme.text_dim)
         self._text = QColor(theme.text)
-        self._border = QColor(theme.text_faint)
-        self._accent = QColor(theme.accent)
         self._bg = QColor(theme.base)
         self._alt = QColor(theme.base_alt)
         self._line = QColor(theme.border_soft)
@@ -566,23 +568,7 @@ class RowHeader(QHeaderView):
         painter.drawLine(rect.topRight(), rect.bottomRight())
         box = QRectF(rect.left() + 8, rect.center().y() - self.BOX / 2 + 0.5,
                      self.BOX, self.BOX)
-        if selected:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._accent)
-            painter.drawRoundedRect(box, 2.5, 2.5)
-            pen = QPen(QColor("white"), 1.8)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            x, y, s = box.left(), box.top(), self.BOX
-            painter.drawPolyline(QPolygonF([
-                QPointF(x + s * .22, y + s * .52),
-                QPointF(x + s * .43, y + s * .72),
-                QPointF(x + s * .78, y + s * .30)]))
-        else:
-            painter.setPen(QPen(self._border, 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(box, 2.5, 2.5)
+        W.paint_tick(painter, box, selected, self.theme)   # the suite's tick
         painter.setPen(self._text if selected else self._dim)
         num_rect = QRect(int(box.right()) + 6, rect.top(),
                          rect.right() - int(box.right()) - 12, rect.height())
@@ -638,6 +624,7 @@ class ExplorerTableView(QTableView):
     contextRequested = pyqtSignal(object, int, int)   # global pos, row, col
     editKeyRequested = pyqtSignal(str)          # undo / redo / cut / paste / delete
     editorClosed = pyqtSignal()
+    escapePressed = pyqtSignal()                # clears the selected columns
 
     _EDIT_KEYS = (
         (QKeySequence.StandardKey.Undo, "undo"),
@@ -793,6 +780,8 @@ class ExplorerTableView(QTableView):
         if key == Qt.Key.Key_Space and self.currentIndex().isValid() and not self.editing:
             self.toggleRequested.emit(self.currentIndex().row())
             return
+        if key == Qt.Key.Key_Escape:
+            self.escapePressed.emit()
         super().keyPressEvent(event)           # the arrows move the frame
 
     def moveCursor(self, action, modifiers):

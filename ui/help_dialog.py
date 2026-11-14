@@ -165,18 +165,35 @@ already used, longer than a shapefile's 10 characters) and is one undo step
 until <b>Save edits</b>; the column keeps its filter, width, place and sort.
 Expressions that use the old name are not changed. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review Unsaved
-Changes</i>, field properties and the native attribute table.</li>
+Changes</i>, <i>Layer Properties…</i> (QGIS's own, on its usual page) and the
+native attribute table.</li>
+<li><b>Field properties</b> (beside <i>Join table</i>, also <i>Field
+Properties…</i> in a column name's right-click menu, which picks that field)
+shows every field in one grid, as QGIS's Fields tab and ArcGIS's Fields view:
+<i>Visible</i> (the Explorer column), <i>Read only</i>, <i>Field name</i>,
+<i>Alias</i>, <i>Allow NULL</i>, <i>Unique</i> and the <i>Default value</i>
+(an expression, optionally also <i>On update</i>) can be changed; type,
+length, precision, origin (data source, joined, virtual, new) and comment
+are shown. <i>Search / Filter fields</i> narrows the rows; a row with a
+change shows its name in bold. <b>OK</b> applies everything together (a new
+name is renamed in the edit session, written by <b>Save edits</b>; the other
+settings are saved in the project, as in Layer Properties); <b>Cancel</b>
+changes nothing. Settings the data source fixes, or that do not apply to a
+joined or virtual field, are greyed with the reason on hover.
+<b>Layer Properties…</b> opens QGIS's Fields page for the rest.</li>
 <li><b>Join table</b> (beside <i>New field</i>; no editing needed) adds a
-QGIS layer join, as <i>Layer Properties › Joins</i> does. Drop the layer or
-table on the window - from the Layers or Browser panel, or a CSV, Excel,
-GeoPackage or shapefile from your files - or choose it in the box. The match
-fields are proposed (a field name both share) and the window counts how many
-records will match before you join: values match as text (12, 12.0 and "12"
-are the same), NULL never matches, and when a join value repeats a record
-gets the last matching row. Tick the fields to add and set the name prefix
-(the layer's name and _ by default); a name the layer already has is left
-out by QGIS, and the window says so. A file becomes a layer of the project
-when you press <b>OK</b>. <i>Joins on this layer</i> lists the joins, each
+QGIS layer join, as <i>Layer Properties › Joins</i> does. Choose the
+<b>Join layer</b> in the box, or drop a CSV, Excel, GeoPackage or shapefile
+on the window from your file manager. Under <b>Field match</b> the two fields
+are proposed (a field name both share) and the window counts how many records
+will match before you join: values match as text (12, 12.0 and "12" are the
+same), NULL never matches, and when a join value repeats a record gets the
+last matching row. Tick the fields to add (none are ticked at first; <i>Search / Filter fields</i> narrows the
+list; <i>All</i> and <i>None</i> then tick the fields shown). The joined fields are named with
+QGIS's default prefix (the join layer's name and _) unless you tick
+<b>Custom field name prefix</b>, as in QGIS's own window; a name the layer
+already has is left out by QGIS, and the window says so. A dropped file
+becomes a layer of the project when you press <b>OK</b>. <i>Joins on this layer</i> lists the joins, each
 with Remove.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
 close, close and keep the layer's edits, or cancel. Nothing is discarded
@@ -208,7 +225,10 @@ filter back as soon as editing stops.</p>
 it (or press Enter for the first match) to scroll that column to the middle
 of the table; its heading is highlighted for a moment, and a hidden column
 is shown again. The list shows each field's type icon, name and QGIS type.</p>
-<p>Click a column name to sort (again for descending, a third time to
+<p>Click a column name to select the whole column (Ctrl+click adds or removes
+one, Shift+click a range; <b>Ctrl+C</b> copies their values for the records
+shown, with the field names first; clicking a cell or <b>Escape</b> clears it).
+Double-click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use the
 <b>Columns</b> icon to show, hide and reorder (Shift+click selects a range
 of fields, Ctrl+click adds one; <b>Space</b> or <b>Toggle Selection</b> ticks

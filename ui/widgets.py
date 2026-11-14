@@ -23,24 +23,219 @@ Shared widgets, so every Attribute Table Studio tool looks and behaves the same.
   "Columns" (Explorer) and "Field(s) to Compare" (Compare).
 - :class:`FieldFinder`: "Go to field…" box (Explorer): type to search the
   fields, pick one to scroll the table to it.
+- :func:`paint_tick` / :class:`TickDelegate`: the one tick box of the suite
+  (the Explorer's row tick), for lists, trees and grids; tick-box controls
+  get the same drawing from the style sheet (theme.tick_images).
 """
 
 from qgis.PyQt.QtCore import (
-    QEvent, QModelIndex, QPoint, QPointF, QRect, QSize, Qt, QTimer, pyqtSignal,
+    QEvent, QModelIndex, QPoint, QPointF, QRect, QRectF, QSize, Qt, QTimer,
+    pyqtSignal,
 )
 from qgis.PyQt.QtGui import (
-    QColor, QFont, QFontMetrics, QPainter, QPolygonF, QStandardItem, QStandardItemModel,
+    QColor, QFont, QFontMetrics, QIcon, QPainter, QPen, QPolygonF, QStandardItem,
+    QStandardItemModel,
 )
 from qgis.PyQt.QtWidgets import (
-    QAbstractItemView, QComboBox, QCompleter, QDialog, QDialogButtonBox, QFrame,
-    QHBoxLayout, QHeaderView, QLabel, QLayout, QLineEdit, QListView, QListWidget,
-    QListWidgetItem, QSizePolicy, QStyle, QStyledItemDelegate, QToolButton,
-    QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QComboBox, QCompleter, QDialog,
+    QDialogButtonBox, QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout,
+    QLineEdit, QListView, QListWidget, QListWidgetItem, QSizePolicy, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QToolButton, QVBoxLayout, QWidget,
 )
 from qgis.gui import QgsMapLayerComboBox
 
 from ..core import fields as F
 from . import icons
+
+
+# ============================================================================
+# TICK BOXES: one look everywhere, the Explorer's row tick
+# ============================================================================
+
+TICK = 13                       # px, the box
+
+
+def paint_tick(painter, box, checked, theme, enabled=True):
+    """Ticked: an accent rounded box with a white tick; unticked: a thin
+    outline.  Greyed (faded) when *enabled* is False.  The same in light and
+    dark themes."""
+    box = QRectF(box)
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if not enabled:
+        painter.setOpacity(0.45)
+    if checked:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(theme.accent))
+        painter.drawRoundedRect(box, 2.5, 2.5)
+        pen = QPen(QColor("white"), 1.8)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        x, y, s = box.left(), box.top(), box.width()
+        painter.drawPolyline(QPolygonF([
+            QPointF(x + s * .22, y + s * .52),
+            QPointF(x + s * .43, y + s * .72),
+            QPointF(x + s * .78, y + s * .30)]))
+    else:
+        painter.setPen(QPen(QColor(theme.text_faint), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(box, 2.5, 2.5)
+    painter.restore()
+
+
+def _checked(state):
+    return state == Qt.CheckState.Checked or state == 2
+
+
+class TickDelegate(QStyledItemDelegate):
+    """Draws an item's tick box with :func:`paint_tick` instead of the
+    style's (QGIS themes colour those, e.g. green in Night Mapping).
+
+    In a list or tree the tick sits on the left of the item, which keeps its
+    icon and text; *grid* draws a tick-only cell, centred, as the Explorer
+    table draws its cells (base / alternate rows, blue frame on the current
+    cell).  A click on the tick, or Space, toggles it."""
+
+    MARGIN, GAP = 4, 6
+
+    def __init__(self, theme, parent=None, grid=False):
+        super().__init__(parent)
+        self.theme = theme
+        self.grid = grid
+
+    def _box(self, rect):
+        if self.grid:
+            return QRectF(rect.center().x() - TICK / 2 + 0.5,
+                          rect.center().y() - TICK / 2 + 0.5, TICK, TICK)
+        return QRectF(rect.left() + self.MARGIN,
+                      rect.center().y() - TICK / 2 + 0.5, TICK, TICK)
+
+    def paint(self, painter, option, index):
+        state = index.data(Qt.ItemDataRole.CheckStateRole)
+        if state is None:
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        enabled = bool(index.flags() & Qt.ItemFlag.ItemIsEnabled)
+        if self.grid:
+            paint_grid_cell(painter, opt, index, self.theme)
+        else:
+            widget = opt.widget
+            style = widget.style() if widget is not None else QApplication.style()
+            opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
+            style.drawPrimitive(QStyle.PrimitiveElement.PE_PanelItemViewItem, opt,
+                                painter, widget)
+            opt.rect = opt.rect.adjusted(self.MARGIN + TICK + self.GAP - 4, 0, 0, 0)
+            style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        paint_tick(painter, self._box(option.rect), _checked(state), self.theme, enabled)
+        if self.grid:
+            paint_cell_frame(painter, opt, self.theme)
+
+    def sizeHint(self, option, index):
+        size = super().sizeHint(option, index)
+        return QSize(max(size.width(), TICK + 2 * self.MARGIN), size.height())
+
+    def editorEvent(self, event, model, option, index):
+        state = index.data(Qt.ItemDataRole.CheckStateRole)
+        flags = index.flags()
+        if state is None or not (flags & Qt.ItemFlag.ItemIsUserCheckable) \
+                or not (flags & Qt.ItemFlag.ItemIsEnabled):
+            return False
+        kind = event.type()
+        if kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonRelease,
+                    QEvent.Type.MouseButtonDblClick):
+            if event.button() != Qt.MouseButton.LeftButton:
+                return False
+            pos = event.position() if hasattr(event, "position") else QPointF(event.pos())
+            hit = QRectF(option.rect) if self.grid else QRectF(
+                option.rect.left(), option.rect.top(),
+                self.MARGIN + TICK + self.GAP / 2, option.rect.height())
+            if not hit.contains(pos):
+                return False
+            if kind != QEvent.Type.MouseButtonRelease:
+                return True              # the release toggles it
+        elif kind == QEvent.Type.KeyPress:
+            if event.key() not in (Qt.Key.Key_Space, Qt.Key.Key_Select):
+                return False
+        else:
+            return False
+        new = Qt.CheckState.Unchecked if _checked(state) else Qt.CheckState.Checked
+        return model.setData(index, new, Qt.ItemDataRole.CheckStateRole)
+
+
+def grid_stripe(view, row):
+    """0 / 1: the row's place among the shown rows (stripes stay even when
+    a filter hides rows)."""
+    stripe = getattr(view, "gts_stripe", None)
+    return (stripe.get(row, row) if stripe else row) % 2
+
+
+def paint_grid_cell(painter, opt, index, theme):
+    """The background of a grid cell, as the Explorer table: base and
+    alternate rows."""
+    alt = grid_stripe(opt.widget, index.row()) if opt.widget is not None else index.row() % 2
+    painter.fillRect(opt.rect, QColor(theme.base_alt if alt else theme.base))
+
+
+def paint_cell_frame(painter, opt, theme):
+    """The current cell's blue frame (the Explorer's framed cell)."""
+    if opt.state & QStyle.StateFlag.State_HasFocus:
+        painter.save()
+        painter.setPen(QPen(QColor(theme.accent), 1.5))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(QRectF(opt.rect).adjusted(1, 1, -1, -1))
+        painter.restore()
+
+
+class GridTextDelegate(QStyledItemDelegate):
+    """A text cell drawn as the Explorer table draws it: 7 px padding, the
+    item's icon and colour, base / alternate rows and the blue frame on the
+    current cell (no selection fill, so no theme colour leaks in)."""
+
+    PAD = 7
+
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self.theme = theme
+
+    def sizeHint(self, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        # padding both sides, the grid line and a little slack
+        width = 2 * self.PAD + opt.fontMetrics.horizontalAdvance(opt.text) + 4
+        if not opt.icon.isNull():
+            width += opt.decorationSize.width() + 6
+        return QSize(width, super().sizeHint(option, index).height())
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        painter.save()
+        paint_grid_cell(painter, opt, index, self.theme)
+        rect = opt.rect.adjusted(self.PAD, 0, -self.PAD, 0)
+        if not opt.icon.isNull():
+            size = opt.decorationSize
+            mode = (QIcon.Mode.Normal if index.flags() & Qt.ItemFlag.ItemIsEnabled
+                    else QIcon.Mode.Disabled)
+            pm = opt.icon.pixmap(size, mode)
+            y = rect.top() + (rect.height() - size.height()) // 2
+            painter.drawPixmap(rect.left(), y, pm)
+            rect.setLeft(rect.left() + size.width() + 6)
+        brush = index.data(Qt.ItemDataRole.ForegroundRole)
+        colour = brush.color() if brush is not None else QColor(self.theme.text)
+        if not (index.flags() & Qt.ItemFlag.ItemIsEnabled):
+            colour = QColor(self.theme.text_faint)
+        painter.setPen(colour)
+        painter.setFont(opt.font)
+        painter.drawText(rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                         opt.fontMetrics.elidedText(opt.text, Qt.TextElideMode.ElideRight,
+                                                    rect.width()))
+        painter.restore()
+        paint_cell_frame(painter, opt, self.theme)
+
 
 
 # ============================================================================
@@ -758,6 +953,7 @@ class FieldChecklistDialog(QDialog):
         lay.addWidget(self.search)
 
         self.listw = QListWidget()
+        self.listw.setItemDelegate(TickDelegate(theme, self.listw))
         self.listw.setIconSize(QSize(metrics.icon, metrics.icon))
         self.listw.setUniformItemSizes(True)
         self.listw.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
