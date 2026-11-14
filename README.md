@@ -179,7 +179,8 @@ attribute table and every other QGIS tool.
   file manager); under *Field match* the two fields are proposed and the
   window counts the records that will match before you join (values match as
   text, NULL never matches, a repeated join value gives the last matching
-  row). Pick the fields to add; the names get QGIS's default prefix unless
+  row). Pick the fields to add (a filter box narrows the list; *All* / *None*
+  tick the fields shown); the names get QGIS's default prefix unless
   *Custom field name prefix* is ticked, as in QGIS's own window. Names the
   layer already has are flagged, since QGIS leaves them out. *Joins on this
   layer* lists the joins with Remove.

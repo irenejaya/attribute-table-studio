@@ -1064,6 +1064,20 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual((dlg.target_combo.current_name(), dlg.join_combo.current_name()),
                          ("ZONE_CODE", "ZONE_CODE"))
         self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME", "MAX_HEIGHT"])
+        # the filter box shows the matching fields; All / None act on those
+        head = dlg.field_search.parentWidget()
+        x = [w.mapTo(head, QPoint(0, 0)).x() for w in
+             (dlg.field_search, dlg.all_link, dlg.none_link)]
+        self.assertEqual(x, sorted(x))
+        dlg.field_search.setText("name")
+        shown = [it.text() for it in dlg._field_items() if not it.isHidden()]
+        self.assertEqual(shown, ["ZONE_NAME"])
+        dlg.none_link.click()
+        self.assertEqual(dlg.chosen_fields(), ["MAX_HEIGHT"])
+        dlg.field_search.clear()
+        self.assertTrue(all(not it.isHidden() for it in dlg._field_items()))
+        dlg.all_link.click()
+        self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME", "MAX_HEIGHT"])
         # the prefix is QGIS's default, greyed, until Custom field name
         # prefix is ticked (which opens the box)
         self.assertEqual(dlg.prefix(), "Zones_")

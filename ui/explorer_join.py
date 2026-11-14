@@ -184,8 +184,16 @@ class JoinTableDialog(_Dialog):
         head = QHBoxLayout()
         head.setSpacing(m.gap)
         head.addWidget(W.section_header("Fields to add"), 1)
-        self.all_link = W.flat_link(m, "All", "Tick every field")
-        self.none_link = W.flat_link(m, "None", "Untick every field")
+        # filter box (as in the Columns window), then All / None for the
+        # fields shown
+        self.field_search = QLineEdit()
+        self.field_search.setPlaceholderText("Filter fields")
+        self.field_search.setClearButtonEnabled(True)
+        self.field_search.setFixedHeight(m.control_h)
+        self.field_search.setFixedWidth(180)
+        head.addWidget(self.field_search)
+        self.all_link = W.flat_link(m, "All", "Tick every field shown")
+        self.none_link = W.flat_link(m, "None", "Untick every field shown")
         head.addWidget(self.all_link)
         head.addWidget(self.none_link)
         self.lay.addLayout(head)
@@ -244,6 +252,7 @@ class JoinTableDialog(_Dialog):
         self.target_combo.currentIndexChanged.connect(self._on_match_fields)
         self.join_combo.currentIndexChanged.connect(self._on_join_field)
         self.field_list.itemChanged.connect(lambda *_: self._update_names())
+        self.field_search.textChanged.connect(lambda *_: self._filter_fields())
         self.all_link.clicked.connect(lambda: self._tick_all(True))
         self.none_link.clicked.connect(lambda: self._tick_all(False))
         self.prefix_edit.textEdited.connect(lambda *_: self._update_names())
@@ -436,7 +445,21 @@ class JoinTableDialog(_Dialog):
                 item.setCheckState(previous.get(fld.name(), Qt.CheckState.Checked))
                 self.field_list.addItem(item)
         self.field_list.blockSignals(False)
+        self._filter_fields()
         self._update_names()
+
+    def _filter_fields(self):
+        """Show only the fields whose name (or alias) contains the filter
+        text, letter case ignored."""
+        text = self.field_search.text().strip().lower()
+        layer = self.join_layer()
+        fields = layer.fields() if layer is not None else QgsFields()
+        for item in self._field_items():
+            name = item.data(Qt.ItemDataRole.UserRole)
+            idx = fields.indexFromName(name)
+            alias = fields.at(idx).alias() if idx >= 0 else ""
+            item.setHidden(bool(text) and text not in name.lower()
+                           and text not in (alias or "").lower())
 
     def _field_items(self):
         items = (self.field_list.item(i) for i in range(self.field_list.count()))
@@ -450,7 +473,8 @@ class JoinTableDialog(_Dialog):
         state = Qt.CheckState.Checked if on else Qt.CheckState.Unchecked
         self.field_list.blockSignals(True)
         for item in self._field_items():
-            item.setCheckState(state)
+            if not item.isHidden():      # with a filter: the fields shown
+                item.setCheckState(state)
         self.field_list.blockSignals(False)
         self._update_names()
 
