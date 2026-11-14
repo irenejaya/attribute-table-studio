@@ -198,6 +198,7 @@ class JoinTableDialog(_Dialog):
         head.addWidget(self.none_link)
         self.lay.addLayout(head)
         self.field_list = QListWidget()
+        self.field_list.setItemDelegate(W.TickDelegate(t, self.field_list))
         self.field_list.setIconSize(QSize(m.icon, m.icon))
         self.field_list.setMinimumHeight(120)
         self.lay.addWidget(self.field_list, 1)

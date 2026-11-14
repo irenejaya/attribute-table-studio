@@ -46,6 +46,7 @@ from qgis.gui import QgsGui
 
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY, enum_int
+from . import widgets as W
 
 _ALIGN_LEFT = enum_int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 _ALIGN_RIGHT = enum_int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -539,8 +540,6 @@ class RowHeader(QHeaderView):
         self.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self._dim = QColor(theme.text_dim)
         self._text = QColor(theme.text)
-        self._border = QColor(theme.text_faint)
-        self._accent = QColor(theme.accent)
         self._bg = QColor(theme.base)
         self._alt = QColor(theme.base_alt)
         self._line = QColor(theme.border_soft)
@@ -569,23 +568,7 @@ class RowHeader(QHeaderView):
         painter.drawLine(rect.topRight(), rect.bottomRight())
         box = QRectF(rect.left() + 8, rect.center().y() - self.BOX / 2 + 0.5,
                      self.BOX, self.BOX)
-        if selected:
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._accent)
-            painter.drawRoundedRect(box, 2.5, 2.5)
-            pen = QPen(QColor("white"), 1.8)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            x, y, s = box.left(), box.top(), self.BOX
-            painter.drawPolyline(QPolygonF([
-                QPointF(x + s * .22, y + s * .52),
-                QPointF(x + s * .43, y + s * .72),
-                QPointF(x + s * .78, y + s * .30)]))
-        else:
-            painter.setPen(QPen(self._border, 1))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(box, 2.5, 2.5)
+        W.paint_tick(painter, box, selected, self.theme)   # the suite's tick
         painter.setPen(self._text if selected else self._dim)
         num_rect = QRect(int(box.right()) + 6, rect.top(),
                          rect.right() - int(box.right()) - 12, rect.height())

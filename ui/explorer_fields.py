@@ -17,12 +17,11 @@ show their field name in bold, as ArcGIS does.
 
 import time
 
-from qgis.PyQt.QtCore import QEvent, QRect, QSize, Qt, QTimer
-from qgis.PyQt.QtGui import QBrush, QColor, QFont, QFontMetrics
+from qgis.PyQt.QtCore import QSize, Qt, QTimer
+from qgis.PyQt.QtGui import QBrush, QColor, QFont, QFontMetrics, QGuiApplication
 from qgis.PyQt.QtWidgets import (
-    QAbstractItemView, QApplication, QHBoxLayout, QLabel,
-    QLineEdit, QStyle, QStyledItemDelegate, QStyleOptionButton,
-    QStyleOptionViewItem, QTableWidget, QTableWidgetItem,
+    QAbstractItemView, QHBoxLayout, QLabel, QLineEdit, QTableWidget,
+    QTableWidgetItem,
 )
 from qgis.core import Qgis, QgsDefaultValue, QgsExpression, QgsFieldConstraints
 
@@ -39,7 +38,6 @@ _UNIQUE = QgsFieldConstraints.Constraint.ConstraintUnique
 _FROM_SOURCE = getattr(QgsFieldConstraints.ConstraintOrigin, "ConstraintOriginProvider",
                        getattr(QgsFieldConstraints, "ConstraintOriginProvider", None))
 _HARD = QgsFieldConstraints.ConstraintStrength.ConstraintStrengthHard
-_CHECK = Qt.ItemDataRole.CheckStateRole
 
 # (key, heading, tooltip, check box?)
 COLUMNS = (
@@ -77,55 +75,6 @@ ORIGINS = {
 }
 
 
-class _CheckDelegate(QStyledItemDelegate):
-    """A tick box centred in its cell; click or Space toggles it."""
-
-    def paint(self, painter, option, index):
-        opt = QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        state = index.data(_CHECK)
-        opt.features &= ~QStyleOptionViewItem.ViewItemFeature.HasCheckIndicator
-        opt.text = ""
-        widget = opt.widget
-        style = widget.style() if widget is not None else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
-        if state is None:
-            return
-        box = QStyleOptionButton()
-        size = style.subElementRect(QStyle.SubElement.SE_CheckBoxIndicator, box,
-                                    widget).size()
-        box.rect = QRect(opt.rect.center().x() - size.width() // 2,
-                         opt.rect.center().y() - size.height() // 2,
-                         size.width(), size.height())
-        checked = (state == Qt.CheckState.Checked or state == 2)
-        box.state = QStyle.StateFlag.State_On if checked else QStyle.StateFlag.State_Off
-        if index.flags() & Qt.ItemFlag.ItemIsEnabled:
-            box.state |= QStyle.StateFlag.State_Enabled
-        box.palette = opt.palette
-        style.drawPrimitive(QStyle.PrimitiveElement.PE_IndicatorCheckBox, box,
-                            painter, widget)
-
-    def editorEvent(self, event, model, option, index):
-        flags = index.flags()
-        if not (flags & Qt.ItemFlag.ItemIsUserCheckable) \
-                or not (flags & Qt.ItemFlag.ItemIsEnabled):
-            return False
-        kind = event.type()
-        toggle = False
-        if kind == QEvent.Type.MouseButtonRelease:
-            toggle = event.button() == Qt.MouseButton.LeftButton
-        elif kind in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick):
-            return True
-        elif kind == QEvent.Type.KeyPress:
-            toggle = event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Select)
-        if not toggle:
-            return False
-        state = index.data(_CHECK)
-        checked = state == Qt.CheckState.Checked or state == 2
-        return model.setData(index, Qt.CheckState.Unchecked if checked
-                             else Qt.CheckState.Checked, _CHECK)
-
-
 class FieldPropertiesDialog(_Dialog):
     """The layer's fields, one per row; OK applies the changes."""
 
@@ -151,8 +100,14 @@ class FieldPropertiesDialog(_Dialog):
         top.addWidget(self.search)
         self.lay.addLayout(top)
 
+        # the Explorer table's look: its header, rows, grid lines and the blue
+        # frame on the current cell (drawn by the delegates, so no theme
+        # selection colour shows)
         self.table = QTableWidget(0, len(COLUMNS))
-        self.table.setObjectName("gtsFieldGrid")
+        self.table.setObjectName("gtsTable")
+        # nothing sorts here, so the headings keep no room for a sort arrow
+        self.setStyleSheet(self.styleSheet() + "QTableWidget#gtsTable "
+                           "QHeaderView::section:horizontal { padding: 0px 8px; }")
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -160,10 +115,12 @@ class FieldPropertiesDialog(_Dialog):
                                    | QAbstractItemView.EditTrigger.EditKeyPressed
                                    | QAbstractItemView.EditTrigger.AnyKeyPressed)
         self.table.setWordWrap(False)
-        self.table.setAlternatingRowColors(True)
         self.table.setIconSize(QSize(m.icon, m.icon))
-        self.table.verticalHeader().setDefaultSectionSize(m.font_h + 10)
-        checks = _CheckDelegate(self.table)
+        self.table.verticalHeader().setDefaultSectionSize(m.font_h + 9)
+        self.table.horizontalHeader().setMinimumHeight(m.font_h + 12)
+        self.table.setShowGrid(True)
+        self.table.setItemDelegate(W.GridTextDelegate(t, self.table))
+        checks = W.TickDelegate(t, self.table, grid=True)
         for i, (key, title, tip, is_check) in enumerate(COLUMNS):
             head = QTableWidgetItem(title)
             head.setToolTip(tip)
@@ -200,6 +157,7 @@ class FieldPropertiesDialog(_Dialog):
             btn.setMinimumWidth(width)
 
         self._fill()
+        self._fit_width()
         self.table.itemChanged.connect(self._on_item_changed)
         self.search.textChanged.connect(lambda *_: self._filter())
         self.props_btn.clicked.connect(self.open_layer_properties)
@@ -310,22 +268,36 @@ class FieldPropertiesDialog(_Dialog):
             text("origin", ORIGINS.get(origin, ""))
             text("comment", fld.comment() or "")
         self.table.blockSignals(False)
-        widths = {"visible": 64, "readonly": 74, "allownull": 82, "unique": 64,
-                  "onupdate": 76, "length": 64, "precision": 74}
+        # every heading and value fits (headings are bold, 8 px each side);
+        # long free text is capped
         self.table.resizeColumnsToContents()
         hh = self.table.horizontalHeader()
-        for key, width in widths.items():
-            hh.resizeSection(COL[key], width)
-        for key in ("alias", "default", "type"):
-            hh.resizeSection(COL[key], min(max(hh.sectionSize(COL[key]), 110), 240))
-        # names turn bold when their row changes: make room for that
         bold = QFont(self.table.font())
         bold.setBold(True)
         fm = QFontMetrics(bold)
+        for i, (key, title, _tip, _check) in enumerate(COLUMNS):
+            width = max(hh.sectionSize(i), fm.horizontalAdvance(title) + 2 * 8 + 4)
+            if key in ("alias", "default", "comment"):
+                width = min(max(width, 110), 240)
+            hh.resizeSection(i, width)
+        # names turn bold when their row changes: make room for that
         widest = max((fm.horizontalAdvance(fields.at(i).name())
                       for i in range(fields.count())), default=0)
-        hh.resizeSection(COL["name"], min(max(widest + self.metrics.icon + 28, 110), 260))
+        hh.resizeSection(COL["name"], min(max(widest + self.metrics.icon + 28,
+                                              hh.sectionSize(COL["name"])), 260))
         self._filter()
+
+    def _fit_width(self):
+        """Open wide enough for every column (within the screen)."""
+        hh = self.table.horizontalHeader()
+        grid = sum(hh.sectionSize(i) for i in range(hh.count()))
+        margins = self.lay.contentsMargins()
+        width = (grid + 2 * self.table.frameWidth()
+                 + self.table.verticalScrollBar().sizeHint().width()
+                 + margins.left() + margins.right() + 4)
+        screen = self.screen() if hasattr(self, "screen") else None
+        avail = (screen or QGuiApplication.primaryScreen()).availableGeometry()
+        self.resize(max(900, min(width, int(avail.width() * 0.92))), self.height())
 
     # ------------------------------------------------------------------
     # state in the grid
@@ -407,11 +379,16 @@ class FieldPropertiesDialog(_Dialog):
 
     def _filter(self):
         text = self.search.text().strip().lower()
+        stripe = {}
         for r in range(len(self.rows)):
             cur = self.current(r)
             match = (not text or text in cur["name"].lower()
                      or text in cur["alias"].lower())
             self.table.setRowHidden(r, not match)
+            if match:
+                stripe[r] = len(stripe)     # stripes follow the rows shown
+        self.table.gts_stripe = stripe
+        self.table.viewport().update()
 
     def focus_field(self, name):
         """Pick the row of the field *name* (right-click › Field Properties)."""

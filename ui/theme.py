@@ -13,6 +13,10 @@ current font so all buttons, inputs and icons in a row line up at any
 display scaling.
 """
 
+import hashlib
+import os
+import tempfile
+
 from qgis.PyQt.QtGui import QColor, QFont, QFontMetrics, QPalette
 from qgis.PyQt.QtWidgets import QApplication
 
@@ -150,9 +154,61 @@ class Metrics:
         self.display_pt = round(base + 3.0, 1)
 
 
+_TICK_SVG = {
+    "checked": ('<rect x="0" y="0" width="13" height="13" rx="2.5" fill="{accent}"/>'
+                '<polyline points="2.86,6.76 5.59,9.36 10.14,3.9" fill="none" '
+                'stroke="#FFFFFF" stroke-width="1.8" stroke-linecap="round" '
+                'stroke-linejoin="round"/>'),
+    "unchecked": ('<rect x="0.5" y="0.5" width="12" height="12" rx="2.5" '
+                  'fill="none" stroke="{faint}" stroke-width="1"/>'),
+}
+
+
+def tick_images(t):
+    """Paths of the tick box images (checked, unchecked, and both greyed)
+    for the style sheet: the Explorer's row tick (widgets.paint_tick), so a
+    QCheckBox looks the same in every theme instead of the QGIS theme's own
+    (green in Night Mapping).  Written once per colour set."""
+    key = hashlib.sha1(f"{t.accent}|{t.text_faint}".encode()).hexdigest()[:10]
+    folder = os.path.join(tempfile.gettempdir(), "attribute_table_studio_ticks", key)
+    paths = {}
+    for state, body in _TICK_SVG.items():
+        for disabled in (False, True):
+            name = f"{state}{'_disabled' if disabled else ''}.svg"
+            path = os.path.join(folder, name)
+            if not os.path.exists(path):
+                os.makedirs(folder, exist_ok=True)
+                inner = body.format(accent=t.accent, faint=t.text_faint)
+                if disabled:
+                    inner = f'<g opacity="0.45">{inner}</g>'
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write('<svg xmlns="http://www.w3.org/2000/svg" width="13" '
+                             f'height="13" viewBox="0 0 13 13">{inner}</svg>')
+            paths[name[:-4]] = path.replace("\\", "/")
+    return paths
+
+
+def _tick_rules(t):
+    try:
+        img = tick_images(t)
+    except OSError:
+        return ""                        # no writable temp folder: the theme's own
+    # no fill or frame of the QGIS theme's own behind the image
+    rules = ["QCheckBox::indicator, QGroupBox::indicator { width: 13px; height: 13px; "
+             "background: transparent; border: none; }"]
+    for state in ("checked", "unchecked"):
+        rules.append(f"QCheckBox::indicator:{state}, QGroupBox::indicator:{state} "
+                     f'{{ image: url("{img[state]}"); }}')
+        rules.append(f"QCheckBox::indicator:{state}:disabled, "
+                     f"QGroupBox::indicator:{state}:disabled "
+                     f'{{ image: url("{img[state + "_disabled"]}"); }}')
+    return "\n        ".join(rules)
+
+
 def stylesheet(t, m):
     """Style sheet applied to the root widget of every tool."""
     return f"""
+        {_tick_rules(t)}
         QWidget#gtsPanel {{ background: {t.panel}; }}
         QFrame#gtsCard {{ background: {t.card}; border: 1px solid {t.border};
             border-radius: {m.radius}px; }}
