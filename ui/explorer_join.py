@@ -442,7 +442,8 @@ class JoinTableDialog(_Dialog):
                 item.setData(Qt.ItemDataRole.UserRole, fld.name())
                 item.setToolTip(W.field_tooltip(fld))
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(previous.get(fld.name(), Qt.CheckState.Checked))
+                # none ticked at first: the fields to add are picked
+                item.setCheckState(previous.get(fld.name(), Qt.CheckState.Unchecked))
                 self.field_list.addItem(item)
         self.field_list.blockSignals(False)
         self._filter_fields()

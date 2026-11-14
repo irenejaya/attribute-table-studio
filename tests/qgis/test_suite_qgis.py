@@ -1063,7 +1063,11 @@ class SuiteTests(unittest.TestCase):
         # the shared field name is matched; the join field is not offered
         self.assertEqual((dlg.target_combo.current_name(), dlg.join_combo.current_name()),
                          ("ZONE_CODE", "ZONE_CODE"))
-        self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME", "MAX_HEIGHT"])
+        # no field is ticked at first, so OK waits for one
+        self.assertEqual([it.text() for it in dlg._field_items()], ["ZONE_NAME", "MAX_HEIGHT"])
+        self.assertEqual(dlg.chosen_fields(), [])
+        self.assertFalse(dlg.join_btn.isEnabled())
+        self.assertIn("Tick at least one field", dlg.join_btn.toolTip())
         # the filter box shows the matching fields; All / None act on those
         head = dlg.field_search.parentWidget()
         x = [w.mapTo(head, QPoint(0, 0)).x() for w in
@@ -1072,12 +1076,15 @@ class SuiteTests(unittest.TestCase):
         dlg.field_search.setText("name")
         shown = [it.text() for it in dlg._field_items() if not it.isHidden()]
         self.assertEqual(shown, ["ZONE_NAME"])
-        dlg.none_link.click()
-        self.assertEqual(dlg.chosen_fields(), ["MAX_HEIGHT"])
+        dlg.all_link.click()
+        self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME"])
         dlg.field_search.clear()
         self.assertTrue(all(not it.isHidden() for it in dlg._field_items()))
         dlg.all_link.click()
         self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME", "MAX_HEIGHT"])
+        dlg.none_link.click()
+        self.assertEqual(dlg.chosen_fields(), [])
+        dlg.all_link.click()
         # the prefix is QGIS's default, greyed, until Custom field name
         # prefix is ticked (which opens the box)
         self.assertEqual(dlg.prefix(), "Zones_")
@@ -1151,6 +1158,8 @@ class SuiteTests(unittest.TestCase):
         dlg4 = EJ.JoinTableDialog(panel)
         csv_layer = dlg4.accept_mime(mime)
         self.assertTrue(H.wait_for(lambda: dlg4.counts is not None, 20))
+        self.assertFalse(dlg4.add_join())               # nothing ticked yet
+        dlg4.all_link.click()
         self.assertTrue(dlg4.add_join())
         self.assertIsNotNone(QgsProject.instance().mapLayer(csv_layer.id()))
         self.assertIn("zone_heights_HEIGHT_LIMIT", [f.name() for f in base.fields()])

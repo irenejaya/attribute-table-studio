@@ -252,6 +252,8 @@ if THEME == "dark":
     dlg = JoinTableDialog(ex)
     dlg.layer_combo.setLayer(zones)
     H.wait_for(lambda: dlg.counts is not None, 30)
+    for i in (0, 1):                     # none are ticked at first
+        dlg.field_list.item(i).setCheckState(Qt.CheckState.Checked)
     dlg.show()
     dlg.resize(600, dlg.sizeHint().height())
     save(dlg, "join_table")
