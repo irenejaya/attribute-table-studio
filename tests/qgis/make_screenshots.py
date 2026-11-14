@@ -4,7 +4,9 @@
 # attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
 """Regenerate the screenshots in docs/screenshots from a made-up dataset.
 
-Run with QGIS' Python, once per theme (QT_QPA_PLATFORM=offscreen works):
+Run with QGIS 4's Python, once per look (QT_QPA_PLATFORM=offscreen works):
+light is QGIS 4's Fusion, dark its built-in dark look (Fusion with the
+system's dark palette, see harness.qgis4_dark).
 
     python tests/qgis/make_screenshots.py docs/screenshots dark
     python tests/qgis/make_screenshots.py docs/screenshots light
@@ -26,7 +28,7 @@ import harness as H  # noqa: E402
 
 OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "docs/screenshots")
 THEME = (sys.argv[2] if len(sys.argv) > 2 else "dark").lower()
-APP = H.start_qgis("Night Mapping" if THEME == "dark" else None)
+APP = H.start_qgis("dark" if THEME == "dark" else None)   # QGIS 4's own looks
 H.plugin_package()
 
 from qgis.core import (QgsFeature, QgsGeometry, QgsPointXY, QgsProject,  # noqa: E402
@@ -269,9 +271,7 @@ if THEME == "dark":
         Qt.CheckState.Unchecked)
     fdlg.table.item(names.index("SURVEY_DATE"), COL["default"]).setText("now()")
     fdlg.show()
-    hh = fdlg.table.horizontalHeader()      # the whole grid (the window opens that
-    grid = sum(hh.sectionSize(i) for i in range(hh.count()))   # wide on a big screen)
-    fdlg.resize(grid + 2 * 14 + 24, 470)
+    fdlg.resize(1180, 470)
     save(fdlg, "field_properties")
     fdlg.reject()
 

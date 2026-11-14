@@ -29,15 +29,54 @@ def plugin_package():
 
 
 def start_qgis(theme=None):
+    """*theme*: None for QGIS 4's light look (Fusion), "dark" for QGIS 4's
+    built-in dark look (Fusion with the system's dark palette), or the name
+    of a QGIS UI theme such as "Night Mapping"."""
     from qgis.core import QgsApplication
     app = QgsApplication([], True)
     app.initQgis()
     # QGIS itself registers the editor widgets at startup (forms, cell editors)
     from qgis.gui import QgsGui
     QgsGui.editorWidgetRegistry().initEditors()
-    if theme:
+    if theme == "dark":
+        qgis4_dark()
+    elif theme:
         QgsApplication.setUITheme(theme)
     return app
+
+
+def qgis4_dark():
+    """QGIS 4's own dark look: the Fusion style with the dark palette Qt
+    takes from Windows in dark mode (a headless run cannot ask the system for
+    its colour scheme): near-black windows, slightly lighter boxes, white
+    text and the Windows accent blue for selections."""
+    from qgis.PyQt.QtGui import QColor, QPalette
+    from qgis.PyQt.QtWidgets import QApplication, QStyleFactory
+    QApplication.setStyle(QStyleFactory.create("Fusion"))
+    role, group = QPalette.ColorRole, QPalette.ColorGroup
+    fg = QColor("#FFFFFF")
+    window = QColor("#1E1E1E")
+    button = window.lighter(200)                 # #3C3C3C
+    base = window.lighter(150)                   # #2D2D2D
+    accent = QColor("#0078D4")
+    pal = QPalette()
+    colours = {
+        role.WindowText: fg, role.Text: fg, role.ButtonText: fg, role.BrightText: fg,
+        role.Window: window, role.Base: base, role.AlternateBase: QColor("#353535"),
+        role.Button: button, role.Light: button.lighter(160),
+        role.Midlight: button.lighter(130), role.Mid: button.darker(130),
+        role.Dark: button.darker(160), role.Shadow: QColor("#000000"),
+        role.Highlight: accent, role.HighlightedText: fg,
+        role.ToolTipBase: button, role.ToolTipText: fg,
+        role.Link: accent.lighter(150), role.LinkVisited: accent.lighter(120),
+        role.PlaceholderText: QColor("#A0A0A0"),
+    }
+    for r, c in colours.items():
+        pal.setColor(r, c)
+    for r in (role.WindowText, role.Text, role.ButtonText):
+        pal.setColor(group.Disabled, r, QColor("#808080"))
+    pal.setColor(group.Disabled, role.Highlight, QColor("#505050"))
+    QApplication.setPalette(pal)
 
 
 def _iface_signals():

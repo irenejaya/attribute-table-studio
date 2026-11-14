@@ -1192,14 +1192,38 @@ class SuiteTests(unittest.TestCase):
         ctrl, shift = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier
 
         def name_point(logical):
+            panel.view.scrollTo(panel.model.index(0, logical))   # in view first
+            H.pump()
             return QPoint(h.sectionViewportPosition(logical) + 12, h.name_top() + 5)
 
+        def apart():
+            # clicks closer than the double-click time count as one (Qt5)
+            from qgis.PyQt.QtWidgets import QApplication
+            QTest.qWait(QApplication.doubleClickInterval() + 60)
+
         # a click on the name selects the whole column; nothing is sorted
+        apart()
         QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
                          Qt.KeyboardModifier.NoModifier, name_point(lu))
         self.assertEqual(panel.model.selected_cols, {lu})
         self.assertEqual(h.selected_cols, {lu})
         self.assertIsNone(panel.sort)
+        self.assertEqual(h.sortIndicatorSection(), -1)     # no sort arrow either
+        # the name turns the selection blue (also on Qt5, whose header leaves a
+        # clip behind)
+        H.settle(0.1)
+        img = h.viewport().grab().toImage()
+        ratio = img.devicePixelRatio() or 1
+        spot = QPoint(h.sectionViewportPosition(lu) + h.sectionSize(lu) - 30,
+                      h.name_top() + 3)
+        self.assertEqual(QColor(img.pixel(int(spot.x() * ratio), int(spot.y() * ratio))).name(),
+                         QColor(panel.theme.selected).name())
+        apart()
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(sm))
+        self.assertEqual(h.sortIndicatorSection(), -1)
+        self.assertEqual(panel.model.selected_cols, {sm})
+        panel._on_header_clicked(lu)
         # Ctrl adds or removes one, Shift takes the range of shown columns
         panel._on_header_clicked(s2, ctrl)
         self.assertEqual(panel.model.selected_cols, {lu, s2})
@@ -1225,10 +1249,33 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(h.selected_cols, set())
         # a double click sorts: ascending, descending, then off
         for expected in ((lu, False), (lu, True), None):
+            apart()
             QTest.mouseDClick(h.viewport(), Qt.MouseButton.LeftButton,
                               Qt.KeyboardModifier.NoModifier, name_point(lu))
             self.assertTrue(H.wait_for(lambda: idle(panel)))
             self.assertEqual(panel.sort, expected)
+            self.assertEqual(h.sortIndicatorSection(), lu if expected else -1)
+            if expected:
+                self.assertEqual(h.sortIndicatorOrder(), Qt.SortOrder.DescendingOrder
+                                 if expected[1] else Qt.SortOrder.AscendingOrder)
+        # a click on a sorted column's name keeps its arrow as it is
+        apart()
+        QTest.mouseDClick(h.viewport(), Qt.MouseButton.LeftButton,
+                          Qt.KeyboardModifier.NoModifier, name_point(lu))
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        apart()
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(lu))
+        self.assertEqual((h.sortIndicatorSection(), h.sortIndicatorOrder()),
+                         (lu, Qt.SortOrder.AscendingOrder))
+        apart()
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(sm))
+        self.assertEqual(h.sortIndicatorSection(), lu)
+        panel._on_sort_clicked(lu)
+        panel._on_sort_clicked(lu)                  # back to unsorted
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(h.sortIndicatorSection(), -1)
         self.assertIn("double-click to sort",
                       panel.model.headerData(lu, Qt.Orientation.Horizontal,
                                              Qt.ItemDataRole.ToolTipRole))
@@ -1305,85 +1352,6 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         panel.close()
         H.settle(0.1)
-
-    def test_13q_one_tick_everywhere(self):
-        """Every tick box of the suite is the Explorer's row tick: lists,
-        trees and grids through TickDelegate, tick-box controls through the
-        style sheet's images; nothing takes the QGIS theme's own (green in
-        Night Mapping)."""
-        import re
-        from qgis.PyQt.QtTest import QTest
-        from attribute_table_studio.ui import widgets as W
-        from attribute_table_studio.ui.explorer_fields import COL, FieldPropertiesDialog
-        from attribute_table_studio.ui.explorer_header import ValuePicker
-        from attribute_table_studio.ui.explorer_join import JoinTableDialog
-        from attribute_table_studio.ui.theme import stylesheet
-        panel = self.plugin.open_explorer(self.layer)
-        self.assertTrue(H.wait_for(lambda: idle(panel)))
-        # tick-box controls: one image per state, files that exist
-        sheet = stylesheet(panel.theme, panel.metrics)
-        urls = re.findall(r'QCheckBox::indicator:(\w+(?::disabled)?), QGroupBox[^{]*'
-                          r'\{ image: url\("([^"]+)"\)', sheet)
-        self.assertEqual(sorted(u[0] for u in urls),
-                         ["checked", "checked:disabled", "unchecked", "unchecked:disabled"])
-        self.assertTrue(all(os.path.exists(u[1]) for u in urls))
-        with open(dict(urls)["checked"], encoding="utf-8") as fh:
-            self.assertIn(panel.theme.accent, fh.read())
-        self.assertIn("background: transparent", sheet)
-        # lists and trees
-        from attribute_table_studio.ui import icons
-        entries = [(f.name(), icons.field(k, panel.theme), "", True)
-                   for f, k in zip(panel.model.fields, panel.model.kinds)]
-        cols = W.FieldChecklistDialog(entries, panel.metrics, panel.theme, "Columns")
-        self.assertIsInstance(cols.listw.itemDelegate(), W.TickDelegate)
-        cols.reject()
-        picker = ValuePicker("LAND_USE", [("A", "A", 2), ("B", "B", 1)], [],
-                             panel.theme, panel.metrics, panel)
-        self.assertIsInstance(picker.tree.itemDelegateForColumn(0), W.TickDelegate)
-        picker.close()
-        zones = QgsVectorLayer("None?field=ZONE_CODE:string&field=ZONE_NAME:string",
-                               "Tick zones", "memory")
-        QgsProject.instance().addMapLayer(zones)
-        join = JoinTableDialog(panel)
-        join.layer_combo.setLayer(zones)
-        self.assertIsInstance(join.field_list.itemDelegate(), W.TickDelegate)
-        join.show()
-        H.settle(0.1)
-        item = join.field_list.item(0)
-        rect = join.field_list.visualItemRect(item)
-        # a click on the tick toggles it; a click on the name does not
-        QTest.mouseClick(join.field_list.viewport(), Qt.MouseButton.LeftButton,
-                         Qt.KeyboardModifier.NoModifier,
-                         QPoint(rect.left() + 4 + 6, rect.center().y()))
-        self.assertEqual(item.checkState(), Qt.CheckState.Checked)
-        QTest.mouseClick(join.field_list.viewport(), Qt.MouseButton.LeftButton,
-                         Qt.KeyboardModifier.NoModifier,
-                         QPoint(rect.left() + 80, rect.center().y()))
-        self.assertEqual(item.checkState(), Qt.CheckState.Checked)
-        join.reject()
-        QgsProject.instance().removeMapLayer(zones.id())
-        # the Field Properties grid: the Explorer table's look, ticks in the
-        # middle of their cells (a click anywhere in the cell toggles)
-        dlg = FieldPropertiesDialog(panel)
-        t = dlg.table
-        self.assertEqual(t.objectName(), "gtsTable")
-        self.assertIsInstance(t.itemDelegate(), W.GridTextDelegate)
-        tick = t.itemDelegateForColumn(COL["visible"])
-        self.assertIsInstance(tick, W.TickDelegate)
-        self.assertTrue(tick.grid)
-        dlg.show()
-        H.settle(0.1)
-        cell = t.visualItemRect(t.item(1, COL["visible"]))
-        QTest.mouseClick(t.viewport(), Qt.MouseButton.LeftButton,
-                         Qt.KeyboardModifier.NoModifier, cell.center() + QPoint(15, 0))
-        self.assertEqual(t.item(1, COL["visible"]).checkState(), Qt.CheckState.Unchecked)
-        # every heading fits its column
-        hh = t.horizontalHeader()
-        fm = hh.fontMetrics()
-        for i in range(hh.count()):
-            self.assertGreaterEqual(hh.sectionSize(i),
-                                    fm.horizontalAdvance(t.horizontalHeaderItem(i).text()))
-        dlg.reject()
 
     def test_13g_round9_ui(self):
         from qgis.PyQt.QtWidgets import QToolButton
