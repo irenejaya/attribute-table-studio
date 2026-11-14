@@ -1030,6 +1030,8 @@ class ExplorerHeader(QHeaderView):
             # an accent line along the bottom
             t = self.theme
             painter.save()
+            # Qt5's header leaves a clip on its label area: use the section
+            painter.setClipRect(name_rect)
             cell = name_rect.adjusted(0, 0, -1, -1)
             painter.fillRect(cell, QColor(t.selected))
             painter.fillRect(QRect(cell.left(), cell.bottom() - 1, cell.width(), 2),

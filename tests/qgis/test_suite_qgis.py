@@ -1209,6 +1209,15 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(h.selected_cols, {lu})
         self.assertIsNone(panel.sort)
         self.assertEqual(h.sortIndicatorSection(), -1)     # no sort arrow either
+        # the name turns the selection blue (also on Qt5, whose header leaves a
+        # clip behind)
+        H.settle(0.1)
+        img = h.viewport().grab().toImage()
+        ratio = img.devicePixelRatio() or 1
+        spot = QPoint(h.sectionViewportPosition(lu) + h.sectionSize(lu) - 30,
+                      h.name_top() + 3)
+        self.assertEqual(QColor(img.pixel(int(spot.x() * ratio), int(spot.y() * ratio))).name(),
+                         QColor(panel.theme.selected).name())
         apart()
         QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
                          Qt.KeyboardModifier.NoModifier, name_point(sm))
