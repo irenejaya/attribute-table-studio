@@ -1233,6 +1233,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _on_header_clicked(self, logical, mods=None):
         """Select the column (Ctrl+click adds or removes one, Shift+click a
         range of shown columns), as in ArcGIS's attribute table."""
+        # Qt's header flips its sort arrow on every click; a click only
+        # selects here, so the arrow goes back to the real sort
+        self._sync_sort_indicator()
         if mods is None:
             mods = QGuiApplication.keyboardModifiers()
         ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
@@ -1271,14 +1274,18 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self.sort = (logical, True) if not self.sort[1] else None
         else:
             self.sort = (logical, False)
+        self._sync_sort_indicator()
+        self._layout_timer.start()
+        self.refresh(sort_only=True)
+
+    def _sync_sort_indicator(self):
+        """The header's sort arrow shows the table's sort (none: no arrow)."""
         if self.sort is None:
             self.header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
         else:
             self.header.setSortIndicator(
-                logical, Qt.SortOrder.DescendingOrder if self.sort[1]
+                self.sort[0], Qt.SortOrder.DescendingOrder if self.sort[1]
                 else Qt.SortOrder.AscendingOrder)
-        self._layout_timer.start()
-        self.refresh(sort_only=True)
 
     def _on_header_layout(self):
         self._layout_timer.start()

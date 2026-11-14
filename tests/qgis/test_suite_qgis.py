@@ -1192,14 +1192,29 @@ class SuiteTests(unittest.TestCase):
         ctrl, shift = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier
 
         def name_point(logical):
+            panel.view.scrollTo(panel.model.index(0, logical))   # in view first
+            H.pump()
             return QPoint(h.sectionViewportPosition(logical) + 12, h.name_top() + 5)
 
+        def apart():
+            # clicks closer than the double-click time count as one (Qt5)
+            from qgis.PyQt.QtWidgets import QApplication
+            QTest.qWait(QApplication.doubleClickInterval() + 60)
+
         # a click on the name selects the whole column; nothing is sorted
+        apart()
         QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
                          Qt.KeyboardModifier.NoModifier, name_point(lu))
         self.assertEqual(panel.model.selected_cols, {lu})
         self.assertEqual(h.selected_cols, {lu})
         self.assertIsNone(panel.sort)
+        self.assertEqual(h.sortIndicatorSection(), -1)     # no sort arrow either
+        apart()
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(sm))
+        self.assertEqual(h.sortIndicatorSection(), -1)
+        self.assertEqual(panel.model.selected_cols, {sm})
+        panel._on_header_clicked(lu)
         # Ctrl adds or removes one, Shift takes the range of shown columns
         panel._on_header_clicked(s2, ctrl)
         self.assertEqual(panel.model.selected_cols, {lu, s2})
@@ -1225,10 +1240,33 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(h.selected_cols, set())
         # a double click sorts: ascending, descending, then off
         for expected in ((lu, False), (lu, True), None):
+            apart()
             QTest.mouseDClick(h.viewport(), Qt.MouseButton.LeftButton,
                               Qt.KeyboardModifier.NoModifier, name_point(lu))
             self.assertTrue(H.wait_for(lambda: idle(panel)))
             self.assertEqual(panel.sort, expected)
+            self.assertEqual(h.sortIndicatorSection(), lu if expected else -1)
+            if expected:
+                self.assertEqual(h.sortIndicatorOrder(), Qt.SortOrder.DescendingOrder
+                                 if expected[1] else Qt.SortOrder.AscendingOrder)
+        # a click on a sorted column's name keeps its arrow as it is
+        apart()
+        QTest.mouseDClick(h.viewport(), Qt.MouseButton.LeftButton,
+                          Qt.KeyboardModifier.NoModifier, name_point(lu))
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        apart()
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(lu))
+        self.assertEqual((h.sortIndicatorSection(), h.sortIndicatorOrder()),
+                         (lu, Qt.SortOrder.AscendingOrder))
+        apart()
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(sm))
+        self.assertEqual(h.sortIndicatorSection(), lu)
+        panel._on_sort_clicked(lu)
+        panel._on_sort_clicked(lu)                  # back to unsorted
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(h.sortIndicatorSection(), -1)
         self.assertIn("double-click to sort",
                       panel.model.headerData(lu, Qt.Orientation.Horizontal,
                                              Qt.ItemDataRole.ToolTipRole))
