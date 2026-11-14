@@ -29,6 +29,7 @@ from . import explorer_ops as OPS
 from . import icons
 from . import widgets as W
 from .explorer_bars import EditBar, QuickUpdateBar
+from .explorer_join import JoinTableDialog
 from .explorer_table import COPY_ROWS_KEY
 
 _ADD_MODE = QgsAttributeEditorContext.Mode.AddFeatureMode
@@ -92,6 +93,7 @@ class EditingMixin:
         b.multi_btn.clicked.connect(self.multi_edit)
         b.new_field_btn.clicked.connect(self.new_field)
         b.delete_field_btn.clicked.connect(lambda: self.delete_field())
+        b.join_btn.clicked.connect(self.join_table)
         b.reload_btn.clicked.connect(self.reload_layer)
         b.more_menu.aboutToShow.connect(self._fill_more_menu)
         q = self.quick_bar
@@ -436,6 +438,14 @@ class EditingMixin:
     def delete_field(self, name=None):
         self.flush_editors()
         D.DeleteFieldDialog(self, name).exec()
+
+    def join_table(self):
+        """Join Table window: a QGIS layer join (no editing needed); the
+        joined fields arrive as columns through the layer's field change."""
+        if self.layer is None:
+            return
+        self.flush_editors()
+        JoinTableDialog(self).exec()
 
     def rename_field(self, name):
         """Rename Field (column name menu): starts editing when needed (a

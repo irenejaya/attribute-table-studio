@@ -900,7 +900,6 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._update_query_btn()
         shown = len(self.model.fids)
         available = self._available_count()
-        self.count_label.setText(f"{available:,} records" if available >= 0 else "")
         self._scope_text = (
             f"{self.scope_name()}  •  Exact  •  {shown:,} of {max(available, 0):,}"
             f"  •  {self._filters_summary('active filter')}"
@@ -925,6 +924,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._update_quick_state()
         shown = len(self.model.fids)
         available = self._available_count()
+        self._update_count(shown, available)
         sel = len(self.model.selected)
         hidden = self._selection_counts()[1] if sel else 0
         note = getattr(self, "_status_note", None)
@@ -946,6 +946,21 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         filters = list(getattr(self, "_filters_text", []))
         self.status.setToolTip("<br>".join(["<b>Active filters</b>"] + filters)
                                if filters else "")
+
+    def _update_count(self, shown, available):
+        """Top count: the layer's records, then the records shown in the
+        table in brackets when that is fewer or more: 9,434 (484)."""
+        if available < 0:
+            self.count_label.setText("")
+            self.count_label.setToolTip("")
+            return
+        if shown == available:
+            self.count_label.setText(f"{available:,}")
+            self.count_label.setToolTip(f"{available:,} records, all shown in the table")
+        else:
+            self.count_label.setText(f"{available:,} ({shown:,})")
+            self.count_label.setToolTip(f"{available:,} records\n"
+                                        f"{shown:,} shown in the table")
 
     def _update_edit_status(self):
         """Edit session state on the right of the status bar (orange while

@@ -105,6 +105,7 @@ SEARCH_CASE = "/mIconSearchCaseSensitive.svg"
 SEARCH_WHOLE = "/mIconSearchWholeWord.svg"
 SEARCH_REGEX = "/mIconSearchRegex.svg"
 GEOM_DIFF = "/algorithms/mAlgorithmSymmetricalDifference.svg"
+JOIN = "/propertyicons/join.svg"     # Layer Properties > Joins
 
 FIELD_ICONS = {
     F.TEXT: "/mIconFieldText.svg",

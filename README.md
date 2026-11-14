@@ -35,7 +35,9 @@ docked by default, like *Open attribute table as docked window* in QGIS.
 Open it from the toolbar, the plugin menu, a vector layer's right-click menu
 (*Open in Attribute Explorer*) or the keyboard shortcut (**Ctrl+Alt+T** is
 proposed and only assigned when no other command uses it; change it in
-*Settings › Keyboard Shortcuts*). Each layer gets its own explorer.
+*Settings › Keyboard Shortcuts*). Each layer gets its own explorer. The
+number beside the Layer box is the layer's record count, followed in brackets
+by the records shown in the table when that is different: **9,434 (484)**.
 
 - **Column profiles** above every column: missing (NULL) and distinct counts,
   top categories with shares of non-NULL values, histograms with min / max,
@@ -171,6 +173,15 @@ attribute table and every other QGIS tool.
 - **New field**, **Delete field**, **Reload**, and the ☰ menu: feature form,
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
   changes, field properties, native attribute table.
+- **Join table** (beside *New field*, no editing needed) adds a QGIS layer
+  join, as *Layer Properties › Joins* does. Drop a layer or table on the
+  window (Layers or Browser panel, or a CSV, Excel, GeoPackage or shapefile
+  from your files) or choose it in the box; the match fields are proposed and
+  the window counts the records that will match before you join (values
+  match as text, NULL never matches, a repeated join value gives the last
+  matching row). Pick the fields to add and their name prefix; names the
+  layer already has are flagged, since QGIS leaves them out. *Joins on this
+  layer* lists the joins with Remove.
 - **Advanced Filter (Expression)** is edited in place, as in QGIS's attribute
   table: a bar on the left of the edit row with QGIS's expression box —
   *Enter* or *Apply* applies, an invalid expression says why, *Escape* puts
@@ -293,6 +304,7 @@ ui/
   attribute_explorer.py, explorer_header.py, explorer_table.py
   explorer_edit.py     edit session controller (save / discard / prompts)
   explorer_editing.py  edit row commands; explorer_bars.py edit and Quick update rows
+  explorer_join.py     Join table window (core/joins.py: matching rules, counts)
   explorer_browse.py   View / Select menus, scopes, expression filters
   explorer_ops.py, explorer_dialogs.py, explorer_form.py
                        calculator, field and form dialogs, form view
