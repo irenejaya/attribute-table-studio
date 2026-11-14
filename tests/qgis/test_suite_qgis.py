@@ -1073,6 +1073,7 @@ class SuiteTests(unittest.TestCase):
         x = [w.mapTo(head, QPoint(0, 0)).x() for w in
              (dlg.field_search, dlg.all_link, dlg.none_link)]
         self.assertEqual(x, sorted(x))
+        self.assertEqual(dlg.field_search.placeholderText(), "Search / Filter fields")
         dlg.field_search.setText("name")
         shown = [it.text() for it in dlg._field_items() if not it.isHidden()]
         self.assertEqual(shown, ["ZONE_NAME"])

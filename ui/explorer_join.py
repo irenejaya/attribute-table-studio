@@ -187,7 +187,7 @@ class JoinTableDialog(_Dialog):
         # filter box (as in the Columns window), then All / None for the
         # fields shown
         self.field_search = QLineEdit()
-        self.field_search.setPlaceholderText("Filter fields")
+        self.field_search.setPlaceholderText("Search / Filter fields")
         self.field_search.setClearButtonEnabled(True)
         self.field_search.setFixedHeight(m.control_h)
         self.field_search.setFixedWidth(180)

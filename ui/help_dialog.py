@@ -173,7 +173,7 @@ on the window from your file manager. Under <b>Field match</b> the two fields
 are proposed (a field name both share) and the window counts how many records
 will match before you join: values match as text (12, 12.0 and "12" are the
 same), NULL never matches, and when a join value repeats a record gets the
-last matching row. Tick the fields to add (none are ticked at first; <i>Filter fields</i> narrows the
+last matching row. Tick the fields to add (none are ticked at first; <i>Search / Filter fields</i> narrows the
 list; <i>All</i> and <i>None</i> then tick the fields shown). The joined fields are named with
 QGIS's default prefix (the join layer's name and _) unless you tick
 <b>Custom field name prefix</b>, as in QGIS's own window; a name the layer
