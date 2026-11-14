@@ -259,6 +259,9 @@ def stylesheet(t, m):
             font-weight: 700; }}
         QTableView#gtsTable QHeaderView::section:horizontal {{
             padding: 0px 22px 0px 8px; }}
+        QTableView#gtsTable QHeaderView::section:horizontal:checked {{
+            background: {t.selected}; color: {t.selected_text};
+            border-bottom: 2px solid {t.accent}; }}
         QTableView#gtsTable QHeaderView::section:vertical {{
             font-weight: 400; color: {t.text_dim}; padding: 0px 4px; }}
         QTableView#gtsTable QHeaderView::down-arrow,

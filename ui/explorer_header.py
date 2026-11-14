@@ -32,8 +32,9 @@ from qgis.PyQt.QtGui import (
 )
 from qgis.PyQt.QtWidgets import (
     QAbstractItemView, QCalendarWidget, QFrame, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMenu, QTableWidget, QTableWidgetItem,
-    QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QHeaderView, QLabel, QLineEdit, QMenu, QStyle, QStyleOptionHeader,
+    QTableWidget, QTableWidgetItem, QToolButton, QToolTip, QTreeWidget,
+    QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from ..core import export as X
@@ -1022,33 +1023,33 @@ class ExplorerHeader(QHeaderView):
         painter.drawLine(band.topRight(), band.bottomRight())
         painter.restore()
         name_rect = QRect(rect.left(), rect.top() + top, rect.width(), self.name_h)
-        super().paintSection(painter, name_rect, logical)
         if logical in self.selected_cols:
-            # a selected column: its name on the selection blue (bold, as the
-            # header draws it: 8 px left, 22 px right for the sort arrow) with
-            # an accent line along the bottom
-            t = self.theme
-            painter.save()
-            # Qt5's header leaves a clip on its label area: use the section
-            painter.setClipRect(name_rect)
-            cell = name_rect.adjusted(0, 0, -1, -1)
-            painter.fillRect(cell, QColor(t.selected))
-            painter.fillRect(QRect(cell.left(), cell.bottom() - 1, cell.width(), 2),
-                             QColor(t.accent))
-            painter.setPen(QPen(QColor(t.border), 1))
-            painter.drawLine(name_rect.topRight(), name_rect.bottomRight())
-            font = QFont(self.font())
-            font.setBold(True)
-            painter.setFont(font)
-            painter.setPen(QColor(t.selected_text))
-            text_rect = name_rect.adjusted(8, 0, -22, 0)
-            name = str(self.model().headerData(
-                logical, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole) or "")
-            painter.drawText(text_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-                             QFontMetrics(font).elidedText(
-                                 name, Qt.TextElideMode.ElideRight, text_rect.width()))
-            painter.restore()
+            self._paint_selected_name(painter, name_rect, logical)
+        else:
+            super().paintSection(painter, name_rect, logical)
         W.paint_sort_arrow(self, painter, name_rect, logical, self.theme.text_dim)
+
+    def _paint_selected_name(self, painter, rect, logical):
+        """A selected column's name: drawn by the style like every other
+        name (same bold font, padding and alignment on every system), in its
+        "checked" state, which the style sheet colours with the selection
+        blue and an accent line."""
+        opt = QStyleOptionHeader()
+        self.initStyleOption(opt)
+        init_for = getattr(self, "initStyleOptionForIndex", None)    # Qt6
+        if init_for is not None:
+            init_for(opt, logical)
+        else:
+            opt.section = logical
+            opt.text = str(self.model().headerData(
+                logical, Qt.Orientation.Horizontal, Qt.ItemDataRole.DisplayRole) or "")
+            opt.textAlignment = self.defaultAlignment()
+            opt.orientation = Qt.Orientation.Horizontal
+        opt.rect = rect
+        opt.state |= QStyle.StateFlag.State_On
+        painter.save()
+        self.style().drawControl(QStyle.ControlElement.CE_Header, opt, painter, self)
+        painter.restore()
 
     def paintEvent(self, event):
         painter = QPainter(self.viewport())
