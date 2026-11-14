@@ -225,16 +225,6 @@ def stylesheet(t, m):
         QFrame#gtsStatus[level="warning"] {{ border-left-color: {t.warning}; }}
         QFrame#gtsStatus[level="error"] {{ border-left-color: {t.danger}; }}
         QFrame#gtsStatus[level="busy"] {{ border-left-color: {t.accent}; }}
-        QProgressBar#gtsProgress {{ border: 1px solid {t.border};
-            border-radius: 3px; background: {t.base}; text-align: center;
-            max-height: 14px; font-size: 8pt; }}
-        QProgressBar#gtsProgress::chunk {{ background: {t.accent};
-            border-radius: 2px; }}
-        QProgressBar#gtsProgressWide {{ border: 1px solid {t.border};
-            border-radius: 3px; background: {t.base}; text-align: center;
-            color: {t.text}; }}
-        QProgressBar#gtsProgressWide::chunk {{ background: {t.accent};
-            border-radius: 2px; }}
         QFrame#gtsDivider {{ background: {t.border}; border: none;
             max-height: 1px; min-height: 1px; }}
         QFrame#gtsChip {{ background: {t.accent_soft};

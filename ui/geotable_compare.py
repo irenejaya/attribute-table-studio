@@ -1180,11 +1180,12 @@ class GeoTableCompareDialog(QWidget):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(0, 4, 0, 0)
         layout.setSpacing(4)
+        # QGIS's own progress bar (no style sheet): its shape, height and
+        # colours follow the QGIS style; only "XX%" shows, in the middle
         self.progress_bar = QProgressBar()
-        self.progress_bar.setObjectName("gtsProgressWide")
         self.progress_bar.setTextVisible(True)
         self.progress_bar.setFormat("%p%")
-        self.progress_bar.setFixedHeight(self.metrics.font_h + 4)
+        self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.progress_bar.setValue(0)
         self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)

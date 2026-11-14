@@ -551,6 +551,12 @@ class SuiteTests(unittest.TestCase):
         self.assertFalse(hasattr(panel.status, "progress_bar"))
         compare = self.plugin.open_compare()
         self.assertTrue(hasattr(compare, "progress_bar"))
+        # Compare's bar is QGIS's own (no style sheet rule), "XX%" centred
+        bar = compare.progress_bar
+        self.assertNotIn("QProgressBar", compare.styleSheet())
+        self.assertEqual(bar.format(), "%p%")
+        self.assertTrue(bar.alignment() & Qt.AlignmentFlag.AlignHCenter)
+        self.assertNotEqual(bar.minimumHeight(), bar.maximumHeight())
         # every panel keeps the status bar inside the window
         for p in (panel, compare):
             self.assertEqual(p.layout().contentsMargins().bottom(), p.metrics.margin)
