@@ -37,6 +37,9 @@ changelog=
         * New: Attribute Explorer - Advanced Filter (Expression) is an editable bar in the second toolbar row, with the expression builder and stored expressions; the scope and filter summary are now part of the status bar
         * New: Attribute Explorer - Rename Field from a column's right-click menu
         * New: Attribute Explorer - Join table: add a QGIS layer join from one window; choose the join layer (or drop a CSV, Excel, GeoPackage or shapefile from your files), see how many records will match before joining, pick the fields (custom field name prefix as in QGIS), and remove existing joins
+        * New: Attribute Explorer - Field properties: every field in one grid (as QGIS's Fields tab and ArcGIS Pro's Fields view) to change visible, read only, name, alias, allow NULL, unique and default value; OK applies them together
+        * Attribute Explorer - a click on a column name selects the whole column (Ctrl / Shift for more, Ctrl+C copies their values); a double-click sorts (ascending, descending, off)
+        * Attribute Explorer - the menu entry Layer Field Properties is now Layer Properties and opens QGIS's own Layer Properties
         * Attribute Explorer - the record count at the top follows the table: the layer's records, then the records shown in brackets when fewer, e.g. 9,434 (484); it also updates while editing
         * Attribute Explorer - the Columns window selects several rows (Shift+click, Ctrl+click) and Space or Toggle Selection ticks them together; it shows the Columns icon
         * New: Pivot Table - List distinct operator; the Values row puts the operator first, with symbols and explanations

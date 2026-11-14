@@ -81,6 +81,7 @@ class FeatureTableModel(QAbstractTableModel):
         self._italic = QFont()
         self._italic.setItalic(True)
         self.highlight = None              # Find: (row, col) -> 0, 1 match, 2 current
+        self.selected_cols = set()         # columns selected by a header click
         # editing
         self.editing = False
         self.editable_cols = set()
@@ -96,6 +97,7 @@ class FeatureTableModel(QAbstractTableModel):
     def set_layer(self, layer):
         self.beginResetModel()
         self.layer = layer
+        self.selected_cols = set()
         flds = layer.fields() if layer is not None else None
         self.fields = [flds.at(i) for i in range(flds.count())] if flds else []
         self.kinds = [F.field_kind(f) for f in self.fields]
@@ -369,7 +371,7 @@ class FeatureTableModel(QAbstractTableModel):
                 tip = f"<b>{fld.name()}</b><br>{kind}"
                 if fld.alias():
                     tip += f"<br><i>Alias: {fld.alias()}</i>"
-                return tip + "<br><br>Click to sort · drag to move"
+                return tip + "<br><br>Click to select · double-click to sort · drag to move"
             if role == Qt.ItemDataRole.TextAlignmentRole:
                 return _ALIGN_LEFT
             return None
@@ -407,7 +409,8 @@ class RowDelegate(QStyledItemDelegate):
         model = index.model()
         row, col = index.row(), index.column()
         fid = model.fids[row] if row < len(model.fids) else None
-        selected = fid in model.selected
+        # a selected feature (row) or a column selected by its name
+        selected = fid in model.selected or col in model.selected_cols
         painter.save()
         if selected:
             painter.fillRect(opt.rect, self._sel_bg)
@@ -638,6 +641,7 @@ class ExplorerTableView(QTableView):
     contextRequested = pyqtSignal(object, int, int)   # global pos, row, col
     editKeyRequested = pyqtSignal(str)          # undo / redo / cut / paste / delete
     editorClosed = pyqtSignal()
+    escapePressed = pyqtSignal()                # clears the selected columns
 
     _EDIT_KEYS = (
         (QKeySequence.StandardKey.Undo, "undo"),
@@ -793,6 +797,8 @@ class ExplorerTableView(QTableView):
         if key == Qt.Key.Key_Space and self.currentIndex().isValid() and not self.editing:
             self.toggleRequested.emit(self.currentIndex().row())
             return
+        if key == Qt.Key.Key_Escape:
+            self.escapePressed.emit()
         super().keyPressEvent(event)           # the arrows move the frame
 
     def moveCursor(self, action, modifiers):

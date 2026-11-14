@@ -1174,6 +1174,138 @@ class SuiteTests(unittest.TestCase):
         panel.close()
         H.settle(0.1)
 
+    def test_13p_column_select_and_field_properties(self):
+        from qgis.core import QgsFieldConstraints
+        from qgis.PyQt.QtCore import QMetaType
+        from qgis.PyQt.QtGui import QGuiApplication
+        from qgis.PyQt.QtTest import QTest
+        from qgis.core import QgsField
+        from attribute_table_studio.ui.explorer_fields import COL, FieldPropertiesDialog
+        layer = H.demo_layer(n=300, name="Field parcels")
+        _MT = getattr(QMetaType, "Type", QMetaType)
+        layer.addExpressionField('"SCORE_MAX" - "SCORE_MIN"', QgsField("SCORE_RANGE", _MT.Double))
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        fields = layer.fields()
+        lu, sm, s2 = (fields.indexOf(n) for n in ("LAND_USE", "SCORE_MAX", "SCORE_2Y"))
+        h = panel.header
+        ctrl, shift = Qt.KeyboardModifier.ControlModifier, Qt.KeyboardModifier.ShiftModifier
+
+        def name_point(logical):
+            return QPoint(h.sectionViewportPosition(logical) + 12, h.name_top() + 5)
+
+        # a click on the name selects the whole column; nothing is sorted
+        QTest.mouseClick(h.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, name_point(lu))
+        self.assertEqual(panel.model.selected_cols, {lu})
+        self.assertEqual(h.selected_cols, {lu})
+        self.assertIsNone(panel.sort)
+        # Ctrl adds or removes one, Shift takes the range of shown columns
+        panel._on_header_clicked(s2, ctrl)
+        self.assertEqual(panel.model.selected_cols, {lu, s2})
+        panel._on_header_clicked(s2, ctrl)
+        self.assertEqual(panel.model.selected_cols, {lu})
+        panel._on_header_clicked(lu)                  # the range starts here
+        panel._on_header_clicked(s2, shift)
+        span = {h.logicalIndex(v) for v in range(h.visualIndex(lu), h.visualIndex(s2) + 1)}
+        self.assertEqual(panel.model.selected_cols, span)
+        # Ctrl+C copies the selected columns for the records shown
+        panel._on_header_clicked(lu)
+        panel._on_header_clicked(sm, ctrl)
+        panel.copy_current_cell()
+        lines = QGuiApplication.clipboard().text().split("\n")
+        self.assertEqual(lines[0], "LAND_USE\tSCORE_MAX")
+        self.assertEqual(len(lines), len(panel.model.fids) + 1)
+        self.assertEqual(lines[1].split("\t")[0], str(panel.model.raw_value(0, lu)))
+        # clicking a cell or Escape clears it
+        panel.view.pressed.emit(panel.model.index(0, 0))
+        self.assertEqual(panel.model.selected_cols, set())
+        panel._on_header_clicked(lu)
+        panel.view.escapePressed.emit()
+        self.assertEqual(h.selected_cols, set())
+        # a double click sorts: ascending, descending, then off
+        for expected in ((lu, False), (lu, True), None):
+            QTest.mouseDClick(h.viewport(), Qt.MouseButton.LeftButton,
+                              Qt.KeyboardModifier.NoModifier, name_point(lu))
+            self.assertTrue(H.wait_for(lambda: idle(panel)))
+            self.assertEqual(panel.sort, expected)
+        self.assertIn("double-click to sort",
+                      panel.model.headerData(lu, Qt.Orientation.Horizontal,
+                                             Qt.ItemDataRole.ToolTipRole))
+
+        # Field Properties: the window, opened on a field
+        bar = panel.edit_bar
+        self.assertIn(bar.field_props_btn, bar.groups[5])
+        self.assertEqual(bar.groups[5].index(bar.field_props_btn),
+                         bar.groups[5].index(bar.join_btn) + 1)
+        dlg = FieldPropertiesDialog(panel, "LAND_USE")
+        t = dlg.table
+        self.assertEqual(t.currentRow(), lu)
+        self.assertEqual(t.rowCount(), fields.count())
+        self.assertEqual(dlg.count_label.text(), f"{fields.count()} fields")
+        rng = fields.indexOf("SCORE_RANGE")
+        fid = fields.indexOf("fid")
+        self.assertEqual(t.item(rng, COL["origin"]).text(), "Virtual")
+        self.assertEqual(t.item(lu, COL["origin"]).text(), "Data source")
+        self.assertFalse(t.item(rng, COL["readonly"]).flags() & Qt.ItemFlag.ItemIsEnabled)
+        self.assertFalse(t.item(rng, COL["default"]).flags() & Qt.ItemFlag.ItemIsEditable)
+        self.assertFalse(t.item(lu, COL["type"]).flags() & Qt.ItemFlag.ItemIsEditable)
+        cons = fields.at(fid).constraints()
+        if cons.constraints() & QgsFieldConstraints.Constraint.ConstraintNotNull:
+            self.assertFalse(t.item(fid, COL["allownull"]).flags() & Qt.ItemFlag.ItemIsEnabled)
+        # the filter box narrows the rows
+        dlg.search.setText("score")
+        shown = [t.item(r, COL["name"]).text() for r in range(t.rowCount())
+                 if not t.isRowHidden(r)]
+        self.assertEqual(shown, ["SCORE_MAX", "SCORE_MIN", "SCORE_2Y", "SCORE_5Y",
+                                 "SCORE_RANGE"])
+        dlg.search.clear()
+        # changes; a bad name or default value stops OK
+        own, zc, mn, s5 = (fields.indexOf(n) for n in ("OWNER_ID", "ZONE_CODE",
+                                                      "SCORE_MIN", "SCORE_5Y"))
+        t.item(s5, COL["name"]).setText("LAND_USE")
+        self.assertFalse(dlg.ok_btn.isEnabled())
+        self.assertIn("already named", dlg.problem.text())
+        t.item(s5, COL["name"]).setText("SCORE_5YR")
+        t.item(lu, COL["default"]).setText("'RESIDENTIAL' +")
+        self.assertFalse(dlg.ok_btn.isEnabled())
+        t.item(lu, COL["default"]).setText("'RESIDENTIAL'")
+        t.item(lu, COL["onupdate"]).setCheckState(Qt.CheckState.Checked)
+        self.assertTrue(dlg.ok_btn.isEnabled())
+        t.item(own, COL["alias"]).setText("Owner")
+        t.item(zc, COL["allownull"]).setCheckState(Qt.CheckState.Unchecked)
+        t.item(zc, COL["unique"]).setCheckState(Qt.CheckState.Checked)
+        t.item(mn, COL["readonly"]).setCheckState(Qt.CheckState.Checked)
+        t.item(s2, COL["visible"]).setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(sorted(dlg.changed_rows()), sorted([lu, own, zc, mn, s2, s5]))
+        self.assertTrue(t.item(own, COL["name"]).font().bold())
+        self.assertFalse(t.item(sm, COL["name"]).font().bold())
+        self.assertIn("6 changed", dlg.count_label.text())
+        self.assertFalse(layer.isEditable())
+        self.assertTrue(dlg.apply())
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        fields = layer.fields()
+        self.assertEqual(fields.at(own).alias(), "Owner")
+        c = fields.at(zc).constraints()
+        self.assertTrue(c.constraints() & QgsFieldConstraints.Constraint.ConstraintNotNull)
+        self.assertTrue(c.constraints() & QgsFieldConstraints.Constraint.ConstraintUnique)
+        self.assertTrue(layer.editFormConfig().readOnly(mn))
+        dv = layer.defaultValueDefinition(lu)
+        self.assertEqual((dv.expression(), dv.applyOnUpdate()), ("'RESIDENTIAL'", True))
+        self.assertTrue(panel.header.isSectionHidden(s2))
+        # the rename is in the edit session, as Rename Field does
+        self.assertTrue(layer.isEditable())
+        self.assertEqual(fields.at(s5).name(), "SCORE_5YR")
+        self.assertIn("1 field(s) renamed", panel.status.message.fullText())
+        # nothing changed: OK just closes
+        dlg2 = FieldPropertiesDialog(panel)
+        self.assertEqual(dlg2.changed_rows(), [])
+        self.assertTrue(dlg2.apply())
+        layer.rollBack()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        panel.close()
+        H.settle(0.1)
+
     def test_13g_round9_ui(self):
         from qgis.PyQt.QtWidgets import QToolButton
         from attribute_table_studio.ui import icons

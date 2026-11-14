@@ -300,7 +300,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.header.filterChanged.connect(self._on_filter_changed)
         self.header.profileClicked.connect(self._show_profile_details)
         self.header.layoutChanged.connect(self._on_header_layout)
-        self.header.sectionClicked.connect(self._on_sort_clicked)
+        # a click selects the column (Ctrl adds, Shift a range); a double
+        # click sorts: ascending, descending, off
+        self.header.sectionClicked.connect(self._on_header_clicked)
+        self.header.sectionDoubleClicked.connect(self._on_sort_clicked)
+        self.view.pressed.connect(lambda *_: self.select_columns(set()))
+        self.view.escapePressed.connect(lambda: self.select_columns(set()))
         self.view.horizontalScrollBar().valueChanged.connect(
             lambda _v: self._profile_timer.start())
         self.view.rowActivated.connect(self._zoom_to_row)
@@ -1225,6 +1230,41 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     # SORT + LAYOUT
     # ====================================================================
 
+    def _on_header_clicked(self, logical, mods=None):
+        """Select the column (Ctrl+click adds or removes one, Shift+click a
+        range of shown columns), as in ArcGIS's attribute table."""
+        if mods is None:
+            mods = QGuiApplication.keyboardModifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+        shift = bool(mods & Qt.KeyboardModifier.ShiftModifier)
+        h = self.header
+        cols = set(self.model.selected_cols)
+        anchor = getattr(self, "_col_anchor", None)
+        if shift and anchor is not None and 0 <= anchor < h.count():
+            a, b = sorted((h.visualIndex(anchor), h.visualIndex(logical)))
+            span = {h.logicalIndex(v) for v in range(a, b + 1)
+                    if not h.isSectionHidden(h.logicalIndex(v))}
+            cols = (cols | span) if ctrl else span
+        elif ctrl:
+            cols ^= {logical}
+            self._col_anchor = logical
+        else:
+            cols = {logical}
+            self._col_anchor = logical
+        self.select_columns(cols)
+
+    def select_columns(self, cols):
+        """Highlight the columns *cols* (logical indexes); Ctrl+C copies them."""
+        cols = set(cols)
+        if cols == self.model.selected_cols:
+            return
+        self.model.selected_cols = cols
+        self.header.selected_cols = cols
+        if not cols:
+            self._col_anchor = None
+        self.header.viewport().update()
+        self.view.viewport().update()
+
     def _on_sort_clicked(self, logical):
         self.sort_expr = None
         if self.sort is not None and self.sort[0] == logical:
@@ -1572,7 +1612,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             act.setEnabled(self.can_calculate(name))
             act.triggered.connect(lambda: self.open_calculator(name))
             menu.addAction(icons.native(icons.FIELD_PROPS), "Field Properties…"
-                           ).triggered.connect(self.open_field_properties)
+                           ).triggered.connect(lambda: self.field_properties(name))
         if fid is not None:
             menu.addSeparator()
             self.add_actions_menu(menu, fid)
@@ -1654,7 +1694,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         return self.header.visible_logicals()
 
     def copy_current_cell(self):
-        """Ctrl+C: the framed cell's value, as the table shows it."""
+        """Ctrl+C: the selected columns, or the framed cell's value as the
+        table shows it."""
+        if self.model.selected_cols:
+            self.copy_selected_columns()
+            return
         index = self.view.currentIndex()
         if not index.isValid():
             self.status.set_status("Click a cell to copy its value", "warning")
@@ -1664,6 +1708,32 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         name = self.model.fields[index.column()].name()
         self.status.set_status(f"Copied the {name} value to the clipboard",
                                "success")
+
+    def copy_selected_columns(self):
+        """Ctrl+C with columns selected: their values for the records shown,
+        tab-separated with the field names first (pastes into Excel)."""
+        h = self.header
+        cols = [h.logicalIndex(v) for v in range(h.count())
+                if h.logicalIndex(v) in self.model.selected_cols
+                and not h.isSectionHidden(h.logicalIndex(v))]
+        if not cols:
+            self.status.set_status("Nothing selected to copy", "warning")
+            return
+        n = len(self.model.fids)
+        if n > 100000:
+            answer = QMessageBox.question(
+                self, "Copy Columns", f"Copy the values of {n:,} rows to the clipboard?")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+        lines = ["\t".join(self.model.fields[c].name() for c in cols)]
+        for r in range(n):
+            lines.append("\t".join(
+                X.export_value(self.model.raw_value(r, c)).replace("\t", " ")
+                .replace("\n", " ") for c in cols))
+        QGuiApplication.clipboard().setText("\n".join(lines))
+        names = ", ".join(self.model.fields[c].name() for c in cols)
+        self.status.set_status(f"Copied {len(cols):,} column(s) ({names}) — {n:,} "
+                               f"row(s) — to the clipboard", "success")
 
     def copy_selected_rows(self):
         sel = self.model.selected

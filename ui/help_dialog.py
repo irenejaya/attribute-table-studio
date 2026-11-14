@@ -165,7 +165,22 @@ already used, longer than a shapefile's 10 characters) and is one undo step
 until <b>Save edits</b>; the column keeps its filter, width, place and sort.
 Expressions that use the old name are not changed. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review Unsaved
-Changes</i>, field properties and the native attribute table.</li>
+Changes</i>, <i>Layer Properties…</i> (QGIS's own, on its usual page) and the
+native attribute table.</li>
+<li><b>Field properties</b> (beside <i>Join table</i>, also <i>Field
+Properties…</i> in a column name's right-click menu, which picks that field)
+shows every field in one grid, as QGIS's Fields tab and ArcGIS's Fields view:
+<i>Visible</i> (the Explorer column), <i>Read only</i>, <i>Field name</i>,
+<i>Alias</i>, <i>Allow NULL</i>, <i>Unique</i> and the <i>Default value</i>
+(an expression, optionally also <i>On update</i>) can be changed; type,
+length, precision, origin (data source, joined, virtual, new) and comment
+are shown. <i>Search / Filter fields</i> narrows the rows; a row with a
+change shows its name in bold. <b>OK</b> applies everything together (a new
+name is renamed in the edit session, written by <b>Save edits</b>; the other
+settings are saved in the project, as in Layer Properties); <b>Cancel</b>
+changes nothing. Settings the data source fixes, or that do not apply to a
+joined or virtual field, are greyed with the reason on hover.
+<b>Layer Properties…</b> opens QGIS's Fields page for the rest.</li>
 <li><b>Join table</b> (beside <i>New field</i>; no editing needed) adds a
 QGIS layer join, as <i>Layer Properties › Joins</i> does. Choose the
 <b>Join layer</b> in the box, or drop a CSV, Excel, GeoPackage or shapefile
@@ -210,7 +225,10 @@ filter back as soon as editing stops.</p>
 it (or press Enter for the first match) to scroll that column to the middle
 of the table; its heading is highlighted for a moment, and a hidden column
 is shown again. The list shows each field's type icon, name and QGIS type.</p>
-<p>Click a column name to sort (again for descending, a third time to
+<p>Click a column name to select the whole column (Ctrl+click adds or removes
+one, Shift+click a range; <b>Ctrl+C</b> copies their values for the records
+shown, with the field names first; clicking a cell or <b>Escape</b> clears it).
+Double-click a column name to sort (again for descending, a third time to
 reset). Drag names to reorder, drag edges to resize, and use the
 <b>Columns</b> icon to show, hide and reorder (Shift+click selects a range
 of fields, Ctrl+click adds one; <b>Space</b> or <b>Toggle Selection</b> ticks

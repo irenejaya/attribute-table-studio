@@ -87,6 +87,10 @@ class EditBar(QWidget):
         self.join_btn = sq(m, icons.native(icons.JOIN),
                            "Join table…\nAdd the fields of another layer or table, "
                            "matched by a field (a QGIS layer join); no editing needed")
+        self.field_props_btn = sq(m, icons.native(icons.FIELD_PROPS),
+                                  "Field properties…\nSee and change the fields: visible, "
+                                  "read only, name, alias, NULL and unique rules, default "
+                                  "values")
         self.reload_btn = sq(m, icons.native(icons.RELOAD), "Reload the layer")
         self.more_menu = QMenu(self)
         self.more_menu.setToolTipsVisible(True)
@@ -105,7 +109,8 @@ class EditBar(QWidget):
             [self.add_btn, self.delete_btn],
             [self.cut_btn, self.copy_btn, self.paste_btn],
             [self.calc_btn, self.quick_btn, self.multi_btn],
-            [self.new_field_btn, self.delete_field_btn, self.join_btn],
+            [self.new_field_btn, self.delete_field_btn, self.join_btn,
+             self.field_props_btn],
             [self.reload_btn],
         ]
         # groups that leave first when the row gets narrow

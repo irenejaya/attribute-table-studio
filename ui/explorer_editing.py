@@ -29,6 +29,7 @@ from . import explorer_ops as OPS
 from . import icons
 from . import widgets as W
 from .explorer_bars import EditBar, QuickUpdateBar
+from .explorer_fields import FieldPropertiesDialog
 from .explorer_join import JoinTableDialog
 from .explorer_table import COPY_ROWS_KEY
 
@@ -94,6 +95,7 @@ class EditingMixin:
         b.new_field_btn.clicked.connect(self.new_field)
         b.delete_field_btn.clicked.connect(lambda: self.delete_field())
         b.join_btn.clicked.connect(self.join_table)
+        b.field_props_btn.clicked.connect(lambda: self.field_properties())
         b.reload_btn.clicked.connect(self.reload_layer)
         b.more_menu.aboutToShow.connect(self._fill_more_menu)
         q = self.quick_bar
@@ -447,6 +449,14 @@ class EditingMixin:
         self.flush_editors()
         JoinTableDialog(self).exec()
 
+    def field_properties(self, name=None):
+        """Field Properties window (edit row button; right-click › Field
+        Properties… picks that field's row)."""
+        if self.layer is None:
+            return
+        self.flush_editors()
+        FieldPropertiesDialog(self, name).exec()
+
     def rename_field(self, name):
         """Rename Field (column name menu): starts editing when needed (a
         virtual field needs none), asks for the new name and renames as one
@@ -669,8 +679,8 @@ class EditingMixin:
         act = menu.addAction(icons.native(icons.HISTORY), "Review Unsaved Changes…")
         act.setEnabled(self.edit.modified())
         act.triggered.connect(lambda: D.ReviewChangesDialog(self).exec())
-        menu.addAction(icons.native(icons.FIELD_PROPS), "Layer Field Properties…").triggered.connect(
-            self.open_field_properties)
+        menu.addAction(icons.native(icons.FIELD_PROPS), "Layer Properties…").triggered.connect(
+            lambda: self.open_layer_properties())
         menu.addAction(icons.native(icons.TABLE), "Open Native Attribute Table").triggered.connect(
             lambda: self.iface.showAttributeTable(self.layer))
         menu.addAction(icons.native(icons.HELP), "Help").triggered.connect(self.show_help)
@@ -705,11 +715,18 @@ class EditingMixin:
             return
         self.model.setData(self.model.index(row, col), None)
 
-    def open_field_properties(self):
-        try:
-            self.iface.showLayerProperties(self.layer, "mOptsPage_SourceFields")
-        except TypeError:
-            self.iface.showLayerProperties(self.layer)
+    def open_layer_properties(self, fields=False):
+        """QGIS's own Layer Properties: on the page it opens by default (the
+        last one used), or on Fields."""
+        if self.layer is None:
+            return
+        if fields:
+            try:
+                self.iface.showLayerProperties(self.layer, "mOptsPage_SourceFields")
+                return
+            except TypeError:
+                pass
+        self.iface.showLayerProperties(self.layer)
 
     def show_help(self):
         from .help_dialog import HelpDialog
