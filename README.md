@@ -182,6 +182,8 @@ attribute table and every other QGIS tool.
   matching row). Pick the fields to add and their name prefix; names the
   layer already has are flagged, since QGIS leaves them out. *Joins on this
   layer* lists the joins with Remove.
+
+  ![Join table](docs/screenshots/dark_join_table.png)
 - **Advanced Filter (Expression)** is edited in place, as in QGIS's attribute
   table: a bar on the left of the edit row with QGIS's expression box —
   *Enter* or *Apply* applies, an invalid expression says why, *Escape* puts
