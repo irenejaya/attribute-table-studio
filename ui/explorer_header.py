@@ -733,7 +733,6 @@ class ValuePicker(QFrame):
         lay.addWidget(self.search)
         self.tree = QTreeWidget()
         self.tree.setObjectName("gtsValueList")
-        self.tree.setItemDelegateForColumn(0, W.TickDelegate(theme, self.tree))
         self.tree.setHeader(W.SortHeader(theme, self.tree))
         self.tree.setRootIsDecorated(False)
         self.tree.setUniformRowHeights(True)

@@ -269,9 +269,7 @@ if THEME == "dark":
         Qt.CheckState.Unchecked)
     fdlg.table.item(names.index("SURVEY_DATE"), COL["default"]).setText("now()")
     fdlg.show()
-    hh = fdlg.table.horizontalHeader()      # the whole grid (the window opens that
-    grid = sum(hh.sectionSize(i) for i in range(hh.count()))   # wide on a big screen)
-    fdlg.resize(grid + 2 * 14 + 24, 470)
+    fdlg.resize(1180, 470)
     save(fdlg, "field_properties")
     fdlg.reject()
 

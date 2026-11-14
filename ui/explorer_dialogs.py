@@ -249,7 +249,6 @@ class DeleteFieldDialog(_Dialog):
                   "when the edits are saved. To only hide a column in this view, use "
                   "<b>Columns</b> instead.")
         self.list = QListWidget()
-        self.list.setItemDelegate(W.TickDelegate(panel.theme, self.list))
         fields = layer.fields()
         can_delete = panel.edit.editing and panel.edit.capable(E.CAP_DELETE_FIELD)
         for i in range(fields.count()):
