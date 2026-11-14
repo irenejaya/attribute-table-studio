@@ -176,7 +176,7 @@ are the same), NULL never matches, and when a join value repeats a record
 gets the last matching row. Tick the fields to add and set the name prefix
 (the layer's name and _ by default); a name the layer already has is left
 out by QGIS, and the window says so. A file becomes a layer of the project
-when you press <b>Join</b>. <i>Joins on this layer</i> lists the joins, each
+when you press <b>OK</b>. <i>Joins on this layer</i> lists the joins, each
 with Remove.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
 close, close and keep the layer's edits, or cancel. Nothing is discarded

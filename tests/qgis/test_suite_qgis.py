@@ -1047,9 +1047,9 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(bar.join_btn.isEnabled())
         dlg = EJ.JoinTableDialog(panel)
         self.assertFalse(dlg.join_btn.isEnabled())
-        # Join is a plain text button like Cancel: no icon, not blue, same size
+        # OK is a plain text button like Cancel: no icon, not blue, same size
         self.assertTrue(dlg.join_btn.icon().isNull())
-        self.assertEqual(dlg.join_btn.text().strip(), "Join")
+        self.assertEqual(dlg.join_btn.text().strip(), "OK")
         self.assertEqual(dlg.join_btn.objectName(), dlg.cancel_btn.objectName())
         dlg.show()
         H.settle(0.1)
@@ -1105,7 +1105,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(len(base.vectorJoins()), 0)
         dlg2.reject()
 
-        # a CSV dropped from the file manager joins once Join is pressed;
+        # a CSV dropped from the file manager joins once OK is pressed;
         # cancelled, it never reaches the project
         path = os.path.join(OUT, "zone_heights.csv")
         with open(path, "w", encoding="utf-8", newline="") as fh:

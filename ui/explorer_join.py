@@ -244,11 +244,11 @@ class JoinTableDialog(_Dialog):
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.cancel_btn = W.button(m, "Cancel")
-        self.join_btn = W.button(m, "Join", None, "Add the join to the layer")
+        self.join_btn = W.button(m, "OK", None, "Add the join to the layer")
         buttons.addWidget(self.cancel_btn)
         buttons.addWidget(self.join_btn)
         self.lay.addLayout(buttons)
-        # Join looks like Cancel: same style, same size (measured styled)
+        # OK looks like Cancel: same style, same size (measured styled)
         for btn in (self.cancel_btn, self.join_btn):
             btn.ensurePolished()
         width = max(self.cancel_btn.sizeHint().width(), self.join_btn.sizeHint().width())
