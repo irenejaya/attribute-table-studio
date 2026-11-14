@@ -167,16 +167,17 @@ Expressions that use the old name are not changed. The ☰ menu holds
 the feature form, layer actions, copy as text, set NULL, <i>Review Unsaved
 Changes</i>, field properties and the native attribute table.</li>
 <li><b>Join table</b> (beside <i>New field</i>; no editing needed) adds a
-QGIS layer join, as <i>Layer Properties › Joins</i> does. Drop the layer or
-table on the window - from the Layers or Browser panel, or a CSV, Excel,
-GeoPackage or shapefile from your files - or choose it in the box. The match
-fields are proposed (a field name both share) and the window counts how many
-records will match before you join: values match as text (12, 12.0 and "12"
-are the same), NULL never matches, and when a join value repeats a record
-gets the last matching row. Tick the fields to add and set the name prefix
-(the layer's name and _ by default); a name the layer already has is left
-out by QGIS, and the window says so. A file becomes a layer of the project
-when you press <b>OK</b>. <i>Joins on this layer</i> lists the joins, each
+QGIS layer join, as <i>Layer Properties › Joins</i> does. Choose the
+<b>Join layer</b> in the box, or drop a CSV, Excel, GeoPackage or shapefile
+on the window from your file manager. Under <b>Field match</b> the two fields
+are proposed (a field name both share) and the window counts how many records
+will match before you join: values match as text (12, 12.0 and "12" are the
+same), NULL never matches, and when a join value repeats a record gets the
+last matching row. Tick the fields to add. The joined fields are named with
+QGIS's default prefix (the join layer's name and _) unless you tick
+<b>Custom field name prefix</b>, as in QGIS's own window; a name the layer
+already has is left out by QGIS, and the window says so. A dropped file
+becomes a layer of the project when you press <b>OK</b>. <i>Joins on this layer</i> lists the joins, each
 with Remove.</li>
 <li>Closing the explorer while the layer has unsaved edits asks: save and
 close, close and keep the layer's edits, or cancel. Nothing is discarded

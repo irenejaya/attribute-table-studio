@@ -174,12 +174,13 @@ attribute table and every other QGIS tool.
   layer actions, copy rows as text, copy cell, set NULL, review unsaved
   changes, field properties, native attribute table.
 - **Join table** (beside *New field*, no editing needed) adds a QGIS layer
-  join, as *Layer Properties › Joins* does. Drop a layer or table on the
-  window (Layers or Browser panel, or a CSV, Excel, GeoPackage or shapefile
-  from your files) or choose it in the box; the match fields are proposed and
-  the window counts the records that will match before you join (values
-  match as text, NULL never matches, a repeated join value gives the last
-  matching row). Pick the fields to add and their name prefix; names the
+  join, as *Layer Properties › Joins* does. Choose the *Join layer* in the
+  box (or drop a CSV, Excel, GeoPackage or shapefile on the window from your
+  file manager); under *Field match* the two fields are proposed and the
+  window counts the records that will match before you join (values match as
+  text, NULL never matches, a repeated join value gives the last matching
+  row). Pick the fields to add; the names get QGIS's default prefix unless
+  *Custom field name prefix* is ticked, as in QGIS's own window. Names the
   layer already has are flagged, since QGIS leaves them out. *Joins on this
   layer* lists the joins with Remove.
 

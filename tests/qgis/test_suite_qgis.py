@@ -1064,7 +1064,16 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual((dlg.target_combo.current_name(), dlg.join_combo.current_name()),
                          ("ZONE_CODE", "ZONE_CODE"))
         self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME", "MAX_HEIGHT"])
+        # the prefix is QGIS's default, greyed, until Custom field name
+        # prefix is ticked (which opens the box)
         self.assertEqual(dlg.prefix(), "Zones_")
+        self.assertFalse(dlg.custom_prefix())
+        self.assertTrue(dlg.prefix_group.isCollapsed())
+        self.assertFalse(dlg.prefix_edit.isEnabled())
+        self.assertEqual(dlg.prefix_edit.text(), "Zones_")
+        dlg.prefix_group.setChecked(True)
+        self.assertFalse(dlg.prefix_group.isCollapsed())
+        self.assertTrue(dlg.prefix_edit.isEnabled())
         self.assertTrue(H.wait_for(lambda: dlg.counts is not None, 20))
         codes = [f["ZONE_CODE"] for f in base.getFeatures()]
         matched = sum(1 for c in codes if c in (1, 2, 3, 4))
@@ -1075,14 +1084,15 @@ class SuiteTests(unittest.TestCase):
         self.assertIn("compared as text", dlg.match_detail.text())
         # a name already in the layer is left out by QGIS: say so
         dlg.prefix_edit.setText("")
-        dlg._on_prefix_edited("")
+        dlg._update_names()
         dlg.field_list.item(0).setCheckState(Qt.CheckState.Unchecked)
         self.assertEqual(J.clashes(base.fields(), dlg.chosen_fields(), ""), [])
         self.assertEqual(J.clashes(base.fields(), ["ZONE_CODE", "LAND_USE"], ""),
                          ["ZONE_CODE", "LAND_USE"])
         dlg.field_list.item(0).setCheckState(Qt.CheckState.Checked)
         dlg.prefix_edit.setText("Z_")
-        dlg._on_prefix_edited("Z_")
+        dlg._update_names()
+        self.assertEqual(dlg.prefix(), "Z_")
         dlg.field_list.item(1).setCheckState(Qt.CheckState.Unchecked)
         self.assertEqual(dlg.chosen_fields(), ["ZONE_NAME"])
         self.assertTrue(dlg.join_btn.isEnabled())

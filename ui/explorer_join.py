@@ -6,14 +6,16 @@
 Join Table (Attribute Explorer): add a QGIS layer join, as Layer
 Properties › Joins does, from one window.
 
-- The join layer is dropped on the window (a layer from the Layers panel,
-  a Browser panel item or a file from the file manager) or picked in the
-  box.  A file becomes a layer of the project when the join is added.
+- The join layer is picked in the box, or a file (CSV, Excel, GeoPackage,
+  shapefile) is dropped on the window from the file manager; a file becomes
+  a layer of the project when the join is added.
 - The two match fields are guessed (a field name both layers share); the
   window counts in the background how many records will match, with the
   same rules as QGIS (core/joins.py).
-- The fields to add, their name prefix and the names already in the layer
-  (QGIS leaves those out) are shown before the join is made.
+- The fields to add and the names already in the layer (QGIS leaves those
+  out) are shown before the join is made.  The name prefix is QGIS's default
+  (the join layer's name and _) unless *Custom field name prefix* is ticked,
+  as in QGIS's own Add Vector Join window.
 - The joins already on the layer are listed, each with Remove.
 """
 
@@ -29,6 +31,7 @@ from qgis.core import (
     Qgis, QgsFields, QgsMimeDataUtils, QgsProject, QgsProviderRegistry,
     QgsVectorLayer, QgsVectorLayerFeatureSource, QgsVectorLayerJoinInfo,
 )
+from qgis.gui import QgsCollapsibleGroupBox
 
 from ..core import fields as F
 from ..core import joins as J
@@ -113,7 +116,6 @@ class JoinTableDialog(_Dialog):
         self.runner = JobRunner(self)
         self.counts = None               # the last match count (core/joins)
         self._pending = []               # layers from files, not in the project
-        self._prefix_edited = False
         self._count_timer = QTimer(self)
         self._count_timer.setSingleShot(True)
         self._count_timer.setInterval(200)
@@ -121,51 +123,29 @@ class JoinTableDialog(_Dialog):
         self.setAcceptDrops(True)
         self.setMinimumWidth(560)
         self.setStyleSheet(self.styleSheet() + f"""
-            QFrame#gtsDrop {{ background: {t.base};
-                border: 2px dashed {t.text_faint}; border-radius: {m.radius}px; }}
-            QFrame#gtsDrop[hover="true"] {{ background: {t.accent_soft};
-                border: 2px dashed {t.accent}; }}
-            QFrame#gtsDrop QLabel {{ background: transparent; border: none; }}
             QLabel#gtsJoinProblem {{ color: {t.danger}; }}
             QLabel#gtsJoinClash {{ color: {t.warning}; }}
         """)
 
-        # ---- join layer: drop zone + box ----
-        self.drop_zone = QFrame()
-        self.drop_zone.setObjectName("gtsDrop")
-        dz = QHBoxLayout(self.drop_zone)
-        dz.setContentsMargins(12, 10, 12, 10)
-        dz.setSpacing(12)
-        mark = QLabel()
-        mark.setPixmap(icons.native(icons.JOIN).pixmap(QSize(32, 32)))
-        dz.addWidget(mark, 0, Qt.AlignmentFlag.AlignTop)
-        texts = QVBoxLayout()
-        texts.setSpacing(4)
-        texts.addWidget(W.label("Drop a layer or a file here", "title"))
-        hint = W.label("From the Layers or Browser panel, or a CSV, Excel, "
-                       "GeoPackage or shapefile from your files", "dim")
-        hint.setWordWrap(True)
-        texts.addWidget(hint)
+        # ---- join layer (a file dropped from the file manager works too) ----
         pick = QHBoxLayout()
         pick.setSpacing(m.gap)
-        pick.addWidget(W.label("or choose", "dim"))
+        pick.addWidget(W.label("Join layer", "title"))
         self.layer_combo = W.LayerCombo(m)
         self.layer_combo.setFilters(VECTOR_LAYER_FILTER)
         self.layer_combo.setExceptedLayerList([self.layer])
         self.layer_combo.setAllowEmptyLayer(True, "Choose a layer or table")
         self.layer_combo.setLayer(None)
         pick.addWidget(self.layer_combo, 1)
-        texts.addLayout(pick)
+        self.lay.addLayout(pick)
         self.drop_problem = QLabel("")
         self.drop_problem.setObjectName("gtsJoinProblem")
         self.drop_problem.setWordWrap(True)
         self.drop_problem.setVisible(False)
-        texts.addWidget(self.drop_problem)
-        dz.addLayout(texts, 1)
-        self.lay.addWidget(self.drop_zone)
+        self.lay.addWidget(self.drop_problem)
 
-        # ---- match ----
-        self.lay.addWidget(W.section_header("Match"))
+        # ---- field match ----
+        self.lay.addWidget(W.section_header("Field match"))
         grid = QGridLayout()
         grid.setHorizontalSpacing(m.gap)
         grid.setVerticalSpacing(4)
@@ -213,9 +193,14 @@ class JoinTableDialog(_Dialog):
         self.field_list.setIconSize(QSize(m.icon, m.icon))
         self.field_list.setMinimumHeight(120)
         self.lay.addWidget(self.field_list, 1)
-        prefix_row = QHBoxLayout()
+        # QGIS's own box: unticked, the prefix is QGIS's default (greyed);
+        # ticking it opens it and the prefix can be changed
+        self.prefix_group = QgsCollapsibleGroupBox("Custom field name prefix")
+        self.prefix_group.setCheckable(True)
+        self.prefix_group.setChecked(False)
+        self.prefix_group.setCollapsed(True)
+        prefix_row = QHBoxLayout(self.prefix_group)
         prefix_row.setSpacing(m.gap)
-        prefix_row.addWidget(W.label("Name prefix", "dim"))
         self.prefix_edit = QLineEdit()
         self.prefix_edit.setFixedHeight(m.control_h)
         self.prefix_edit.setMaximumWidth(220)
@@ -225,7 +210,7 @@ class JoinTableDialog(_Dialog):
         self.names_preview = W.ElideLabel("")
         self.names_preview.setObjectName("gtsDim")
         prefix_row.addWidget(self.names_preview, 1)
-        self.lay.addLayout(prefix_row)
+        self.lay.addWidget(self.prefix_group)
         self.clash_label = QLabel("")
         self.clash_label.setObjectName("gtsJoinClash")
         self.clash_label.setWordWrap(True)
@@ -261,7 +246,8 @@ class JoinTableDialog(_Dialog):
         self.field_list.itemChanged.connect(lambda *_: self._update_names())
         self.all_link.clicked.connect(lambda: self._tick_all(True))
         self.none_link.clicked.connect(lambda: self._tick_all(False))
-        self.prefix_edit.textEdited.connect(self._on_prefix_edited)
+        self.prefix_edit.textEdited.connect(lambda *_: self._update_names())
+        self.prefix_group.toggled.connect(self._on_custom_prefix)
         self.cancel_btn.clicked.connect(self.reject)
         self.join_btn.clicked.connect(self.add_join)
 
@@ -285,7 +271,7 @@ class JoinTableDialog(_Dialog):
                 self.target_combo.set_current_name(target)
             if join:
                 self.join_combo.set_current_name(join)
-            if not self._prefix_edited:
+            if not self.prefix_group.isChecked():
                 self.prefix_edit.setText(J.default_prefix(layer.name()))
         self._fill_fields()
         self._on_match_fields()
@@ -326,7 +312,7 @@ class JoinTableDialog(_Dialog):
             for c in choices:
                 menu.addAction(c[0]).setData(c)
             act = menu.exec(self.mapToGlobal(pos) if pos is not None
-                            else self.drop_zone.mapToGlobal(self.drop_zone.rect().center()))
+                            else self.layer_combo.mapToGlobal(self.layer_combo.rect().bottomLeft()))
             if act is None:
                 return None
             choice = act.data()
@@ -338,28 +324,17 @@ class JoinTableDialog(_Dialog):
         self.set_join_layer(layer)
         return layer
 
-    def _set_hover(self, on):
-        self.drop_zone.setProperty("hover", on)
-        self.drop_zone.style().unpolish(self.drop_zone)
-        self.drop_zone.style().polish(self.drop_zone)
-
     def dragEnterEvent(self, event):
         mime = event.mimeData()
         if QgsMimeDataUtils.isUriList(mime) or mime.hasUrls():
             event.acceptProposedAction()
-            self._set_hover(True)
         else:
             event.ignore()
 
     def dragMoveEvent(self, event):
         event.acceptProposedAction()
 
-    def dragLeaveEvent(self, event):
-        self._set_hover(False)
-        super().dragLeaveEvent(event)
-
     def dropEvent(self, event):
-        self._set_hover(False)
         pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
         event.acceptProposedAction()
         # the menu (several tables) must not open inside the drop itself
@@ -479,12 +454,26 @@ class JoinTableDialog(_Dialog):
         self.field_list.blockSignals(False)
         self._update_names()
 
-    def _on_prefix_edited(self, _text):
-        self._prefix_edited = True
+    def _on_custom_prefix(self, checked):
+        layer = self.join_layer()
+        if checked:
+            self.prefix_group.setCollapsed(False)
+            self.prefix_edit.setFocus()
+            self.prefix_edit.selectAll()
+        elif layer is not None:
+            self.prefix_edit.setText(J.default_prefix(layer.name()))
         self._update_names()
 
+    def custom_prefix(self):
+        return self.prefix_group.isChecked()
+
     def prefix(self):
-        return self.prefix_edit.text()
+        """The prefix the joined fields get: the custom one when ticked,
+        otherwise QGIS's default (the join layer's name and _)."""
+        if self.custom_prefix():
+            return self.prefix_edit.text()
+        layer = self.join_layer()
+        return J.default_prefix(layer.name()) if layer is not None else ""
 
     def _update_names(self):
         names = J.joined_names(self.chosen_fields(), self.prefix())
@@ -530,7 +519,9 @@ class JoinTableDialog(_Dialog):
         info.setJoinFieldName(self.join_combo.current_name())
         info.setTargetFieldName(self.target_combo.current_name())
         info.setUsingMemoryCache(True)
-        info.setPrefix(self.prefix())
+        # unticked: no prefix stored, so QGIS uses its default (as its own
+        # window does) and follows a renamed join layer
+        info.setPrefix(self.prefix_edit.text() if self.custom_prefix() else None)
         chosen = self.chosen_fields()
         if len(chosen) < len(self._field_items()):
             info.setJoinFieldNamesSubset(chosen)
