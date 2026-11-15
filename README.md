@@ -169,8 +169,9 @@ chart window per explorer, as a window or docked.
 - **Big layers**: the records are read in the background (progress and
   Cancel in the status bar) into compact columns, about 25 bytes a record,
   and drawing only ever sees the bars. In tests with 10 million records the
-  chart was ready in 18–35 seconds while QGIS stayed responsive, and new
-  bins, sorting or intervals took under a second.
+  chart was ready in 18–34 seconds (QGIS never paused for more than a third
+  of a second meanwhile), and new bins, sorting or intervals took about half
+  a second.
 
 ### Editing
 
