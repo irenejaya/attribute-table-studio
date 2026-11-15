@@ -11,7 +11,7 @@ about=Attribute Table Studio is an advanced version of QGIS Attribute Table and 
     <b>Geometry and Table Compare</b> - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
     Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
 
-version=1.3
+version=1.2
 author=Irene Jaya
 email=irenejaya1@gmail.com
 
@@ -30,11 +30,7 @@ hasProcessingProvider=no
 server=False
 
 changelog=
-    1.3 - Visualize Statistics
-        * New: Attribute Explorer - Visualize Statistics: a full chart of a column (right-click a column name, or Chart… in its statistics popup) for the records in the table: histogram for numbers, bar chart for text and true / false, records over time for dates; bins, scale, sort, top values, intervals, mean / median / standard deviation / normal curve, Split by a second field (stacked or side by side), statistics with skewness and kurtosis, export as PNG, SVG, image copy or CSV; dockable
-        * Click a bar to select its records (Ctrl+click adds, drag for a range); selected records show in every bar in the project's selection colour, also for a map selection
-        * Built for big layers: records are read in the background into compact columns (about 25 bytes a record), so 10 million records chart without freezing QGIS
-    1.2 - Compare feature export, "not" filters, expression filter bar, Rename Field, Pivot List distinct
+    1.2 - Visualize Statistics, Compare feature export, "not" filters, expression filter bar, Rename Field, Pivot List distinct
         * New: Geometry and Table Compare - Export > GeoPackage (.gpkg) - features: the features of the rows shown, one layer per kind (added, deleted, modified, unchanged) with the table's columns plus CHANGE, DECISION and CHANGED_FIELDS; each column holds the reviewed value (NEW, or OLD where the change was rejected) and a changed column also gets <name>_OLD; the layers are added to the map as a group
         * New: Attribute Explorer - "not" quick filters: is not, does not contain, is not one of (NULL records are kept)
         * New: Attribute Explorer - Quick update opens when editing starts, like the native attribute table (can be turned off in Settings)
@@ -46,6 +42,9 @@ changelog=
         * Attribute Explorer - the menu entry Layer Field Properties is now Layer Properties and opens QGIS's own Layer Properties
         * Attribute Explorer - the record count at the top follows the table: the layer's records, then the records shown in brackets when fewer, e.g. 9,434 (484); it also updates while editing
         * Attribute Explorer - the Columns window selects several rows (Shift+click, Ctrl+click) and Space or Toggle Selection ticks them together; it shows the Columns icon
+        * New: Attribute Explorer - Visualize Statistics: a full chart of a column (right-click a column name, or Chart… in its statistics popup) for the records in the table: histogram for numbers, bar chart for text and true / false, records over time for dates; bins, scale, sort, top values, intervals, mean / median / standard deviation / normal curve, Split by a second field (stacked or side by side), statistics with skewness and kurtosis, export as PNG, SVG, image copy or CSV; dockable
+        * Attribute Explorer - Visualize Statistics: click a bar to select its records (Ctrl+click adds, drag for a range); selected records show in every bar in the project's selection colour, also for a map selection
+        * Attribute Explorer - Visualize Statistics is built for big layers: records are read in the background into compact columns (about 25 bytes a record), so 10 million records chart without freezing QGIS
         * New: Pivot Table - List distinct operator; the Values row puts the operator first, with symbols and explanations
 	1.1 - Bug fix and Add a search (Ctrl+F) and replace (Ctrl+H)
 		* New: Ctrl+F now works like Excel workbook and Ctrl+H will show the replace bar
