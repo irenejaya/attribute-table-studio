@@ -1393,7 +1393,11 @@ class SuiteTests(unittest.TestCase):
             QMenu.exec = original
         self.assertIn("Visualize Statistics…", shown)
 
-        chart = panel.visualize_statistics(sm)
+        # the Visualize Statistics button beside Summary opens the selected column
+        panel.select_columns({sm})
+        panel.chart_btn.click()
+        chart = panel.chart_host.panel
+        self.assertEqual(chart.field_name(), "SCORE_MAX")
 
         def ready(name, split=None):
             return H.wait_for(lambda: chart.col is not None and chart.col.name == name
@@ -1445,20 +1449,23 @@ class SuiteTests(unittest.TestCase):
             return out
 
         # a click selects the bar's records, Ctrl+click adds, a drag selects the range
+        # (empty bins have no click area)
+        full = [i for i, c in enumerate(chart.bars.counts) if c]
+        a, b, c, d = full[1], full[2], full[3], full[5]
         no, ctrl = Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ControlModifier
-        QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(3))
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(a))
         H.settle(0.3)
-        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(3))
-        self.assertEqual(chart.sel[3], chart.bars.counts[3])
-        QTest.mouseClick(v, Qt.MouseButton.LeftButton, ctrl, bar_point(5))
+        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(a))
+        self.assertEqual(chart.sel[a], chart.bars.counts[a])
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, ctrl, bar_point(b))
         H.settle(0.3)
-        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(3, 5))
-        QTest.mousePress(v, Qt.MouseButton.LeftButton, no, bar_point(6))
-        QTest.mouseMove(v, bar_point(7))
-        QTest.mouseMove(v, bar_point(8))
-        QTest.mouseRelease(v, Qt.MouseButton.LeftButton, no, bar_point(8))
+        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(a, b))
+        QTest.mousePress(v, Qt.MouseButton.LeftButton, no, bar_point(c))
+        QTest.mouseMove(v, bar_point(full[4]))
+        QTest.mouseMove(v, bar_point(d))
+        QTest.mouseRelease(v, Qt.MouseButton.LeftButton, no, bar_point(d))
         H.settle(0.3)
-        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(6, 7, 8))
+        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(*range(c, d + 1)))
         # a selection made elsewhere shows as part of the bars
         some = [ft.id() for ft in feats[::7]]
         layer.selectByIds(some)
@@ -1466,11 +1473,16 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(sum(chart.sel), len(some))
         self.assertIn(f"{len(some):,} of 800 records selected", chart.status.message.fullText())
         # hover card: range, records, selected
-        v._hover = (4, None)
-        title, lines, _foot = v.card_lines(4)
+        v._hover = (a, None)
+        title, lines, _foot = v.card_lines(a)
         self.assertIn(" – ", title)
-        self.assertIn(f"{chart.bars.counts[4]:,} records", lines[0][1])
+        self.assertIn(f"{chart.bars.counts[a]:,} records", lines[0][1])
         v._hover = None
+        # the card only answers on a bar, not in the empty space above it
+        above = bar_point(a)
+        self.assertEqual(v.hit(above), (a, None))
+        above.setY(int(v._geo["plot"].top()) + 2)
+        self.assertIsNone(v.hit(above))
         chart.clear_btn.click()
         self.assertEqual(layer.selectedFeatureCount(), 0)
         H.settle(0.3)

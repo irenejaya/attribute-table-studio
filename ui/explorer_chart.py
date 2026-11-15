@@ -56,7 +56,7 @@ def open_chart(explorer, logical=None):
         return host.panel
     from .tool_host import ToolHost
     panel = ChartPanel(explorer.iface, explorer, logical)
-    host = ToolHost(explorer.iface, panel, "chart", icons.native(icons.SUMMARY),
+    host = ToolHost(explorer.iface, panel, "chart", icons.native(icons.CHART),
                     QSize(1180, 700))
     panel.titleChanged.connect(host.refresh_title)
 
@@ -457,7 +457,7 @@ class ChartPanel(QWidget):
         self.kind_combo.blockSignals(True)
         self.kind_combo.clear()
         if chart is not None:
-            self.kind_combo.addItem(icons.native(icons.SUMMARY), CHART_LABELS[chart])
+            self.kind_combo.addItem(icons.native(icons.CHART), CHART_LABELS[chart])
         self.kind_combo.blockSignals(False)
         self.bins_row.setVisible(hist)
         for w in (self.sort_row, self.top_row, self.values_row, self.null_row):

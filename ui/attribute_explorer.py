@@ -211,6 +211,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.summary_btn = row.add(W.button(
             m, "Summary: On", icons.native(icons.SUMMARY),
             "Show or hide the column statistics strip", checkable=True))
+        self.chart_btn = row.add(W.square_button(
+            m, icons.native(icons.CHART), "Visualize Statistics\nA full chart of the "
+            "selected column (or of the column of the current cell)"))
         self.pivot_btn = row.add(W.button(
             m, "Pivot Table", icons.tool(icons.PIVOT),
             "Summarise the filtered records in a Pivot Table"))
@@ -292,6 +295,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.deselect_btn.clicked.connect(self.deselect_all)
         self.selected_btn.toggled.connect(self._on_selected_only)
         self.summary_btn.toggled.connect(self._on_summary_toggled)
+        self.chart_btn.clicked.connect(self._chart_current_column)
         self.pivot_btn.clicked.connect(self._open_pivot)
         self.clear_btn.clicked.connect(self.clear_filters)
         self.query_btn.toggled.connect(self._toggle_map_filter)
@@ -1978,6 +1982,23 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             return None
         from .explorer_chart import open_chart
         return open_chart(self, logical)
+
+    def _chart_current_column(self):
+        """Visualize Statistics button: the selected column (the leftmost
+        when several), else the current cell's column, else the first one
+        shown."""
+        header = self.view.horizontalHeader()
+        shown = self._shown_columns()
+        picked = [i for i in self.model.selected_cols if not header.isSectionHidden(i)]
+        if picked:
+            logical = min(picked, key=header.visualIndex)
+        elif self.view.currentIndex().isValid():
+            logical = self.view.currentIndex().column()
+        elif shown:
+            logical = min(shown, key=header.visualIndex)
+        else:
+            logical = 0
+        self.visualize_statistics(logical)
 
     def chart_spec(self, selected_only=False):
         """A fresh scan of the current scope for the chart window

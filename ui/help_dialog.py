@@ -476,7 +476,7 @@ and terms: https://github.com/irenejaya/attribute-table-studio</p>
 TOPICS = {
     "general": ("Attribute Table Studio", icons.HELP, GENERAL_HELP),
     "explorer": ("Attribute Explorer", icons.EXPLORER, EXPLORER_HELP),
-    "chart": ("Visualize Statistics", icons.SUMMARY, CHART_HELP),
+    "chart": ("Visualize Statistics", icons.CHART, CHART_HELP),
     "pivot": ("Pivot Table", icons.PIVOT, PIVOT_HELP),
     "compare": ("Geometry and Table Compare", icons.COMPARE, COMPARE_HELP),
 }

@@ -1354,7 +1354,7 @@ class ProfileDetails(QFrame):
     def _footer(self, metrics):
         row = QHBoxLayout()
         row.setSpacing(metrics.gap)
-        self.chart_btn = W.button(metrics, "Chart…", icons.native(icons.SUMMARY),
+        self.chart_btn = W.button(metrics, "Chart…", icons.native(icons.CHART),
                                   "Visualize Statistics: a full chart of this column")
         self.chart_btn.setFixedHeight(metrics.compact_h)
         self.chart_btn.clicked.connect(self.chartRequested.emit)

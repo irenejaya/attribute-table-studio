@@ -332,7 +332,6 @@ class ChartView(QWidget):
         gap = 1.5 if bw > 4 else 0.0
         for i in range(n):
             x = plot.left() + i * bw
-            slot = QRectF(x, plot.top(), bw, plot.height())
             if split is None:
                 c = bars.counts[i]
                 h = plot.bottom() - yof(c)
@@ -342,7 +341,8 @@ class ChartView(QWidget):
                 if sel[i]:
                     hs = plot.bottom() - yof(sel[i])
                     self._paint_sel(p, QRectF(rect.left(), plot.bottom() - hs, rect.width(), hs))
-                geo.append((slot, i, None))
+                if c:
+                    geo.append((self._col_hit(rect, plot.bottom()), i, None))
                 if m.labels and c:
                     self._column_label(p, rect, c, fm)
                 continue
@@ -360,10 +360,16 @@ class ChartView(QWidget):
                             hs = plot.bottom() - yof(sel_row[s])
                             self._paint_sel(p, QRectF(rect.left(), plot.bottom() - hs,
                                                       rect.width(), hs))
-                    geo.append((QRectF(rect.left(), plot.top(), rect.width(), plot.height()),
-                                i, s))
+                    if c:
+                        geo.append((self._col_hit(rect, plot.bottom()), i, s))
                     if m.labels and c:
                         self._column_label(p, rect, c, fm)
+                peak = max(row) if row else 0
+                if peak:
+                    top_y = yof(peak)
+                    geo.append((self._col_hit(QRectF(x + gap / 3, top_y, max(bw - gap, 1.0),
+                                                     plot.bottom() - top_y), plot.bottom()),
+                                i, None))
             else:
                 y = plot.bottom()
                 acc = 0
@@ -380,7 +386,11 @@ class ChartView(QWidget):
                     geo.append((rect, i, s))
                     y = y_top
                     acc += c
-                geo.append((slot, i, None))
+                if bars.counts[i]:
+                    top_y = yof(bars.counts[i])
+                    geo.append((self._col_hit(QRectF(x + gap / 3, top_y, max(bw - gap, 1.0),
+                                                     plot.bottom() - top_y), plot.bottom()),
+                                i, None))
                 if m.labels and bars.counts[i]:
                     self._column_label(p, QRectF(x, yof(bars.counts[i]), bw,
                                                  plot.bottom() - yof(bars.counts[i])),
@@ -437,6 +447,19 @@ class ChartView(QWidget):
                 self._normal_curve(p, plot, xof, yof, st, bars, lo, hi)
                 legend.append(("line", QColor(t.text_strong), "Normal distribution", None))
         self._paint_legend(p, plot, legend, fm, corner_pref=("tr", "tl"))
+
+    @staticmethod
+    def _col_hit(rect, bottom):
+        """Hover and click area of a column: the bar itself (3 px of slack
+        above it, at least 6 px tall), never the empty space above it."""
+        top = min(rect.top() - 3, bottom - 6)
+        return QRectF(rect.left(), top, rect.width(), bottom - top)
+
+    @staticmethod
+    def _row_hit(rect, left):
+        """The same for a horizontal bar (slack after its end)."""
+        right = max(rect.right() + 3, left + 6)
+        return QRectF(left, rect.top(), right - left, rect.height())
 
     def _column_label(self, p, rect, c, fm):
         p.setPen(QColor(self.theme.text_dim))
@@ -508,7 +531,6 @@ class ChartView(QWidget):
         geo = self._geo["bars"]
         for i in range(n):
             y = plot.top() + i * bh
-            slot = QRectF(r.left(), y, r.width(), bh)
             thick = min(bh * 0.68, 34.0)        # thin marks, also for few bars
             inner = QRectF(plot.left(), y + (bh - thick) / 2, 0, thick)
             if split is None:
@@ -519,7 +541,8 @@ class ChartView(QWidget):
                 if sel[i]:
                     self._paint_sel(p, QRectF(rect.left(), rect.top(),
                                               xof(sel[i]) - plot.left(), rect.height()))
-                geo.append((slot, i, None))
+                if bars.counts[i]:
+                    geo.append((self._row_hit(rect, plot.left()), i, None))
             elif side:
                 row = split[i]
                 k = max(1, len(row))
@@ -534,8 +557,13 @@ class ChartView(QWidget):
                             self._paint_sel(p, QRectF(rect.left(), rect.top(),
                                                       xof(sel_row[s]) - plot.left(),
                                                       rect.height()))
-                    geo.append((QRectF(plot.left(), rect.top(), plot.width(), sh), i, s))
-                geo.append((slot, i, None))
+                    if c:
+                        geo.append((self._row_hit(rect, plot.left()), i, s))
+                peak = max(row) if row else 0
+                if peak:
+                    geo.append((self._row_hit(QRectF(plot.left(), inner.top(),
+                                                     xof(peak) - plot.left(), inner.height()),
+                                              plot.left()), i, None))
             else:
                 acc = 0
                 sel_row = m.sel_series[i] if m.sel_series else None
@@ -551,7 +579,10 @@ class ChartView(QWidget):
                                                   rect.height()))
                     geo.append((rect, i, s))
                     acc += c
-                geo.append((slot, i, None))
+                if bars.counts[i]:
+                    geo.append((self._row_hit(QRectF(plot.left(), inner.top(),
+                                                     xof(bars.counts[i]) - plot.left(),
+                                                     inner.height()), plot.left()), i, None))
             label = str(bars.labels[i])
             p.setPen(QColor(t.text_dim if i in (bars.other, bars.null_bar) else t.text))
             p.drawText(QRectF(r.left() + 8, y, lab_w, bh),

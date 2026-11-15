@@ -37,6 +37,7 @@ ZOOM_SELECTED = "/mActionZoomToSelected.svg"
 ZOOM_TO = "/mActionZoomTo.svg"
 SELECTED_ONLY = "/mActionOpenTableSelected.svg"
 SUMMARY = "/histogram.svg"
+CHART = "/histogram.svg"                # Visualize Statistics
 EXPORT = "/mActionSharingExport.svg"
 FILTER = "/mActionFilter2.svg"
 DOCK = "/mDockify.svg"
