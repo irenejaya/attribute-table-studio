@@ -422,6 +422,10 @@ class BrowseMixin:
         logical = self.header.logicalIndexAt(pos.x())
         if logical < 0:
             return
+        # the column is selected too (one already in the selection keeps it)
+        if logical not in self.model.selected_cols:
+            self.select_columns({logical})
+            self._col_anchor = logical
         name = self.model.fields[logical].name()
         menu = QMenu(self)
         menu.setToolTipsVisible(True)
