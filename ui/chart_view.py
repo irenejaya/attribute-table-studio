@@ -463,10 +463,10 @@ class ChartView(QWidget):
                 legend.append(("dash", QColor(col), f"{name}  {fmt_stat(v)}", None))
             if "std" in m.show and st.get("std"):
                 band = QColor(t.text_dim)
-                legend.append(("band", band, f"± 1 std dev  {fmt_stat(st['std'])}", None))
+                legend.append(("band", band, f"± 1 Std. Dev.  {fmt_stat(st['std'])}", None))
             if "normal" in m.show and st.get("std") and bars.width:
                 self._normal_curve(p, plot, xof, yof, st, bars, lo, hi)
-                legend.append(("line", QColor(t.text_strong), "Normal distribution", None))
+                legend.append(("line", QColor(t.text_strong), "Normal Distribution Curve", None))
         self._paint_legend(p, plot, legend, fm, corner_pref=("tr", "tl"))
 
     def _grid_lines(self, p, plot, positions, across=True):
@@ -559,7 +559,7 @@ class ChartView(QWidget):
         lab_w = min(max(fm.horizontalAdvance(str(s)) for s in bars.labels) + 16,
                     int(r.width() * 0.35))
         value_texts = [self._value_text(c, total) for c in bars.counts]
-        val_w = max(fm.horizontalAdvance(s) for s in value_texts) + 18
+        val_w = (max(fm.horizontalAdvance(s) for s in value_texts) + 18) if m.labels else 18
         self._value_col_w = val_w
         plot = QRectF(r.left() + lab_w + 12, r.top() + 50, 0, 0)
         plot.setRight(r.right() - val_w - 8 - self._outside_legend_width(fm))
@@ -649,7 +649,8 @@ class ChartView(QWidget):
                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                        fm.elidedText(label, Qt.TextElideMode.ElideRight, lab_w - 4))
             end = xof(bars.counts[i]) if not side else xof(max(split[i]) if split[i] else 0)
-            value_places.append((QRectF(end + 8, y, val_w + 40, bh), value_texts[i]))
+            if m.labels:                         # "Label bars with their count"
+                value_places.append((QRectF(end + 8, y, val_w + 40, bh), value_texts[i]))
         if m.grid:                           # over the bars, to read them off
             self._grid_lines(p, plot, [xof(v) for v in ticks if v > 0], across=False)
         p.setPen(QColor(t.text_dim))
@@ -687,8 +688,8 @@ class ChartView(QWidget):
         if m.bars.split is None:
             return 0
         texts = [str(s) for s in m.bars.series] + ["Selected  000,000,000",
-                                                   "± 1 std dev  000,000.00",
-                                                   "Normal distribution"]
+                                                   "± 1 Std. Dev.  000,000.00",
+                                                   "Normal Distribution Curve"]
         return int(min(self._legend_text_width(fm, texts), 220)) + 12
 
     def _paint_legend(self, p, plot, legend, fm, corner_pref=("tr", "tl")):

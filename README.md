@@ -164,9 +164,10 @@ chart window per explorer, as a window or docked.
   solid; the selected records of every bar are drawn from its base in the
   project's selection colour, also for a selection made on the map, so a bar
   can be partly selected. **Selected only** charts just the selection.
-- **Split by** a second field, stacked or side by side: the 8 most common
-  values get colours checked for colour-blind readers, the rest form Other;
-  a click on a legend entry selects that value in every bar.
+- **Split by** a second field or an expression (the ε button opens the QGIS
+  expression builder), stacked or side by side: the 8 most common values get
+  colours checked for colour-blind readers, the rest form Other; a click on a
+  legend entry selects that value in every bar.
 
   ![Split by](docs/screenshots/dark_chart_split.png)
 - **Statistics** as in the explorer, plus skewness and kurtosis; **Export**
