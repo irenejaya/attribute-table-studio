@@ -17,7 +17,8 @@ colours are proposals.
 | Click on a bar | Selects its records (layer selection, so the map and the Explorer follow) |
 | Window | Dockable, like the tools (**Dock** button at the top right) |
 | Split by | A second field, as stacked or side-by-side bars, numbers and dates included |
-| Drawing | Qt's own painter, no plotting library (see *Why not DataPlotly*) |
+| Drawing | Qt's own painter recommended; Plotly in a web view (as the Stormwater Drainage Plot and Design plugin does) weighed below |
+| Bars | Always solid, the same colour in every chart (no fading); selected records in the QGIS selection colour |
 
 ## Where it opens
 
@@ -107,8 +108,18 @@ by colour alone: the legend and the hover card always name it.
 
 - **Click a bar** to select its records (on the map and in the Explorer,
   through the layer's selection); **Ctrl+click** adds a bar, **drag** across
-  bars selects a range. Selected bars are drawn in the accent blue, the
-  others fade (as in the date and bar chart mock-ups).
+  bars selects a range.
+- Bars are always solid, in the bar colour, in every chart: a selection
+  never fades the other bars.
+- The selected records of each bar are drawn from its base in QGIS's
+  selection colour (yellow unless changed in *Project Properties ›
+  General*), so the chart matches the map. A bar can be partly selected:
+  select 312 parcels on the map and every bar shows how many of its records
+  are among them (histogram mock-up). The legend shows *Selected* with the
+  count, and the hover card shows each bar's selected records.
+- With **Split by**, the selected records of a segment are outlined in the
+  selection colour instead, so the category colours stay readable.
+- Hovering a bar darkens it a little.
 - **Clear the chart selection** deselects; **Selected only** charts only the
   selected records.
 - The chart follows the Explorer: its filters, scope (Selected only, map
@@ -126,30 +137,42 @@ With Qt itself (QPainter), like the Summary's histograms: no extra
 packages, the same on QGIS 3.40+ and 4.x, light and dark from the QGIS
 palette, bar colour from the Explorer's theme (changeable per chart).
 
-### Why not DataPlotly
+### Plotly or Qt drawing
 
-DataPlotly is a good, well-kept plugin (it lists QGIS 4 from 4.5), but
-it is the wrong base for this window:
+The Stormwater Drainage Plot and Design plugin (same author) draws its long
+sections with Plotly: the *plotly* Python package builds the chart, and the
+plugin shows it in its own web view (QtWebKit on QGIS 3, QtWebEngine on
+QGIS 4), with plotly.js downloaded once on first use and a small bridge
+that sends clicks back to Python. DataPlotly works the same way. The same
+could be done here, as an optional part (the window would say what is
+missing, as Stormwater does), but every user then needs:
 
-1. **It needs a web browser inside QGIS.** DataPlotly draws with Plotly, a
-   JavaScript library, shown in a QtWebKit (QGIS 3) or QtWebEngine (QGIS 4)
-   view. Not every QGIS build has one: the QGIS 4.2 build we test with has
-   neither, so DataPlotly could not show a chart there at all. Qt's painter
-   is part of every QGIS.
-2. **It is another plugin to install.** Attribute Table Studio would depend
-   on DataPlotly being installed and on its version; plotting with Qt adds
-   nothing to install.
-3. **Clicking a bar must select its records at once.** With Qt the chart
-   knows which records are in each bar (the Explorer already has them) and
-   selects them directly. Through Plotly every click goes from JavaScript
-   back to Python and the records are looked up again.
-4. **The numbers must match the Explorer.** Our window shows the Explorer's
-   own statistics, bins and filters; the chart only draws them. Plotly
-   would compute its own bins from a copy of the data.
-5. **It must look like the rest of the plugin.** A web page has its own
+- the *plotly* package (Stormwater's README asks for `pip install plotly`);
+- a QGIS with a web view: the QGIS 4.2 build we test with has none, and the
+  QGIS 4 Windows packages lacked the Python bindings for QtWebEngine until
+  a fix in April 2026 (QGIS issue 65398);
+- internet on the first chart, unless we ship plotly.js (about 5 MB) in
+  the plugin.
+
+Without them, the window could not show a chart at all. Drawing with Qt
+needs none of this. The reasons for Qt drawing in detail:
+
+1. **It needs a web browser inside QGIS.** Plotly is a JavaScript library,
+   shown in a QtWebKit (QGIS 3) or QtWebEngine (QGIS 4) view. Not every
+   QGIS build has one. Qt's painter is part of every QGIS.
+2. **Nothing to install.** Attribute Table Studio works today on any QGIS
+   3.40+ or 4.x with nothing extra; Plotly would add a package (and, with
+   DataPlotly itself, a second plugin).
+3. **One language, one engine to test.** Click-to-select and our own bins
+   work with Plotly too (Stormwater's click bridge shows how, and we would
+   hand Plotly the Explorer's bins), but through a JavaScript layer that
+   behaves differently in QtWebKit and QtWebEngine and has to be tested in
+   both. With Qt the chart is plain Python, tested like the rest of the
+   plugin on QGIS 3 and 4.
+4. **It must look like the rest of the plugin.** A web page has its own
    fonts and colours; Qt drawing takes them from QGIS, light or dark, with
    no extra work.
-6. **Speed.** A web view takes a moment and a good deal of memory to start;
+5. **Speed.** A web view takes a moment and a good deal of memory to start;
    a painted chart opens and redraws at once, also for large layers.
 
 What we give up: Plotly's many chart kinds (we only need three) and its
