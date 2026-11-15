@@ -1171,6 +1171,7 @@ class ProfileDetails(QFrame):
 
     filterRequested = pyqtSignal(int, object)      # logical, raw value
     exportRequested = pyqtSignal(str)              # "xlsx", "summary", "distribution"
+    chartRequested = pyqtSignal()                  # Visualize Statistics
 
     def __init__(self, logical, name, kind, profile, scope_text, theme,
                  metrics, parent=None, meta=None):
@@ -1353,6 +1354,11 @@ class ProfileDetails(QFrame):
     def _footer(self, metrics):
         row = QHBoxLayout()
         row.setSpacing(metrics.gap)
+        self.chart_btn = W.button(metrics, "Chart…", icons.native(icons.CHART),
+                                  "Visualize Statistics: a full chart of this column")
+        self.chart_btn.setFixedHeight(metrics.compact_h)
+        self.chart_btn.clicked.connect(self.chartRequested.emit)
+        row.addWidget(self.chart_btn)
         row.addStretch(1)
         self.copied_label = QLabel("Copied")
         self.copied_label.setObjectName("gtsCopied")

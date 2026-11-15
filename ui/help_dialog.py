@@ -57,8 +57,8 @@ tab-separated text that pastes into Excel) and <b>Export ▾</b> (an Excel
 workbook with Summary and Distribution sheets, or either as CSV). Shares are
 exported as numbers; the workbook and <i>Everything</i> also record the
 layer, field, active filters and record count.
-NULL is missing; zero and empty text are values. <b>Summary: On / Off</b>
-collapses the strip. Statistics are exact and calculated in the
+NULL is missing; zero and empty text are values. <b>Σ Summary: On / Off</b>
+collapses the strip; the chart icon beside it opens Visualize Statistics. Statistics are exact and calculated in the
 background - visible columns first.</p>
 <h4>Selection and map</h4>
 <p>Select features with the tick boxes / row numbers (a click selects only
@@ -258,6 +258,61 @@ matches are found but never replaced. With a regular expression, $1 … $99
 put back a group and $&amp; the whole match.</p>
 """
 
+CHART_HELP = """
+<h3>Visualize Statistics</h3>
+<p>A full chart of one column of an Attribute Explorer, for the records the
+explorer shows (its filters, View scope, map extent or pivot records).
+Click the chart icon beside <b>Σ Summary</b> (it charts the selected column,
+or the column of the current cell), right-click a column name and choose
+<b>Visualize Statistics…</b>, or click <b>Chart…</b> in a column's statistics
+popup. Each explorer has one chart
+window; <b>Field</b> switches the column. It closes with its explorer, and
+<b>Dock</b> puts it in the QGIS window (and back).</p>
+<h4>Charts</h4>
+<p><b>Chart</b> offers every field a <b>Histogram</b> (vertical columns) and
+a <b>Bar chart</b> (horizontal bars); text starts as a bar chart, numbers
+and dates as a histogram.</p>
+<ul>
+<li><b>Numbers</b> (and times): the histogram has equal-width bins from the
+minimum to the maximum (the last bin holds the maximum); <b>Bins</b> sets
+their number, whole numbers spanning a few values get one bar each. Mean,
+median, ± 1 standard deviation and a normal distribution curve can be drawn
+on it. The bar chart has one bar per value (handy for codes).</li>
+<li><b>Text</b> and true / false: one bar or column per value, sorted by
+records or A → Z (numbers: smallest or largest first), the top 10 or 25 and
+Other, or all values; <b>Values</b> shows records or shares, and NULL can be
+a bar. Names that don't fit under their columns are slanted.</li>
+<li><b>Dates</b>: records per day, week (from Monday), month, quarter or
+year; <b>Auto</b> picks about 120 bars at most.</li>
+</ul>
+<p><b>Split by</b> counts every bar per value of a second field, stacked or
+side by side: the 8 most common values get their own colour (checked for
+colour-blind readers), the rest form Other. <b>Scale</b> (linear,
+logarithmic, square root) lets small bars show beside very tall ones.</p>
+<h4>Selecting</h4>
+<p>Click a bar to select its records on the layer (the map and the table
+follow); <b>Ctrl+click</b> adds a bar and a drag across bars selects the
+range. With Split by, a click on a coloured part selects that value in that
+bar, and a click on a legend entry selects that value in every bar. The
+selected records of every bar are drawn from its base in the project's
+selection colour, also for a selection made on the map, so a bar can be
+partly selected; the legend and the hover card give the numbers.
+<b>Selected only</b> charts only the selected records and <b>Clear the
+chart selection</b> deselects them.</p>
+<h4>Statistics and export</h4>
+<p>The <b>Statistics</b> list matches the explorer's (population standard
+deviation; NULL and unusable values counted apart) and adds skewness and
+kurtosis (3 for a normal distribution). <b>Export</b> saves the chart as a
+PNG or SVG image, copies it, or writes the bars to CSV with the scope
+recorded next to it.</p>
+<h4>Big layers</h4>
+<p>The records are read in the background (progress and Cancel in the status
+bar) and only compact columns are kept, about 25 bytes a record, so a layer
+of 10 million records charts without freezing QGIS. Bins, sorting and
+intervals are worked out again from those columns without reading the
+layer; a new field, Split by or Selected only reads it again.</p>
+"""
+
 PIVOT_HELP = """
 <h3>Pivot Table</h3>
 <p>A pivot table <b>groups records</b> by the values of one or more fields
@@ -428,6 +483,7 @@ and terms: https://github.com/irenejaya/attribute-table-studio</p>
 TOPICS = {
     "general": ("Attribute Table Studio", icons.HELP, GENERAL_HELP),
     "explorer": ("Attribute Explorer", icons.EXPLORER, EXPLORER_HELP),
+    "chart": ("Visualize Statistics", icons.CHART, CHART_HELP),
     "pivot": ("Pivot Table", icons.PIVOT, PIVOT_HELP),
     "compare": ("Geometry and Table Compare", icons.COMPARE, COMPARE_HELP),
 }

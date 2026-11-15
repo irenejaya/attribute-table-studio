@@ -109,6 +109,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._expr = None
         self._restrict = None
         self._spec = None
+        self.chart_host = None           # Visualize Statistics window
         self.profiles = {}
         self._profile_queue = []
         self._per_scan = 1
@@ -210,6 +211,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.summary_btn = row.add(W.button(
             m, "Summary: On", icons.native(icons.SUMMARY),
             "Show or hide the column statistics strip", checkable=True))
+        self.chart_btn = row.add(W.square_button(
+            m, icons.native(icons.CHART), "Visualize Statistics\nA full chart of the "
+            "selected column (or of the column of the current cell)"))
         self.pivot_btn = row.add(W.button(
             m, "Pivot Table", icons.tool(icons.PIVOT),
             "Summarise the filtered records in a Pivot Table"))
@@ -291,6 +295,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.deselect_btn.clicked.connect(self.deselect_all)
         self.selected_btn.toggled.connect(self._on_selected_only)
         self.summary_btn.toggled.connect(self._on_summary_toggled)
+        self.chart_btn.clicked.connect(self._chart_current_column)
         self.pivot_btn.clicked.connect(self._open_pivot)
         self.clear_btn.clicked.connect(self.clear_filters)
         self.query_btn.toggled.connect(self._toggle_map_filter)
@@ -351,6 +356,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def set_layer(self, layer):
         if layer is self.layer:
             return
+        from .explorer_chart import close_chart
+        close_chart(self)
         if self.layer is not None:
             self.flush_editors()
             self._save_layout()
@@ -464,6 +471,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
 
     def shutdown(self):
         self._closing = True
+        from .explorer_chart import close_chart
+        close_chart(self)
         self.find_bar.shutdown()
         self._refresh_timer.stop()
         self._data_timer.stop()
@@ -600,6 +609,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.model.set_layer(layer)
         self.header.rebuild(self.model.fields, self.model.kinds)
         self._restore_layout()
+        if self.chart_host is not None:
+            self.chart_host.panel.on_schema_changed()
         dropped = []
         for logical, cell in self.header.cells.items():
             flt = old.pop(cell.name, None)
@@ -1875,6 +1886,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         pop.setStyleSheet(pop.styleSheet() + stylesheet(self.theme, self.metrics))
         pop.fit()
         pop.filterRequested.connect(self._on_details_filter)
+        pop.chartRequested.connect(
+            lambda p=pop: (p.close(), self.visualize_statistics(logical)))
         pop.exportRequested.connect(
             lambda fmt, p=pop: self._start_stats_export(logical, fmt, p))
         card = self.header.cards[logical]
@@ -1962,6 +1975,43 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is None or not self._has_result:
             return
         self.openPivotRequested.emit(self.layer, self.current_scope())
+
+    def visualize_statistics(self, logical=None):
+        """Open (or raise) the chart window on column *logical*."""
+        if self.layer is None:
+            return None
+        from .explorer_chart import open_chart
+        return open_chart(self, logical)
+
+    def _chart_current_column(self):
+        """Visualize Statistics button: the selected column (the leftmost
+        when several), else the current cell's column, else the first one
+        shown."""
+        header = self.view.horizontalHeader()
+        shown = self._shown_columns()
+        picked = [i for i in self.model.selected_cols if not header.isSectionHidden(i)]
+        if picked:
+            logical = min(picked, key=header.visualIndex)
+        elif self.view.currentIndex().isValid():
+            logical = self.view.currentIndex().column()
+        elif shown:
+            logical = min(shown, key=header.visualIndex)
+        else:
+            logical = 0
+        self.visualize_statistics(logical)
+
+    def chart_spec(self, selected_only=False):
+        """A fresh scan of the current scope for the chart window
+        (*selected_only*: only its records selected on the layer)."""
+        spec = self._spec
+        if spec is None or self.layer is None:
+            return None
+        restrict = spec.restrict
+        if selected_only:
+            sel = set(self.model.selected)
+            restrict = sel if restrict is None else (restrict & sel)
+        with self._unfiltered():
+            return ScanSpec(self.layer, spec.expression, restrict, spec.rect)
 
     def current_scope(self):
         """Scope hand-over for the Pivot Table (a snapshot of the ids)."""

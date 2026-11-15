@@ -77,24 +77,8 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None):
         desc = bool(sort_expr[1])
         need |= {i for i in sort_exp.referencedAttributeIndexes(spec.fields) if i >= 0}
 
-    req = QgsFeatureRequest()
     geometry = spec.rect is not None or (sort_exp is not None and sort_exp.needsGeometry())
-    if not geometry:
-        req.setFlags(NO_GEOMETRY)
-    if spec.rect is not None:
-        req.setFilterRect(spec.rect)
-    restrict = spec.restrict
-    local_expr = None
-    if restrict is not None and (spec.expression is None
-                                 or len(restrict) <= FID_FILTER_LIMIT):
-        req.setFilterFids(sorted(restrict))
-        restrict = None                     # the provider applies it
-        if spec.expression:
-            local_expr = QgsExpression(spec.expression)
-            need |= spec.referenced()
-    elif spec.expression:
-        req.setFilterExpression(spec.expression)
-        need |= spec.referenced()
+    req, restrict, local_expr, need = _plan(spec, need, geometry)
     if sort_exp is not None and sort_exp.referencedColumns() \
             and QgsFeatureRequest.ALL_ATTRIBUTES in sort_exp.referencedColumns():
         need = set(range(spec.fields.count()))
@@ -148,6 +132,61 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None):
         fids = [fids[i] for i in order]
         cols = [[c[i] for i in order] for c in cols]
     return (fids if want_fids else None), cols
+
+
+def _plan(spec, need, geometry):
+    """(request, restrict, local_expr, need) reading the scope of *spec*:
+    the id set goes to the provider when it can, otherwise it is matched
+    while reading (*restrict*); an expression the provider cannot combine
+    with the ids is evaluated while reading (*local_expr*)."""
+    need = set(need)
+    req = QgsFeatureRequest()
+    if not geometry:
+        req.setFlags(NO_GEOMETRY)
+    if spec.rect is not None:
+        req.setFilterRect(spec.rect)
+    restrict = spec.restrict
+    local_expr = None
+    if restrict is not None and (spec.expression is None
+                                 or len(restrict) <= FID_FILTER_LIMIT):
+        req.setFilterFids(sorted(restrict))
+        restrict = None                     # the provider applies it
+        if spec.expression:
+            local_expr = QgsExpression(spec.expression)
+            need |= spec.referenced()
+    elif spec.expression:
+        req.setFilterExpression(spec.expression)
+        need |= spec.referenced()
+    return req, restrict, local_expr, need
+
+
+def stream(spec, job, attr_idxs=(), step=5000):
+    """Yield the features of the scope one by one (no geometry unless a map
+    extent needs it), reading only *attr_idxs*.  Nothing is kept, so it
+    suits millions of records; progress and cancelling go through *job*."""
+    req, restrict, local_expr, need = _plan(spec, attr_idxs, spec.rect is not None)
+    req.setSubsetOfAttributes(sorted(need))
+    ctx = None
+    if local_expr is not None:
+        ctx = QgsExpressionContext(spec.context)
+        ctx.setFields(spec.fields)
+        local_expr.prepare(ctx)
+    total = float(spec.estimate or 1)
+    n = 0
+    for feat in spec.source.getFeatures(req):
+        n += 1
+        if n % step == 0:
+            job.check()
+            job.report(min(99.0, 100.0 * n / total))
+        if restrict is not None and feat.id() not in restrict:
+            continue
+        if local_expr is not None:
+            ctx.setFeature(feat)
+            ok = local_expr.evaluate(ctx)
+            if F.is_null(ok) or not ok:
+                continue
+        yield feat
+    job.check()
 
 
 def _sort_order(keys, desc):
