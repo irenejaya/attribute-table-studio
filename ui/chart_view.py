@@ -294,12 +294,9 @@ class ChartView(QWidget):
         def yof(v):
             return plot.bottom() - plot.height() * self._f(v) / top_t if top_t else plot.bottom()
 
-        # grid + count labels
+        # count labels (the grid lines are drawn over the bars, below)
         for v, s in zip(ticks, tick_texts):
             y = yof(v)
-            if m.grid:
-                p.setPen(QPen(QColor(t.border_soft), 1))
-                p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
             p.setPen(QColor(t.text_dim))
             p.drawText(QRectF(plot.left() - ylab_w - 8, y - 9, ylab_w, 18),
                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, s)
@@ -339,6 +336,7 @@ class ChartView(QWidget):
         hover_bar = self._hover[0] if self._hover else None
         sel = m.sel or [0] * n
         geo = self._geo["bars"]
+        count_labels = []
         gap = 1.5 if bw > 4 else 0.0
         # bins touch (a histogram); one column per value stands apart, thin
         inset, cw = gap / 3, max(bw - gap, 1.0)
@@ -359,7 +357,7 @@ class ChartView(QWidget):
                 if c:
                     geo.append((self._col_hit(rect, plot.bottom()), i, None))
                 if m.labels and c:
-                    self._column_label(p, rect, c, fm)
+                    count_labels.append((rect, c))
                 continue
             row = split[i]
             sel_row = m.sel_series[i] if m.sel_series else None
@@ -378,7 +376,7 @@ class ChartView(QWidget):
                     if c:
                         geo.append((self._col_hit(rect, plot.bottom()), i, s))
                     if m.labels and c:
-                        self._column_label(p, rect, c, fm)
+                        count_labels.append((rect, c))
                 peak = max(row) if row else 0
                 if peak:
                     top_y = yof(peak)
@@ -407,9 +405,13 @@ class ChartView(QWidget):
                                                      plot.bottom() - top_y), plot.bottom()),
                                 i, None))
                 if m.labels and bars.counts[i]:
-                    self._column_label(p, QRectF(x, yof(bars.counts[i]), bw,
-                                                 plot.bottom() - yof(bars.counts[i])),
-                                       bars.counts[i], fm)
+                    count_labels.append((QRectF(x, yof(bars.counts[i]), bw,
+                                                plot.bottom() - yof(bars.counts[i])),
+                                         bars.counts[i]))
+        if m.grid:                           # over the bars, to read them off
+            self._grid_lines(p, plot, [yof(v) for v in ticks if v > 0], across=True)
+        for rect, c in count_labels:
+            self._column_label(p, rect, c, fm)
         p.setPen(QPen(QColor(t.border), 1))
         p.drawLine(plot.bottomLeft(), plot.bottomRight())
 
@@ -466,6 +468,17 @@ class ChartView(QWidget):
                 self._normal_curve(p, plot, xof, yof, st, bars, lo, hi)
                 legend.append(("line", QColor(t.text_strong), "Normal distribution", None))
         self._paint_legend(p, plot, legend, fm, corner_pref=("tr", "tl"))
+
+    def _grid_lines(self, p, plot, positions, across=True):
+        """Grid lines drawn over the bars (*across*: horizontal lines for
+        columns, else vertical ones for bars), in the theme's soft line
+        colour, so a bar's height can be read where it meets a line."""
+        p.setPen(QPen(QColor(self.theme.border_soft), 1))
+        for pos in positions:
+            if across:
+                p.drawLine(QPointF(plot.left(), pos), QPointF(plot.right(), pos))
+            else:
+                p.drawLine(QPointF(pos, plot.top()), QPointF(pos, plot.bottom()))
 
     def _category_labels(self, p, plot, bars, bw, fm, slant_len):
         """Values under their columns: level and shortened to the column
@@ -560,9 +573,6 @@ class ChartView(QWidget):
 
         for v in ticks:
             x = xof(v)
-            if m.grid:
-                p.setPen(QPen(QColor(t.border_soft), 1))
-                p.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
             p.setPen(QColor(t.text_dim))
             text = (f"{100.0 * v / total:.0f}%" if m.share else f"{int(v):,}")
             p.drawText(QRectF(x - 40, plot.bottom() + 4, 80, 18), Qt.AlignmentFlag.AlignCenter,
@@ -574,6 +584,7 @@ class ChartView(QWidget):
                    + (" (log scale)" if m.scale == "log" else
                       " (square root scale)" if m.scale == "sqrt" else ""))
         bh = plot.height() / n
+        value_places = []
         colour = self._bar_colour()
         hover_bar = self._hover[0] if self._hover else None
         sel = m.sel or [0] * n
@@ -638,9 +649,12 @@ class ChartView(QWidget):
                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                        fm.elidedText(label, Qt.TextElideMode.ElideRight, lab_w - 4))
             end = xof(bars.counts[i]) if not side else xof(max(split[i]) if split[i] else 0)
-            p.setPen(QColor(t.text_dim))
-            p.drawText(QRectF(end + 8, y, val_w + 40, bh), Qt.AlignmentFlag.AlignVCenter,
-                       value_texts[i])
+            value_places.append((QRectF(end + 8, y, val_w + 40, bh), value_texts[i]))
+        if m.grid:                           # over the bars, to read them off
+            self._grid_lines(p, plot, [xof(v) for v in ticks if v > 0], across=False)
+        p.setPen(QColor(t.text_dim))
+        for rect, text in value_places:
+            p.drawText(rect, Qt.AlignmentFlag.AlignVCenter, text)
         p.setPen(QPen(QColor(t.border), 1))
         p.drawLine(plot.topLeft(), plot.bottomLeft())
         legend = []
