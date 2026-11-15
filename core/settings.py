@@ -12,6 +12,7 @@ DEFAULTS = {
     "explorer/openDocked": False,
     "pivot/openDocked": False,
     "compare/openDocked": False,
+    "chart/openDocked": False,
     "explorer/summaryVisible": True,
     "explorer/filterDelayMs": 350,
     # opt in: F6 / Shift+F6 / Ctrl+F6 open Attribute Explorer

@@ -1,4 +1,10 @@
-# Visualize Statistics (plan for dev-v2, not built yet)
+# Visualize Statistics (plan for dev-v2, now built)
+
+Built on dev-v2: `core/charts.py`, `ui/chart_view.py`, `ui/explorer_chart.py`.
+Two details changed while building: with **Split by** the selected records
+are drawn from the base of each coloured part (outlines turned thin bars
+olive, close to a category colour), and the Split by legend has its own
+column beside the plot so it never covers a bar.
 
 A chart window for one column of the Attribute Explorer, in the spirit of
 ArcGIS Pro's *Visualize Statistics*: the statistics the Explorer already
@@ -117,8 +123,8 @@ by colour alone: the legend and the hover card always name it.
   select 312 parcels on the map and every bar shows how many of its records
   are among them (histogram mock-up). The legend shows *Selected* with the
   count, and the hover card shows each bar's selected records.
-- With **Split by**, the selected records of a segment are outlined in the
-  selection colour instead, so the category colours stay readable.
+- With **Split by**, the selected records of each coloured part are drawn
+  from its base in the selection colour, as for a bar without a split.
 - Hovering a bar darkens it a little.
 - **Clear the chart selection** deselects; **Selected only** charts only the
   selected records.

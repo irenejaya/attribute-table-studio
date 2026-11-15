@@ -109,6 +109,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._expr = None
         self._restrict = None
         self._spec = None
+        self.chart_host = None           # Visualize Statistics window
         self.profiles = {}
         self._profile_queue = []
         self._per_scan = 1
@@ -351,6 +352,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def set_layer(self, layer):
         if layer is self.layer:
             return
+        from .explorer_chart import close_chart
+        close_chart(self)
         if self.layer is not None:
             self.flush_editors()
             self._save_layout()
@@ -464,6 +467,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
 
     def shutdown(self):
         self._closing = True
+        from .explorer_chart import close_chart
+        close_chart(self)
         self.find_bar.shutdown()
         self._refresh_timer.stop()
         self._data_timer.stop()
@@ -600,6 +605,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.model.set_layer(layer)
         self.header.rebuild(self.model.fields, self.model.kinds)
         self._restore_layout()
+        if self.chart_host is not None:
+            self.chart_host.panel.on_schema_changed()
         dropped = []
         for logical, cell in self.header.cells.items():
             flt = old.pop(cell.name, None)
@@ -1875,6 +1882,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         pop.setStyleSheet(pop.styleSheet() + stylesheet(self.theme, self.metrics))
         pop.fit()
         pop.filterRequested.connect(self._on_details_filter)
+        pop.chartRequested.connect(
+            lambda p=pop: (p.close(), self.visualize_statistics(logical)))
         pop.exportRequested.connect(
             lambda fmt, p=pop: self._start_stats_export(logical, fmt, p))
         card = self.header.cards[logical]
@@ -1962,6 +1971,26 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is None or not self._has_result:
             return
         self.openPivotRequested.emit(self.layer, self.current_scope())
+
+    def visualize_statistics(self, logical=None):
+        """Open (or raise) the chart window on column *logical*."""
+        if self.layer is None:
+            return None
+        from .explorer_chart import open_chart
+        return open_chart(self, logical)
+
+    def chart_spec(self, selected_only=False):
+        """A fresh scan of the current scope for the chart window
+        (*selected_only*: only its records selected on the layer)."""
+        spec = self._spec
+        if spec is None or self.layer is None:
+            return None
+        restrict = spec.restrict
+        if selected_only:
+            sel = set(self.model.selected)
+            restrict = sel if restrict is None else (restrict & sel)
+        with self._unfiltered():
+            return ScanSpec(self.layer, spec.expression, restrict, spec.rect)
 
     def current_scope(self):
         """Scope hand-over for the Pivot Table (a snapshot of the ids)."""

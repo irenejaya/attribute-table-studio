@@ -438,6 +438,10 @@ class BrowseMixin:
         act.setEnabled(self.sort is not None or bool(self.sort_expr))
         act.triggered.connect(self.clear_sort)
         menu.addSeparator()
+        act = menu.addAction(icons.native(icons.SUMMARY), "Visualize Statistics…")
+        act.setToolTip(f"A chart of {name} for the records in the table")
+        act.triggered.connect(lambda: self.visualize_statistics(logical))
+        menu.addSeparator()
         menu.addAction("Autosize This Column").triggered.connect(
             lambda: self.autosize_columns([logical]))
         menu.addAction("Autosize All Columns").triggered.connect(self.autosize_columns)

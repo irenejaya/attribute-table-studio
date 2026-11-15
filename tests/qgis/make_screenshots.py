@@ -218,6 +218,33 @@ ex.refresh()
 wait_profiles(ex)
 save(win, "explorer")
 
+# Visualize Statistics: the area of the Residential parcels, with parcels
+# selected on the map shown in each bar; then split by owner type
+chart = ex.visualize_statistics(col(ex, "AREA_M2"))
+chart_win = ex.chart_host._window
+chart_win.resize(1180, 680)
+H.wait_for(lambda: chart.col is not None and not chart.reader.busy, 60)
+chart.bins_spin.setValue(32)
+layer.selectByIds(sorted(ex.model.fids)[::9])
+H.settle(0.6)
+save(chart_win, "chart")
+if THEME == "dark":
+    chart.split_combo.set_current_name("OWNER_TYPE")
+    H.wait_for(lambda: chart.col is not None and chart.col.split_name == "OWNER_TYPE"
+               and not chart.reader.busy, 60)
+    H.settle(0.4)
+    save(chart_win, "chart_split")
+    chart.set_field(col(ex, "SURVEY_DATE"))
+    chart.split_combo.set_current_name(None)
+    H.wait_for(lambda: chart.col is not None and chart.col.name == "SURVEY_DATE"
+               and chart.col.split_name is None and not chart.reader.busy, 60)
+    chart.interval_combo.setCurrentIndex(chart.interval_combo.findData("month"))
+    H.settle(0.4)
+    save(chart_win, "chart_dates")
+layer.removeSelection()
+ex.chart_host.close()
+H.settle(0.3)
+
 if THEME == "dark":
     # full statistics of a numeric column
     logical = col(ex, "AREA_M2")

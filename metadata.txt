@@ -11,7 +11,7 @@ about=Attribute Table Studio is an advanced version of QGIS Attribute Table and 
     <b>Geometry and Table Compare</b> - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
     Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
 
-version=1.2
+version=1.3
 author=Irene Jaya
 email=irenejaya1@gmail.com
 
@@ -30,6 +30,10 @@ hasProcessingProvider=no
 server=False
 
 changelog=
+    1.3 - Visualize Statistics
+        * New: Attribute Explorer - Visualize Statistics: a full chart of a column (right-click a column name, or Chart… in its statistics popup) for the records in the table: histogram for numbers, bar chart for text and true / false, records over time for dates; bins, scale, sort, top values, intervals, mean / median / standard deviation / normal curve, Split by a second field (stacked or side by side), statistics with skewness and kurtosis, export as PNG, SVG, image copy or CSV; dockable
+        * Click a bar to select its records (Ctrl+click adds, drag for a range); selected records show in every bar in the project's selection colour, also for a map selection
+        * Built for big layers: records are read in the background into compact columns (about 25 bytes a record), so 10 million records chart without freezing QGIS
     1.2 - Compare feature export, "not" filters, expression filter bar, Rename Field, Pivot List distinct
         * New: Geometry and Table Compare - Export > GeoPackage (.gpkg) - features: the features of the rows shown, one layer per kind (added, deleted, modified, unchanged) with the table's columns plus CHANGE, DECISION and CHANGED_FIELDS; each column holds the reviewed value (NEW, or OLD where the change was rejected) and a changed column also gets <name>_OLD; the layers are added to the map as a group
         * New: Attribute Explorer - "not" quick filters: is not, does not contain, is not one of (NULL records are kept)

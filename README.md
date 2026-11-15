@@ -138,6 +138,40 @@ by the records shown in the table when that is different: **9,434 (484)**.
   Layers*, *Select Features by Expression…*, *Select Features by Value…*,
   *Pan to Selection*, *Zoom to Selection*.
 
+### Visualize Statistics
+
+Right-click a column name › **Visualize Statistics…** (or **Chart…** in a
+column's statistics popup) for a full chart of that column, for the records
+the explorer shows. It follows the explorer's filters, scope and edits; one
+chart window per explorer, as a window or docked.
+
+![Visualize Statistics](docs/screenshots/dark_chart.png)
+
+- **Histogram** for numbers (and times): bins from the minimum to the
+  maximum, linear, logarithmic or square root scale, mean and median lines,
+  ± 1 standard deviation and a normal distribution curve.
+  **Bar chart** for text and true / false (top 10 or 25 and Other, or all
+  values; records or shares; NULL as a bar). **Over time** for dates, per
+  day, week, month, quarter or year.
+- **Click a bar** to select its records on the layer (the map and the table
+  follow), **Ctrl+click** to add one, **drag** for a range. Bars are always
+  solid; the selected records of every bar are drawn from its base in the
+  project's selection colour, also for a selection made on the map, so a bar
+  can be partly selected. **Selected only** charts just the selection.
+- **Split by** a second field, stacked or side by side: the 8 most common
+  values get colours checked for colour-blind readers, the rest form Other;
+  a click on a legend entry selects that value in every bar.
+
+  ![Split by](docs/screenshots/dark_chart_split.png)
+- **Statistics** as in the explorer, plus skewness and kurtosis; **Export**
+  saves a PNG or SVG image, copies it, or writes the bars to CSV with the
+  scope recorded.
+- **Big layers**: the records are read in the background (progress and
+  Cancel in the status bar) into compact columns, about 25 bytes a record,
+  and drawing only ever sees the bars. In tests with 10 million records the
+  chart was ready in 18–35 seconds while QGIS stayed responsive, and new
+  bins, sorting or intervals took under a second.
+
 ### Editing
 
 The explorer opens read-only. **Edit** on the second row (the *Statistics
@@ -308,6 +342,7 @@ core/                  UI-free engines (pure Python where possible)
   filters.py           column filters → QGIS expressions
   pivot.py             pivot engine
   scan.py              background feature scans (geometry only when needed)
+  charts.py            Visualize Statistics: compact columns, bins, periods
   constraints.py       field constraint checks (failing records scope)
   subset.py            map filter (table filters → layer subset)
   jobs.py              QgsTask wrapper with stale-result protection
@@ -322,6 +357,7 @@ ui/
   explorer_edit.py     edit session controller (save / discard / prompts)
   explorer_editing.py  edit row commands; explorer_bars.py edit and Quick update rows
   explorer_join.py     Join table window (core/joins.py: matching rules, counts)
+  explorer_chart.py    Visualize Statistics window; chart_view.py draws the chart
   explorer_browse.py   View / Select menus, scopes, expression filters
   explorer_ops.py, explorer_dialogs.py, explorer_form.py
                        calculator, field and form dialogs, form view

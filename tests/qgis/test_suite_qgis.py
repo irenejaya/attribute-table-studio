@@ -1367,6 +1367,215 @@ class SuiteTests(unittest.TestCase):
         panel.close()
         H.settle(0.1)
 
+    def test_13q_visualize_statistics(self):
+        from qgis.PyQt.QtTest import QTest
+        from qgis.PyQt.QtWidgets import QApplication
+        from attribute_table_studio.core import charts as C
+        from attribute_table_studio.core import stats as S
+        from attribute_table_studio.ui.explorer_header import ProfileDetails
+        layer = H.demo_layer(n=800, name="Chart parcels")
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        f = layer.fields()
+        sm, lu, sd = (f.indexOf(n) for n in ("SCORE_MAX", "LAND_USE", "SURVEY_DATE"))
+        feats = list(layer.getFeatures())
+        h = panel.header
+        # a column name's menu offers the chart
+        shown = []
+        original = QMenu.exec
+        QMenu.exec = lambda menu, *a: shown.extend(
+            act.text() for act in menu.actions() if not act.isSeparator())
+        try:
+            panel.view.scrollTo(panel.model.index(0, sm))
+            H.pump()
+            panel._header_menu(QPoint(h.sectionViewportPosition(sm) + 5, h.name_top() + 5))
+        finally:
+            QMenu.exec = original
+        self.assertIn("Visualize Statistics…", shown)
+
+        chart = panel.visualize_statistics(sm)
+
+        def ready(name, split=None):
+            return H.wait_for(lambda: chart.col is not None and chart.col.name == name
+                              and chart.col.split_name == split and not chart.reader.busy
+                              and not panel.runner.busy, 60)
+
+        self.assertTrue(ready("SCORE_MAX"))
+        self.assertIs(panel.chart_host.panel, chart)
+        self.assertIs(panel.visualize_statistics(sm), chart)        # one per explorer
+        self.assertEqual(chart.kind_combo.currentText(), "Histogram")
+        self.assertIn("Visualize Statistics — SCORE_MAX", chart.window_title())
+        # the explorer's statistics, every record in a bin
+        vals = [ft["SCORE_MAX"] for ft in feats]
+        prof = S.compute_profile(F.REAL, vals)
+        st = chart.col.stats
+        self.assertEqual((st["records"], st["null"]), (800, prof.missing))
+        self.assertEqual((st["min"], st["max"], st["median"]),
+                         (prof.minimum, prof.maximum, prof.median))
+        self.assertAlmostEqual(st["mean"], prof.mean, places=9)
+        self.assertAlmostEqual(st["std"], prof.std, places=9)
+        self.assertEqual(sum(chart.bars.counts), prof.valid)
+        self.assertEqual(chart.bins_spin.value(), C.default_bins(prof.valid))
+        # other bins come from the kept values, without reading again
+        col = chart.col
+        chart.bins_spin.setValue(10)
+        self.assertEqual(len(chart.bars), 10)
+        self.assertIs(chart.col, col)
+        self.assertEqual(sum(chart.bars.counts), prof.valid)
+
+        win = chart.window()
+        win.resize(1100, 680)
+        H.settle(0.3)
+        v = chart.view
+
+        def bar_point(i):
+            for rect, bi, s in v._geo["bars"]:
+                if bi == i and s is None:
+                    return QPoint(int(rect.center().x()), int(rect.bottom() - 4))
+
+        def in_bins(*idxs):
+            bars = chart.bars
+            out = set()
+            for ft in feats:
+                x = ft["SCORE_MAX"]
+                for i in idxs:
+                    last = i == len(bars) - 1
+                    if bars.lows[i] <= x and (x < bars.highs[i] or (last and x <= bars.highs[i])):
+                        out.add(ft.id())
+            return out
+
+        # a click selects the bar's records, Ctrl+click adds, a drag selects the range
+        no, ctrl = Qt.KeyboardModifier.NoModifier, Qt.KeyboardModifier.ControlModifier
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(3))
+        H.settle(0.3)
+        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(3))
+        self.assertEqual(chart.sel[3], chart.bars.counts[3])
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, ctrl, bar_point(5))
+        H.settle(0.3)
+        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(3, 5))
+        QTest.mousePress(v, Qt.MouseButton.LeftButton, no, bar_point(6))
+        QTest.mouseMove(v, bar_point(7))
+        QTest.mouseMove(v, bar_point(8))
+        QTest.mouseRelease(v, Qt.MouseButton.LeftButton, no, bar_point(8))
+        H.settle(0.3)
+        self.assertEqual(set(layer.selectedFeatureIds()), in_bins(6, 7, 8))
+        # a selection made elsewhere shows as part of the bars
+        some = [ft.id() for ft in feats[::7]]
+        layer.selectByIds(some)
+        H.settle(0.4)
+        self.assertEqual(sum(chart.sel), len(some))
+        self.assertIn(f"{len(some):,} of 800 records selected", chart.status.message.fullText())
+        # hover card: range, records, selected
+        v._hover = (4, None)
+        title, lines, _foot = v.card_lines(4)
+        self.assertIn(" – ", title)
+        self.assertIn(f"{chart.bars.counts[4]:,} records", lines[0][1])
+        v._hover = None
+        chart.clear_btn.click()
+        self.assertEqual(layer.selectedFeatureCount(), 0)
+        H.settle(0.3)
+        self.assertEqual(sum(chart.sel), 0)
+
+        # the chart follows the explorer's filters
+        panel.set_column_filter("LAND_USE", FL.ColumnFilter("LAND_USE", F.TEXT, "in",
+                                                            values=["RESIDENTIAL"]))
+        res = sum(1 for ft in feats if ft["LAND_USE"] == "RESIDENTIAL")
+        self.assertTrue(H.wait_for(lambda: idle(panel) and chart.col is not None
+                                   and chart.col.scope == res and not chart.reader.busy, 60))
+        self.assertIn(f"{res:,} of 800", chart.scope_label.fullText())
+        panel.clear_filters()
+        self.assertTrue(H.wait_for(lambda: idle(panel) and chart.col.scope == 800
+                                   and not chart.reader.busy, 60))
+        # Selected only
+        layer.selectByIds([ft.id() for ft in feats[:100]])
+        chart.selected_btn.setChecked(True)
+        self.assertTrue(H.wait_for(lambda: chart.col.scope == 100 and not chart.reader.busy, 60))
+        chart.selected_btn.setChecked(False)
+        self.assertTrue(H.wait_for(lambda: chart.col.scope == 800 and not chart.reader.busy, 60))
+        layer.removeSelection()
+
+        # text: bars by records, top 10 + Other, NULL as a bar
+        chart.set_field(lu)
+        self.assertTrue(ready("LAND_USE"))
+        self.assertEqual(chart.kind_combo.currentText(), "Bar chart")
+        self.assertEqual(chart.bars.labels[0], "RESIDENTIAL")
+        self.assertEqual(chart.bars.counts[0], res)
+        self.assertTrue(chart.sort_row.isVisible() and not chart.bins_row.isVisible())
+        chart.sort_combo.setCurrentIndex(1)                       # A -> Z
+        self.assertEqual(chart.bars.labels, sorted(chart.bars.labels))
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(0))
+        H.settle(0.3)
+        self.assertEqual(layer.selectedFeatureCount(),
+                         sum(1 for ft in feats if ft["LAND_USE"] == chart.bars.labels[0]))
+        layer.removeSelection()
+        # dates: records over time, every dated record in a period
+        chart.set_field(sd)
+        self.assertTrue(ready("SURVEY_DATE"))
+        dated = sum(1 for ft in feats if not F.is_null(ft["SURVEY_DATE"]))
+        self.assertEqual(chart.kind_combo.currentText(), "Over time")
+        self.assertEqual(sum(chart.bars.counts), dated)
+        chart.interval_combo.setCurrentIndex(chart.interval_combo.findData("month"))
+        self.assertEqual(chart.bars.interval, "month")
+        self.assertRegex(chart.bars.labels[0], r"^\d{4}-\d{2}$")
+        self.assertEqual(sum(chart.bars.counts), dated)
+        self.assertTrue(chart.interval_combo.itemText(0).startswith("Auto ("))
+
+        # Split by: each bar per land use, a legend entry selects one in every bar
+        chart.set_field(sm)
+        chart.split_combo.set_current_name("LAND_USE")
+        self.assertTrue(ready("SCORE_MAX", "LAND_USE"))
+        bars = chart.bars
+        self.assertEqual(bars.series[0], "RESIDENTIAL")
+        self.assertEqual([sum(r) for r in bars.split], bars.counts)
+        self.assertFalse(chart.colour_btn.isEnabled())
+        chart._on_series_picked(0, False)
+        H.settle(0.3)
+        self.assertEqual(layer.selectedFeatureCount(), res)
+        self.assertEqual(sum(chart.sel), res)
+        chart.split_mode.setCurrentIndex(1)                       # side by side
+        H.settle(0.2)
+        self.assertEqual(v.model.split_mode, "side")
+        layer.removeSelection()
+
+        # exports: PNG, SVG, the bars as CSV with the scope beside it
+        png, svg, csv_path = (os.path.join(OUT, n) for n in ("c.png", "c.svg", "c.csv"))
+        _next_save.extend([png])
+        chart.export_image("png")
+        _next_save.extend([svg])
+        chart.export_image("svg")
+        _next_save.extend([csv_path])
+        chart.export_csv()
+        for path in (png, svg, csv_path, os.path.join(OUT, "c_scope.txt")):
+            self.assertTrue(os.path.getsize(path) > 0, path)
+        with open(csv_path, encoding="utf-8-sig") as fh:
+            head = fh.readline()
+        self.assertTrue(head.startswith("Bar,From,To,Records,Share (%),Selected,LAND_USE: "))
+
+        # the statistics popup has a Chart… button
+        chart.split_combo.set_current_name(None)
+        self.assertTrue(ready("SCORE_MAX"))
+        H.wait_for(lambda: sm in panel.profiles, 30)
+        panel._show_profile_details(sm)
+        H.settle(0.2)
+        pops = [w for w in QApplication.topLevelWidgets()
+                if isinstance(w, ProfileDetails) and w.isVisible()]
+        self.assertEqual(len(pops), 1)
+        self.assertEqual(pops[0].chart_btn.text().strip(), "Chart…")
+        pops[0].chart_btn.click()
+        H.settle(0.2)
+        self.assertFalse(any(isinstance(w, ProfileDetails) and w.isVisible()
+                             for w in QApplication.topLevelWidgets()))     # closed
+        # Dock and back, then the chart closes with its explorer
+        chart.dock_btn.click()
+        H.settle(0.2)
+        self.assertTrue(panel.chart_host.is_docked)
+        chart.dock_btn.click()
+        H.settle(0.2)
+        self.assertFalse(panel.chart_host.is_docked)
+        self.plugin.explorers[layer.id()].close()
+        H.settle(0.3)
+        self.assertIsNone(panel.chart_host)
+
     def test_13g_round9_ui(self):
         from qgis.PyQt.QtWidgets import QToolButton
         from attribute_table_studio.ui import icons
