@@ -140,19 +140,25 @@ by the records shown in the table when that is different: **9,434 (484)**.
 
 ### Visualize Statistics
 
-Right-click a column name › **Visualize Statistics…** (or **Chart…** in a
-column's statistics popup) for a full chart of that column, for the records
+Click the chart icon beside **Σ Summary** (it charts the selected column),
+right-click a column name › **Visualize Statistics…**, or click **Chart…** in a
+column's statistics popup for a full chart of that column, for the records
 the explorer shows. It follows the explorer's filters, scope and edits; one
 chart window per explorer, as a window or docked.
 
 ![Visualize Statistics](docs/screenshots/dark_chart.png)
 
-- **Histogram** for numbers (and times): bins from the minimum to the
-  maximum, linear, logarithmic or square root scale, mean and median lines,
-  ± 1 standard deviation and a normal distribution curve.
-  **Bar chart** for text and true / false (top 10 or 25 and Other, or all
-  values; records or shares; NULL as a bar). **Over time** for dates, per
-  day, week, month, quarter or year.
+- **Chart**: every field can be a **Histogram** (vertical columns) or a
+  **Bar chart** (horizontal bars). Numbers: bins from the minimum to the
+  maximum (mean and median lines, ± 1 standard deviation, a normal
+  distribution curve), or one bar per value (handy for codes). Text and
+  true / false: one bar or column per value (top 10 or 25 and Other, or all
+  values; records or shares; NULL as a bar), names slanted under columns
+  when they don't fit. Dates: records per day, week, month, quarter or year.
+  Text starts as a bar chart, numbers and dates as a histogram. Linear,
+  logarithmic or square root scale.
+
+  ![Text as a histogram](docs/screenshots/dark_chart_text.png)
 - **Click a bar** to select its records on the layer (the map and the table
   follow), **Ctrl+click** to add one, **drag** for a range. Bars are always
   solid; the selected records of every bar are drawn from its base in the

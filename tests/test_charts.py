@@ -10,7 +10,6 @@ Run from the repository root:  python -m unittest discover -s tests
 """
 
 import datetime
-import math
 import os
 import random
 import sys
@@ -191,6 +190,65 @@ class NumberTests(_Both, unittest.TestCase):
         self.assertEqual(len(bars.series), C.SPLIT_SERIES + 1)
         self.assertEqual(bars.series[-1], "Other")
         self.assertEqual(sum(sum(r) for r in bars.split), 30)
+
+
+class NumberBarTests(_Both, unittest.TestCase):
+    """Numbers as a bar chart: one bar per value, NULL records kept apart."""
+
+    def setUp(self):
+        vals = [3, 1, 2, 2, 3, 3, 10, None, None]
+        self.col = number_column(vals, kind=F.INTEGER, fids=[11, 12, 13, 14, 15, 16, 17])
+        self.col.null_fids = array("q", [18, 19])
+
+    def test_one_bar_per_value(self):
+        bars = C.categories(self.col, "count", top=None)
+        self.assertEqual(bars.labels, ["3", "2", "1", "10"])
+        self.assertEqual(bars.counts, [3, 2, 1, 1])
+        bars = C.categories(self.col, "az", top=None)          # by value, not text
+        self.assertEqual(bars.labels, ["1", "2", "3", "10"])
+        bars = C.categories(self.col, "za", top=2)
+        self.assertEqual(bars.labels, ["3", "2", "Other"])
+        self.assertEqual(bars.counts, [3, 2, 2])
+
+    def test_null_bar_selects_null_records(self):
+        bars = C.categories(self.col, "count", top=None, null_bar=True)
+        self.assertEqual(bars.labels[-1], "NULL")
+        self.assertEqual(bars.counts[-1], 2)
+        self.assertEqual(sorted(C.fids_of(self.col, bars, [bars.null_bar])), [18, 19])
+        self.assertEqual(sorted(C.fids_of(self.col, bars, [0])), [11, 15, 16])
+        per_bar, _s = C.selected_counts(self.col, bars, {11, 19})
+        self.assertEqual(per_bar[0], 1)
+        self.assertEqual(per_bar[bars.null_bar], 1)
+
+    def test_null_bar_with_split(self):
+        col = number_column([1.0, 1.0, 2.0], fids=[1, 2, 3], split=[0, 1, 0],
+                            split_labels=["A", "B"])
+        col.null_fids = array("q", [4, 5])
+        col.null_split = array("i", [1, 1])
+        col.missing = 2
+        col.split_counts = [2, 3]
+        bars = C.apply_split(col, C.categories(col, "az", top=None, null_bar=True))
+        self.assertEqual(bars.series, ["B", "A"])
+        self.assertEqual(bars.split[bars.null_bar], [2, 0])
+        self.assertEqual([sum(r) for r in bars.split], bars.counts)
+        self.assertEqual(sorted(C.fids_of(col, bars, [bars.null_bar], series=0)), [4, 5])
+        per_bar, per_series = C.selected_counts(col, bars, {5})
+        self.assertEqual(per_series[bars.null_bar], [1, 0])
+
+    def test_reals_label_and_histogram_untouched(self):
+        col = number_column([0.5, 0.5, 1.25])
+        bars = C.categories(col, "count", top=None)
+        self.assertEqual(bars.labels, ["0.5", "1.25"])
+        self.assertEqual(sum(C.histogram(col, 4).counts), 3)
+
+    def test_chart_types(self):
+        self.assertEqual(C.default_chart_type(F.TEXT), "bar")
+        self.assertEqual(C.default_chart_type(F.REAL), "histogram")
+        self.assertEqual(C.default_chart_type(F.DATE), "histogram")
+        self.assertEqual(C.bars_kind(F.TEXT, "histogram"), C.BARS)
+        self.assertEqual(C.bars_kind(F.REAL, "bar"), C.BARS)
+        self.assertEqual(C.bars_kind(F.REAL, "histogram"), C.HISTOGRAM)
+        self.assertEqual(C.bars_kind(F.DATE, "bar"), C.TIME)
 
 
 class TextTests(_Both, unittest.TestCase):

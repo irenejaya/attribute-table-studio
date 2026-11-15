@@ -1524,13 +1524,63 @@ class SuiteTests(unittest.TestCase):
         chart.set_field(sd)
         self.assertTrue(ready("SURVEY_DATE"))
         dated = sum(1 for ft in feats if not F.is_null(ft["SURVEY_DATE"]))
-        self.assertEqual(chart.kind_combo.currentText(), "Over time")
+        self.assertEqual(chart.kind_combo.currentText(), "Histogram")      # by period
         self.assertEqual(sum(chart.bars.counts), dated)
         chart.interval_combo.setCurrentIndex(chart.interval_combo.findData("month"))
         self.assertEqual(chart.bars.interval, "month")
         self.assertRegex(chart.bars.labels[0], r"^\d{4}-\d{2}$")
         self.assertEqual(sum(chart.bars.counts), dated)
         self.assertTrue(chart.interval_combo.itemText(0).startswith("Auto ("))
+        # ... or as a bar chart: one horizontal bar per period
+        chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("bar"))
+        self.assertEqual(chart.bars.chart, C.TIME)
+        self.assertTrue(v.model.horizontal)
+        self.assertEqual(sum(chart.bars.counts), dated)
+
+        # text as a histogram: one column per value, the same counts
+        chart.set_field(lu)
+        self.assertTrue(ready("LAND_USE"))
+        self.assertEqual(chart.kind_combo.currentData(), "bar")         # its usual chart
+        before = list(zip(chart.bars.labels, chart.bars.counts))
+        chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("histogram"))
+        self.assertFalse(v.model.horizontal)
+        self.assertEqual(list(zip(chart.bars.labels, chart.bars.counts)), before)
+        self.assertTrue(chart.sort_row.isVisible())
+        H.settle(0.2)                                        # drawn as columns
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(0))
+        H.settle(0.3)
+        self.assertEqual(layer.selectedFeatureCount(), chart.bars.counts[0])
+        layer.removeSelection()
+
+        # numbers as a bar chart: one bar per value; NULL can be a bar
+        zc, oi = f.indexOf("ZONE_CODE"), f.indexOf("OWNER_ID")
+        chart.set_field(zc)
+        self.assertTrue(ready("ZONE_CODE"))
+        self.assertEqual(chart.kind_combo.currentData(), "histogram")
+        chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("bar"))
+        codes = {}
+        for ft in feats:
+            codes[str(ft["ZONE_CODE"])] = codes.get(str(ft["ZONE_CODE"]), 0) + 1
+        self.assertEqual(dict(zip(chart.bars.labels, chart.bars.counts)), codes)
+        self.assertEqual(chart.sort_combo.itemText(1), "Smallest first")
+        chart.sort_combo.setCurrentIndex(1)
+        self.assertEqual(chart.bars.labels, sorted(codes, key=int))
+        H.settle(0.2)
+        QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(1))
+        H.settle(0.3)
+        self.assertEqual(set(layer.selectedFeatureIds()),
+                         {ft.id() for ft in feats if str(ft["ZONE_CODE"]) == chart.bars.labels[1]})
+        chart.sort_combo.setCurrentIndex(0)
+        chart.set_field(oi)                                  # every OWNER_ID is NULL
+        self.assertTrue(ready("OWNER_ID"))
+        chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("bar"))
+        chart.null_tick.setChecked(True)
+        self.assertEqual(chart.bars.labels, ["NULL"])
+        chart._select([chart.bars.null_bar], False)
+        H.settle(0.3)
+        self.assertEqual(layer.selectedFeatureCount(), 800)
+        chart.null_tick.setChecked(False)
+        layer.removeSelection()
 
         # Split by: each bar per land use, a legend entry selects one in every bar
         chart.set_field(sm)

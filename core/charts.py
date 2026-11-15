@@ -29,6 +29,7 @@ last, which holds the maximum.
 import bisect
 import datetime
 import math
+import threading
 from array import array
 
 from . import fields as F
@@ -54,6 +55,7 @@ OTHER = -2                       # code of values beyond CATEGORY_CAP
 NULL_CODE = -1
 
 HISTOGRAM, BARS, TIME = "histogram", "bars", "time"
+_CATEGORIES_LOCK = threading.Lock()   # two quick chart switches never race
 INTERVALS = ("day", "week", "month", "quarter", "year")
 INTERVAL_LABELS = {"day": "Day", "week": "Week", "month": "Month",
                    "quarter": "Quarter", "year": "Year"}
@@ -61,12 +63,33 @@ _EPOCH = 719163                  # date(1970, 1, 1).toordinal()
 
 
 def chart_kind(kind):
-    """The chart of a field kind: histogram (numbers, times), bars (text,
-    yes / no) or over time (dates)."""
+    """How a field kind is read and its default bars: histogram (numbers,
+    times), bars (text, yes / no) or over time (dates)."""
     if kind in F.NUMERIC or kind == F.TIME:
         return HISTOGRAM
     if kind in (F.DATE, F.DATETIME):
         return TIME
+    return BARS
+
+
+# the Chart box: every field kind offers a histogram (vertical columns) and
+# a bar chart (horizontal bars)
+CHART_TYPES = (("histogram", "Histogram"), ("bar", "Bar chart"))
+
+
+def default_chart_type(kind):
+    return "bar" if chart_kind(kind) == BARS else "histogram"
+
+
+def bars_kind(kind, chart_type):
+    """The bars for a field kind and a chart type: dates always by period
+    (columns or bars), numbers in bins (histogram) or one bar per value
+    (bar chart), text one bar or column per value."""
+    base = chart_kind(kind)
+    if base == TIME:
+        return TIME
+    if base == HISTOGRAM and chart_type == "histogram":
+        return HISTOGRAM
     return BARS
 
 
@@ -102,6 +125,10 @@ class Column:
         self.labels = []
         self.counts = []
         self.unlisted = 0            # records of values beyond CATEGORY_CAP
+        self.sort_keys = None        # numbers as categories: value per code
+        self.null_fids = array("q")  # numbers / dates: the NULL records
+        self.null_split = array("i")  # ... and their Split by codes
+        self._categories = False     # numbers: categories worked out
         self.split_name = None
         self.split = None
         self.split_labels = []
@@ -225,12 +252,20 @@ def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
             col.labels[code] = key
     else:
         values_append = col.values.append
+        null_append = col.null_fids.append
+        null_split_append = col.null_split.append if split_idx is not None else None
         isfinite = math.isfinite
         numeric = chart == HISTOGRAM and kind != F.TIME
         tkey = F.temporal_key
         for feat in stream(spec, job, attrs):
             scope += 1
             v = feat.attribute(field_idx)
+            if v is None or (type(v) not in (float, int) and is_null(v)):
+                missing += 1
+                null_append(feat.id())           # a NULL bar can select them
+                if null_split_append is not None:
+                    null_split_append(split_code(feat))
+                continue
             if numeric:
                 t = type(v)
                 if t is float:
@@ -240,9 +275,6 @@ def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
                     x = v
                 elif t is int:
                     x = float(v)
-                elif v is None or is_null(v):
-                    missing += 1
-                    continue
                 else:
                     try:
                         x = float(v)
@@ -253,9 +285,6 @@ def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
                         invalid += 1
                         continue
             else:
-                if v is None or is_null(v):
-                    missing += 1
-                    continue
                 x = tkey(v)
                 if x is None:
                     invalid += 1
@@ -481,26 +510,91 @@ def histogram(col, bins):
     return out
 
 
+def ensure_categories(col):
+    """Numbers (and times) as categories, for their bar chart: one code
+    per distinct value, worked out once from the kept values (the most
+    common ``CATEGORY_CAP`` values; the rest count as Other)."""
+    if col.chart == BARS or col._categories:
+        return col
+    with _CATEGORIES_LOCK:
+        if not col._categories:
+            _number_categories(col)
+    return col
+
+
+def _number_categories(col):
+    xp = _np()
+    if xp is not None and col.size:
+        uniq, inverse, counts = np.unique(col.np("values"), return_inverse=True,
+                                          return_counts=True)
+        keep = len(uniq)
+        if keep > CATEGORY_CAP:
+            order = np.argsort(-counts, kind="stable")[:CATEGORY_CAP]
+            remap = np.full(keep, OTHER, dtype=np.int32)
+            remap[order] = np.arange(len(order), dtype=np.int32)
+            col.unlisted = int(counts.sum() - counts[order].sum())
+            codes = remap[inverse]
+            uniq, counts = uniq[order], counts[order]
+        else:
+            codes = inverse.astype(np.int32)
+        values = uniq.tolist()
+        col.counts = counts.tolist()
+        col.codes = array("i", codes.astype(np.int32).tobytes())
+    else:
+        index, counts, values = {}, [], []
+        codes = array("i")
+        app = codes.append
+        unlisted = 0
+        for x in col.values:
+            code = index.get(x)
+            if code is None:
+                if len(index) >= CATEGORY_CAP:
+                    unlisted += 1
+                    app(OTHER)
+                    continue
+                code = index[x] = len(counts)
+                counts.append(0)
+                values.append(x)
+            counts[code] += 1
+            app(code)
+        col.counts, col.codes, col.unlisted = counts, codes, unlisted
+    col.sort_keys = values
+    if col.kind == F.TIME:
+        col.labels = [F.key_to_text(v, F.TIME) for v in values]
+    else:
+        col.labels = [F.format_number(int(v)) if float(v).is_integer() and abs(v) < 1e15
+                      else F.format_number(v) for v in values]
+    col._np_cache.pop("codes", None)
+    col._categories = True
+
+
 def categories(col, sort="count", top=10, null_bar=False):
-    """Bars of a text / yes-no field: *sort* "count", "az" or "za"; *top*
-    keeps that many and groups the rest as Other (None keeps all, which
-    still stops at 1,000 bars); *null_bar* draws NULL as a bar."""
+    """One bar per value: *sort* "count", "az" (A → Z, smallest number
+    first) or "za"; *top* keeps that many and groups the rest as Other
+    (None keeps all, which still stops at 1,000 bars); *null_bar* draws
+    NULL as a bar."""
+    ensure_categories(col)
     out = Bars(BARS)
     entries = [(label, n, code) for code, (label, n) in
                enumerate(zip(col.labels, col.counts)) if n]
-    if sort == "az":
-        entries.sort(key=lambda e: (e[0].lower(), e[0]))
-    elif sort == "za":
-        entries.sort(key=lambda e: (e[0].lower(), e[0]), reverse=True)
+    keys = col.sort_keys
+    if keys is not None:
+        alpha = (lambda e: keys[e[2]])
     else:
-        entries.sort(key=lambda e: (-e[1], e[0]))
+        alpha = (lambda e: (e[0].lower(), e[0]))
+    if sort == "az":
+        entries.sort(key=alpha)
+    elif sort == "za":
+        entries.sort(key=alpha, reverse=True)
+    else:
+        entries.sort(key=lambda e: (-e[1], alpha(e)))
     limit = 1000 if top is None else int(top)
     shown, rest = entries, []
     if len(entries) > limit:
         if sort == "count":
             shown, rest = entries[:limit], entries[limit:]
         else:                        # keep the most common, in the chosen order
-            keep = {e[2] for e in sorted(entries, key=lambda e: (-e[1], e[0]))[:limit]}
+            keep = {e[2] for e in sorted(entries, key=lambda e: (-e[1], alpha(e)))[:limit]}
             shown = [e for e in entries if e[2] in keep]
             rest = [e for e in entries if e[2] not in keep]
     mapping = [-1] * (len(col.labels) + 2)      # code + 2 -> bar
@@ -705,7 +799,20 @@ def apply_split(col, bars):
                 if si >= 0:
                     grid[b][si] += 1
         bars.split = grid
+    nb = bars.null_bar
+    if nb is not None and len(col.null_fids):    # numbers: NULL records kept apart
+        row = [0] * s
+        for code in col.null_split:
+            si = series_of[code + 2]
+            if si >= 0:
+                row[si] += 1
+        bars.split[nb] = row
     return bars
+
+
+def _null_part(col, bars):
+    """True when the NULL bar's records are kept apart (numbers)."""
+    return bars.null_bar is not None and len(col.null_fids) > 0
 
 
 def selected_counts(col, bars, selected):
@@ -728,6 +835,7 @@ def selected_counts(col, bars, selected):
             m2 = mask & (sc >= 0)
             flat = np.bincount(bc[m2].astype(np.int64) * s + sc[m2], minlength=k * s)
             per_series = flat.reshape(k, s).tolist()
+        _null_selected(col, bars, selected, per_bar, per_series)
         return per_bar, per_series
     per_bar = [0] * k
     per_series = [[0] * s for _ in range(k)] if s and bars.series_codes is not None else None
@@ -739,7 +847,22 @@ def selected_counts(col, bars, selected):
                 si = bars.series_codes[split[i] + 2]
                 if si >= 0:
                     per_series[b][si] += 1
+    _null_selected(col, bars, selected, per_bar, per_series)
     return per_bar, per_series
+
+
+def _null_selected(col, bars, selected, per_bar, per_series):
+    if not _null_part(col, bars):
+        return
+    nb = bars.null_bar
+    split = col.null_split if len(col.null_split) else None
+    for i, fid in enumerate(col.null_fids):
+        if fid in selected:
+            per_bar[nb] += 1
+            if per_series is not None and split is not None:
+                si = bars.series_codes[split[i] + 2]
+                if si >= 0:
+                    per_series[nb][si] += 1
 
 
 def fids_of(col, bars, bar_indexes, series=None):
@@ -748,6 +871,18 @@ def fids_of(col, bars, bar_indexes, series=None):
     wanted = set(int(b) for b in bar_indexes)
     if not wanted:
         return []
+    extra = []
+    if _null_part(col, bars) and bars.null_bar in wanted:
+        if series is None or bars.series_codes is None:
+            extra = list(col.null_fids)
+        else:
+            sc = bars.series_codes
+            extra = [fid for fid, code in zip(col.null_fids, col.null_split)
+                     if sc[code + 2] == series]
+    return _fids_of(col, bars, wanted, series) + extra
+
+
+def _fids_of(col, bars, wanted, series):
     xp = _np()
     if xp is not None:
         bc = np.asarray(bars.codes)

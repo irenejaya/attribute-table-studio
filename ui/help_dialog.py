@@ -57,8 +57,8 @@ tab-separated text that pastes into Excel) and <b>Export ▾</b> (an Excel
 workbook with Summary and Distribution sheets, or either as CSV). Shares are
 exported as numbers; the workbook and <i>Everything</i> also record the
 layer, field, active filters and record count.
-NULL is missing; zero and empty text are values. <b>Summary: On / Off</b>
-collapses the strip. Statistics are exact and calculated in the
+NULL is missing; zero and empty text are values. <b>Σ Summary: On / Off</b>
+collapses the strip; the chart icon beside it opens Visualize Statistics. Statistics are exact and calculated in the
 background - visible columns first.</p>
 <h4>Selection and map</h4>
 <p>Select features with the tick boxes / row numbers (a click selects only
@@ -262,21 +262,28 @@ CHART_HELP = """
 <h3>Visualize Statistics</h3>
 <p>A full chart of one column of an Attribute Explorer, for the records the
 explorer shows (its filters, View scope, map extent or pivot records).
-Right-click a column name and choose <b>Visualize Statistics…</b>, or click
-<b>Chart…</b> in a column's statistics popup. Each explorer has one chart
+Click the chart icon beside <b>Σ Summary</b> (it charts the selected column,
+or the column of the current cell), right-click a column name and choose
+<b>Visualize Statistics…</b>, or click <b>Chart…</b> in a column's statistics
+popup. Each explorer has one chart
 window; <b>Field</b> switches the column. It closes with its explorer, and
 <b>Dock</b> puts it in the QGIS window (and back).</p>
 <h4>Charts</h4>
+<p><b>Chart</b> offers every field a <b>Histogram</b> (vertical columns) and
+a <b>Bar chart</b> (horizontal bars); text starts as a bar chart, numbers
+and dates as a histogram.</p>
 <ul>
-<li><b>Histogram</b> (numbers, times): equal-width bins from the minimum to
-the maximum (the last bin holds the maximum). <b>Bins</b> sets their number;
-whole numbers spanning a few values get one bar each. Mean, median, ± 1
-standard deviation and a normal distribution curve can be drawn on it.</li>
-<li><b>Bar chart</b> (text, true / false): one bar per value, sorted by
-records or A → Z, the top 10 or 25 and Other, or all values;
-<b>Values</b> shows records or shares, and NULL can be a bar.</li>
-<li><b>Over time</b> (dates): records per day, week (from Monday), month,
-quarter or year; <b>Auto</b> picks about 120 bars at most.</li>
+<li><b>Numbers</b> (and times): the histogram has equal-width bins from the
+minimum to the maximum (the last bin holds the maximum); <b>Bins</b> sets
+their number, whole numbers spanning a few values get one bar each. Mean,
+median, ± 1 standard deviation and a normal distribution curve can be drawn
+on it. The bar chart has one bar per value (handy for codes).</li>
+<li><b>Text</b> and true / false: one bar or column per value, sorted by
+records or A → Z (numbers: smallest or largest first), the top 10 or 25 and
+Other, or all values; <b>Values</b> shows records or shares, and NULL can be
+a bar. Names that don't fit under their columns are slanted.</li>
+<li><b>Dates</b>: records per day, week (from Monday), month, quarter or
+year; <b>Auto</b> picks about 120 bars at most.</li>
 </ul>
 <p><b>Split by</b> counts every bar per value of a second field, stacked or
 side by side: the 8 most common values get their own colour (checked for

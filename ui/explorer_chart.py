@@ -42,7 +42,6 @@ from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
 SYNC_LIMIT = 250000              # up to this many records, rebuild at once
-CHART_LABELS = {C.HISTOGRAM: "Histogram", C.BARS: "Bar chart", C.TIME: "Over time"}
 TOP_CHOICES = (("Top 10 + Other", 10), ("Top 25 + Other", 25), ("All values", None))
 
 
@@ -158,7 +157,12 @@ class ChartPanel(QWidget):
         top.addWidget(W.label("Chart", "dim"))
         self.kind_combo = QComboBox()
         self.kind_combo.setFixedHeight(m.control_h)
-        self.kind_combo.setToolTip("The chart for this kind of field")
+        self.kind_combo.setToolTip(
+            "Histogram: vertical columns (numbers in bins, dates by period, text one "
+            "column per value)\nBar chart: horizontal bars, one per value or period")
+        for data, text in C.CHART_TYPES:
+            self.kind_combo.addItem(icons.native(icons.CHART), text, data)
+        self.kind_combo.currentIndexChanged.connect(self._on_chart_type_changed)
         top.addWidget(self.kind_combo)
         top.addSpacing(m.group_gap)
         self.scope_label = W.ElideLabel()
@@ -424,9 +428,14 @@ class ChartPanel(QWidget):
     def field_kind(self):
         return self.field_combo.kind()
 
+    def chart_type(self):
+        """The Chart box: "histogram" (vertical) or "bar" (horizontal)."""
+        return self.kind_combo.currentData() or "histogram"
+
     def chart(self):
+        """The bars drawn: histogram bins, one per value, or periods."""
         kind = self.field_kind()
-        return C.chart_kind(kind) if kind is not None else None
+        return C.bars_kind(kind, self.chart_type()) if kind is not None else None
 
     def window_title(self):
         name = self.field_name() or ""
@@ -435,6 +444,12 @@ class ChartPanel(QWidget):
 
     def _on_field_changed(self, *_args):
         self._custom_title = False
+        kind = self.field_kind()
+        if kind is not None:                 # each field starts on its usual chart
+            self.kind_combo.blockSignals(True)
+            self.kind_combo.setCurrentIndex(
+                self.kind_combo.findData(C.default_chart_type(kind)))
+            self.kind_combo.blockSignals(False)
         self.colour_btn.blockSignals(True)
         self.colour_btn.setColor(QColor(self.theme.bar))
         self.colour_btn.blockSignals(False)
@@ -443,6 +458,11 @@ class ChartPanel(QWidget):
         self.titleChanged.emit()
         self.col = None
         self.load()
+
+    def _on_chart_type_changed(self, *_args):
+        self._show_controls()
+        self._schedule_build()
+        self._redraw()
 
     def _on_split_changed(self, *_args):
         self.split_mode.setVisible(self.split_combo.current_name() is not None)
@@ -454,11 +474,9 @@ class ChartPanel(QWidget):
         kind = self.field_kind()
         hist = chart == C.HISTOGRAM
         numbers = hist and kind != F.TIME
-        self.kind_combo.blockSignals(True)
-        self.kind_combo.clear()
-        if chart is not None:
-            self.kind_combo.addItem(icons.native(icons.CHART), CHART_LABELS[chart])
-        self.kind_combo.blockSignals(False)
+        as_text = kind not in F.NUMERIC and kind != F.TIME
+        self.sort_combo.setItemText(1, "A → Z" if as_text else "Smallest first")
+        self.sort_combo.setItemText(2, "Z → A" if as_text else "Largest first")
         self.bins_row.setVisible(hist)
         for w in (self.sort_row, self.top_row, self.values_row, self.null_row):
             w.setVisible(chart == C.BARS)
@@ -491,7 +509,8 @@ class ChartPanel(QWidget):
         return title
 
     def _options(self):
-        return {"bins": self.bins_spin.value(),
+        return {"chart": self.chart_type(),
+                "bins": self.bins_spin.value(),
                 "sort": self.sort_combo.currentData(),
                 "top": self.top_combo.currentData(),
                 "null": self.null_tick.isChecked(),
@@ -500,9 +519,10 @@ class ChartPanel(QWidget):
 
     @staticmethod
     def make_bars(col, opts):
-        if col.chart == C.HISTOGRAM:
+        kind = C.bars_kind(col.kind, opts.get("chart") or C.default_chart_type(col.kind))
+        if kind == C.HISTOGRAM:
             bars = C.histogram(col, opts["bins"])
-        elif col.chart == C.TIME:
+        elif kind == C.TIME:
             bars = C.periods(col, opts["interval"], opts["empty"])
         else:
             bars = C.categories(col, opts["sort"], opts["top"], opts["null"])
@@ -675,6 +695,7 @@ class ChartPanel(QWidget):
         if bars.chart == C.TIME:
             self.interval_combo.setItemText(
                 0, f"Auto ({C.INTERVAL_LABELS.get(bars.interval, '')})")
+            self._fill_stats()                   # the busiest period follows the interval
         self._redraw()
         self._update_scope_label()
 
@@ -699,11 +720,12 @@ class ChartPanel(QWidget):
         m.title = self.title_edit.text()
         name = col.name
         kind = col.kind
+        m.horizontal = self.chart_type() == "bar"
         if bars.chart == C.TIME:
             m.x_title = f"{name} (by {C.INTERVAL_LABELS.get(bars.interval, '').lower()})"
         else:
-            m.x_title = name if bars.chart == C.HISTOGRAM else ""
-        if kind == F.TIME:
+            m.x_title = "" if m.horizontal else name
+        if kind == F.TIME and bars.chart == C.HISTOGRAM:
             m.fmt_axis = lambda v: F.key_to_text(v, F.TIME)
         elif bars.chart == C.HISTOGRAM:
             d = _decimals(bars.width) if not bars.integer else 0
@@ -782,7 +804,12 @@ class ChartPanel(QWidget):
         bars, col = self.bars, self.col
         if bars is None or col is None:
             return
-        parts = [CHART_LABELS[bars.chart]]
+        parts = [self.kind_combo.currentText()]
+        if not len(bars):
+            self.status.set_status("  •  ".join(parts + ["No values to chart"]))
+            self.view.set_message(f"{col.name} has no values to chart in these "
+                                  f"{col.scope:,} records")
+            return
         if bars.chart == C.HISTOGRAM:
             if bars.integer:
                 parts.append(f"{len(bars):,} values")
@@ -793,7 +820,8 @@ class ChartPanel(QWidget):
             unit = C.INTERVAL_LABELS.get(bars.interval, "").lower()
             parts.append(f"{len(bars):,} {unit}{'s' if len(bars) != 1 else ''}")
         else:
-            parts.append(f"{len(bars):,} bar{'s' if len(bars) != 1 else ''}")
+            unit = "bar" if self.chart_type() == "bar" else "column"
+            parts.append(f"{len(bars):,} {unit}{'s' if len(bars) != 1 else ''}")
         n_sel = sum(self.sel) if self.sel else 0
         if n_sel:
             parts.append(f"{n_sel:,} of {bars.total:,} records selected")
@@ -1012,14 +1040,14 @@ class ChartPanel(QWidget):
             for row in rows:
                 row[1] = F.key_to_text(row[1], F.DATE)
                 row[2] = F.key_to_text(row[2], F.DATE)
-        elif col.kind == F.TIME:
+        elif col.kind == F.TIME and bars.chart == C.HISTOGRAM:
             for row in rows:
                 row[0] = F.key_to_text(row[0], F.TIME)
                 row[1] = F.key_to_text(row[1], F.TIME)
                 row[2] = F.key_to_text(row[2], F.TIME)
         exp = self.explorer
         meta = {"Layer": self.layer.name(), "Field": col.name,
-                "Chart": CHART_LABELS[bars.chart],
+                "Chart": self.kind_combo.currentText(),
                 "Statistics for": exp.scope_name(),
                 "Active filters": "; ".join(getattr(exp, "_filters_text", [])) or "None",
                 "Records in scope": col.scope}

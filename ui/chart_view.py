@@ -68,6 +68,7 @@ class ChartModel:
         self.grid = True
         self.colour = None               # QColor of the bars
         self.split_mode = "stacked"      # "side"
+        self.horizontal = False          # bar chart: horizontal bars
         self.share = False               # bar chart: values as a share
         self.sel = None                  # selected records per bar
         self.sel_series = None           # [[per series]] per bar
@@ -125,7 +126,7 @@ class ChartView(QWidget):
     def needed_height(self):
         """Bar chart rows need room: the window scrolls a long list."""
         m = self.model
-        if m is None or m.chart != C.BARS or self.message:
+        if m is None or not m.horizontal or self.message or m.bars is None:
             return 0
         rows = len(m.bars)
         if m.bars.split is not None and m.split_mode == "side":
@@ -196,7 +197,7 @@ class ChartView(QWidget):
                    QFontMetrics(title).elidedText(m.title, Qt.TextElideMode.ElideRight,
                                                   int(r.width() - 20)))
         p.setFont(base)
-        if m.chart == C.BARS:
+        if m.horizontal:
             self._paint_hbars(p, r, fm)
         else:
             self._paint_columns(p, r, fm)
@@ -278,7 +279,16 @@ class ChartView(QWidget):
         plot = QRectF(r.left() + ylab_w + 30, r.top() + 46, 0, 0)
         legend_w = self._outside_legend_width(fm)
         plot.setRight(r.right() - 18 - legend_w)
-        plot.setBottom(r.bottom() - 54)
+        # values under their columns: level when they fit, else slanted
+        cats = bars.chart == C.BARS
+        slant_len = 0
+        if cats:
+            est_bw = max(plot.width() / n, 1.0)
+            widest_label = max(fm.horizontalAdvance(str(v)) for v in bars.labels)
+            if widest_label + 8 > est_bw:
+                slant_len = min(widest_label, 150)
+        bottom = 54 if not slant_len else int((slant_len + fm.height()) * 0.71 + 40)
+        plot.setBottom(r.bottom() - bottom)
         self._geo["plot"] = plot
 
         def yof(v):
@@ -330,12 +340,17 @@ class ChartView(QWidget):
         sel = m.sel or [0] * n
         geo = self._geo["bars"]
         gap = 1.5 if bw > 4 else 0.0
+        # bins touch (a histogram); one column per value stands apart, thin
+        inset, cw = gap / 3, max(bw - gap, 1.0)
+        if cats:
+            cw = max(min(bw * 0.72, 64.0), 1.0)
+            inset = (bw - cw) / 2
         for i in range(n):
             x = plot.left() + i * bw
             if split is None:
                 c = bars.counts[i]
                 h = plot.bottom() - yof(c)
-                rect = QRectF(x + gap / 3, plot.bottom() - h, max(bw - gap, 1.0), h)
+                rect = QRectF(x + inset, plot.bottom() - h, cw, h)
                 p.fillRect(rect, QColor(t.bar_hover) if i == hover_bar and m.colour is None
                            else (colour.darker(125) if i == hover_bar else colour))
                 if sel[i]:
@@ -350,10 +365,10 @@ class ChartView(QWidget):
             sel_row = m.sel_series[i] if m.sel_series else None
             if side:
                 k = max(1, len(row))
-                sw = max((bw - gap) / k, 1.0)
+                sw = max(cw / k, 1.0)
                 for s, c in enumerate(row):
                     h = plot.bottom() - yof(c)
-                    rect = QRectF(x + gap / 3 + s * sw, plot.bottom() - h, max(sw - 0.5, 0.8), h)
+                    rect = QRectF(x + inset + s * sw, plot.bottom() - h, max(sw - 0.5, 0.8), h)
                     if c:
                         p.fillRect(rect, self._series_colour(s))
                         if sel_row and sel_row[s]:
@@ -367,7 +382,7 @@ class ChartView(QWidget):
                 peak = max(row) if row else 0
                 if peak:
                     top_y = yof(peak)
-                    geo.append((self._col_hit(QRectF(x + gap / 3, top_y, max(bw - gap, 1.0),
+                    geo.append((self._col_hit(QRectF(x + inset, top_y, cw,
                                                      plot.bottom() - top_y), plot.bottom()),
                                 i, None))
             else:
@@ -377,7 +392,7 @@ class ChartView(QWidget):
                     if not c:
                         continue
                     y_top = yof(acc + c)
-                    rect = QRectF(x + gap / 3, y_top, max(bw - gap, 1.0), y - y_top)
+                    rect = QRectF(x + inset, y_top, cw, y - y_top)
                     p.fillRect(rect.adjusted(0, 0.5, 0, -0.5) if rect.height() > 3 else rect,
                                self._series_colour(s))
                     if sel_row and sel_row[s]:       # from the base of this part
@@ -388,7 +403,7 @@ class ChartView(QWidget):
                     acc += c
                 if bars.counts[i]:
                     top_y = yof(bars.counts[i])
-                    geo.append((self._col_hit(QRectF(x + gap / 3, top_y, max(bw - gap, 1.0),
+                    geo.append((self._col_hit(QRectF(x + inset, top_y, cw,
                                                      plot.bottom() - top_y), plot.bottom()),
                                 i, None))
                 if m.labels and bars.counts[i]:
@@ -400,7 +415,10 @@ class ChartView(QWidget):
 
         # x labels: as many as fit, never rotated
         p.setPen(QColor(t.text_dim))
-        if hist and not bars.integer:
+        if cats:
+            self._category_labels(p, plot, bars, bw, fm, slant_len)
+            marks = []
+        elif hist and not bars.integer:
             marks = [(bars.lows[k], m.fmt_axis(bars.lows[k])) for k in range(n)]
             marks.append((bars.highs[-1], m.fmt_axis(bars.highs[-1])))
             positions = [xof(v) for v, _s in marks]
@@ -420,7 +438,8 @@ class ChartView(QWidget):
                 p.drawText(QRectF(x - widest / 2 - 20, plot.bottom() + 6, widest + 40, 18),
                            Qt.AlignmentFlag.AlignCenter, s)
         p.setPen(QColor(t.text))
-        p.drawText(QRectF(plot.left(), plot.bottom() + 26, plot.width(), 20),
+        title_y = plot.bottom() + 26 if not slant_len else r.bottom() - 26
+        p.drawText(QRectF(plot.left(), title_y, plot.width(), 20),
                    Qt.AlignmentFlag.AlignCenter, m.x_title)
 
         # statistic lines, normal curve and legend
@@ -447,6 +466,36 @@ class ChartView(QWidget):
                 self._normal_curve(p, plot, xof, yof, st, bars, lo, hi)
                 legend.append(("line", QColor(t.text_strong), "Normal distribution", None))
         self._paint_legend(p, plot, legend, fm, corner_pref=("tr", "tl"))
+
+    def _category_labels(self, p, plot, bars, bw, fm, slant_len):
+        """Values under their columns: level and shortened to the column
+        when they fit, else slanted at 45° (every n-th one when even that
+        is too tight), shortened with … beyond 150 px."""
+        t = self.theme
+        n = len(bars)
+        fh = fm.height()
+        dim = {bars.other, bars.null_bar}
+        if not slant_len:
+            for k in range(n):
+                x = plot.left() + bw * (k + 0.5)
+                p.setPen(QColor(t.text_dim if k in dim else t.text))
+                text = fm.elidedText(str(bars.labels[k]), Qt.TextElideMode.ElideRight,
+                                     int(max(bw - 4, 8)))
+                p.drawText(QRectF(x - bw / 2, plot.bottom() + 6, bw, 18),
+                           Qt.AlignmentFlag.AlignCenter, text)
+            return
+        every = max(1, math.ceil(fh * 1.42 / max(bw, 1.0)))
+        for k in range(0, n, every):
+            x = plot.left() + bw * (k + 0.5)
+            p.setPen(QColor(t.text_dim if k in dim else t.text))
+            text = fm.elidedText(str(bars.labels[k]), Qt.TextElideMode.ElideRight,
+                                 int(slant_len))
+            p.save()
+            p.translate(x + fh * 0.3, plot.bottom() + 8)
+            p.rotate(-45)
+            p.drawText(QRectF(-slant_len - 6, -fh / 2, slant_len + 6, fh),
+                       Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, text)
+            p.restore()
 
     @staticmethod
     def _col_hit(rect, bottom):
@@ -652,16 +701,14 @@ class ChartView(QWidget):
                     continue
                 inter = rect.intersected(box)
                 if not inter.isEmpty():
-                    if self.model.chart == C.BARS:
-                        inter = QRectF(inter)
                     area += inter.width() * inter.height()
             return area
 
         candidates = [box_at(c) for c in corner_pref]
         if outside:
-            right = plot.right() + (self._value_col_w if self.model.chart == C.BARS else 0)
+            right = plot.right() + (self._value_col_w if self.model.horizontal else 0)
             box = QRectF(right + 12, plot.top(), lw, lh)
-        elif self.model.chart != C.BARS:
+        elif not self.model.horizontal:
             box = min(candidates, key=overlap)
         else:
             box = candidates[0]
@@ -762,7 +809,7 @@ class ChartView(QWidget):
         if anchor is None:
             return
         plot = self._geo["plot"]
-        if self.model.chart == C.BARS:
+        if self.model.horizontal:
             x = plot.left() + 40
             y = anchor.bottom() + 2
             if y + th > r.bottom() - 4:
