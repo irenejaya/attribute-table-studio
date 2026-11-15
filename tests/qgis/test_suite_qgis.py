@@ -1597,7 +1597,32 @@ class SuiteTests(unittest.TestCase):
         chart.split_mode.setCurrentIndex(1)                       # side by side
         H.settle(0.2)
         self.assertEqual(v.model.split_mode, "side")
+        self.assertTrue(chart.split_mode_row.isVisible())
         layer.removeSelection()
+        # ... or by an expression from the QGIS expression builder
+        from attribute_table_studio.ui import explorer_dialogs as D
+
+        class _Builder:
+            def __init__(self, panel, title, text="", order=True):
+                self.order = order
+
+            def exec(self):
+                return True
+
+            def expression(self):
+                return '"ZONE_CODE" > 2'
+
+        real = D.ExpressionDialog
+        D.ExpressionDialog = _Builder
+        try:
+            chart.edit_split_expression()
+        finally:
+            D.ExpressionDialog = real
+        self.assertTrue(ready("SCORE_MAX", '"ZONE_CODE" > 2'))
+        high = sum(1 for ft in feats if ft["ZONE_CODE"] > 2)
+        series = dict(zip(chart.bars.series, map(sum, zip(*chart.bars.split))))
+        self.assertEqual(series, {"true": high, "false": 800 - high})
+        self.assertIn('by "ZONE_CODE" > 2', chart.title_edit.text())
 
         # exports: PNG, SVG, the bars as CSV with the scope beside it
         png, svg, csv_path = (os.path.join(OUT, n) for n in ("c.png", "c.svg", "c.csv"))
@@ -1611,10 +1636,24 @@ class SuiteTests(unittest.TestCase):
             self.assertTrue(os.path.getsize(path) > 0, path)
         with open(csv_path, encoding="utf-8-sig") as fh:
             head = fh.readline()
-        self.assertTrue(head.startswith("Bar,From,To,Records,Share (%),Selected,LAND_USE: "))
+        self.assertTrue(head.startswith("Bar,From,To,Records,Share (%),Selected,"))
+        self.assertIn('""ZONE_CODE"" > 2: true', head)          # the Split by expression
+
+        # bar values show only with "Label bars with their count"
+        chart.split_combo.set_current_name(None)
+        chart.set_field(lu)
+        self.assertTrue(ready("LAND_USE"))
+        H.settle(0.2)
+        plain = v.grab().toImage()
+        chart.labels_tick.setChecked(True)
+        H.settle(0.2)
+        self.assertNotEqual(v.grab().toImage(), plain)
+        chart.labels_tick.setChecked(False)
+        H.settle(0.2)
+        self.assertEqual(v.grab().toImage(), plain)
+        chart.set_field(sm)
 
         # the statistics popup has a Chart… button
-        chart.split_combo.set_current_name(None)
         self.assertTrue(ready("SCORE_MAX"))
         H.wait_for(lambda: sm in panel.profiles, 30)
         panel._show_profile_details(sm)

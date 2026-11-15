@@ -285,9 +285,11 @@ a bar. Names that don't fit under their columns are slanted.</li>
 <li><b>Dates</b>: records per day, week (from Monday), month, quarter or
 year; <b>Auto</b> picks about 120 bars at most.</li>
 </ul>
-<p><b>Split by</b> counts every bar per value of a second field, stacked or
-side by side: the 8 most common values get their own colour (checked for
-colour-blind readers), the rest form Other. <b>Scale</b> (linear,
+<p><b>Split by</b> counts every bar per value of a second field, or of an
+expression (the ε button opens the QGIS expression builder, e.g.
+<i>"AREA_M2" &gt; 1000</i>), stacked or side by side (<b>Bars</b>): the 8 most
+common values get their own colour (checked for colour-blind readers), the
+rest form Other. <b>Scale</b> (linear,
 logarithmic, square root) lets small bars show beside very tall ones.</p>
 <h4>Selecting</h4>
 <p>Click a bar to select its records on the layer (the map and the table

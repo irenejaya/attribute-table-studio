@@ -160,11 +160,13 @@ def _plan(spec, need, geometry):
     return req, restrict, local_expr, need
 
 
-def stream(spec, job, attr_idxs=(), step=5000):
+def stream(spec, job, attr_idxs=(), step=5000, geometry=False):
     """Yield the features of the scope one by one (no geometry unless a map
-    extent needs it), reading only *attr_idxs*.  Nothing is kept, so it
-    suits millions of records; progress and cancelling go through *job*."""
-    req, restrict, local_expr, need = _plan(spec, attr_idxs, spec.rect is not None)
+    extent or *geometry* needs it), reading only *attr_idxs*.  Nothing is
+    kept, so it suits millions of records; progress and cancelling go
+    through *job*."""
+    req, restrict, local_expr, need = _plan(spec, attr_idxs,
+                                            spec.rect is not None or geometry)
     req.setSubsetOfAttributes(sorted(need))
     ctx = None
     if local_expr is not None:

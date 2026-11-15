@@ -42,6 +42,7 @@ from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
 SYNC_LIMIT = 250000              # up to this many records, rebuild at once
+EXPR_KEY = "\x00expression"      # Split by item that holds an expression
 TOP_CHOICES = (("Top 10 + Other", 10), ("Top 25 + Other", 25), ("All values", None))
 
 
@@ -313,14 +314,21 @@ class ChartPanel(QWidget):
         self.split_combo.setMinimumContentsLength(4)
         self.split_combo.setMinimumWidth(80)
         self.split_combo.setToolTip(
-            "Count each bar per value of a second field (the 8 most common values "
-            "get their own colour, the rest form Other)")
+            "Count each bar per value of a second field or an expression (the 8 most "
+            "common values get their own colour, the rest form Other)")
         self.split_combo.currentIndexChanged.connect(self._on_split_changed)
         sl.addWidget(self.split_combo, 1)
+        self.split_expr_btn = W.square_button(
+            m, icons.native(icons.EXPRESSION),
+            "Split by an expression…\nBuild one in the QGIS expression builder, e.g. "
+            "\"AREA_M2\" > 1000 or year(\"SURVEY_DATE\")")
+        self.split_expr_btn.clicked.connect(self.edit_split_expression)
+        sl.addWidget(self.split_expr_btn)
+        pl.addWidget(split_row)
+        self._split_expr = None
         self.split_mode = self._combo((("Stacked", "stacked"), ("Side by side", "side")))
         self.split_mode.currentIndexChanged.connect(self._redraw)
-        sl.addWidget(self.split_mode)
-        pl.addWidget(split_row)
+        self.split_mode_row = self._row(pl, "Bars", self.split_mode)
 
         self.null_tick, self.null_row = self._tick(pl, "Count NULL as a bar", False)
         self.null_tick.toggled.connect(self._schedule_build)
@@ -332,9 +340,9 @@ class ChartPanel(QWidget):
         pl.addWidget(self.lines_header)
         self.mean_tick, self.mean_row = self._tick(pl, "Mean", True, MEAN_COLOUR)
         self.median_tick, self.median_row = self._tick(pl, "Median", True, MEDIAN_COLOUR)
-        self.std_tick, self.std_row = self._tick(pl, "± 1 standard deviation", False)
+        self.std_tick, self.std_row = self._tick(pl, "± 1 Std. Dev.", False)
         self.normal_tick, self.normal_row = self._tick(
-            pl, "Normal distribution curve", False,
+            pl, "Normal Distribution Curve", False,
             tip="The bell curve with the same mean and standard deviation")
         for box in (self.mean_tick, self.median_tick, self.std_tick, self.normal_tick):
             box.toggled.connect(self._redraw)
@@ -396,10 +404,51 @@ class ChartPanel(QWidget):
         idx = self.split_combo.findData(name)
         if idx > 0:
             self.split_combo.removeItem(idx)
+        if self._split_expr:                 # the expression stays offered
+            self._add_expression_item()
         if current and current != name:
             self.split_combo.set_current_name(current)
         self.split_combo.blockSignals(False)
-        self.split_mode.setVisible(self.split_combo.current_name() is not None)
+        self.split_mode_row.setVisible(self.split_combo.current_name() is not None)
+
+    def _add_expression_item(self):
+        idx = self.split_combo.findData(EXPR_KEY)
+        text = self._split_expr if len(self._split_expr) <= 40 \
+            else self._split_expr[:39] + "…"
+        if idx < 0:
+            self.split_combo.addItem(icons.native(icons.EXPRESSION), text, EXPR_KEY)
+            idx = self.split_combo.count() - 1
+        else:
+            self.split_combo.setItemText(idx, text)
+        self.split_combo.setItemData(idx, self._split_expr, Qt.ItemDataRole.ToolTipRole)
+        return idx
+
+    def edit_split_expression(self):
+        """Split by an expression built in the QGIS expression builder."""
+        from .explorer_dialogs import ExpressionDialog
+        current = self._split_expr or ""
+        if not current:
+            name = self.split_combo.current_name()
+            current = f'"{name}"' if name and name != EXPR_KEY else ""
+        dlg = ExpressionDialog(self, "Split by an expression", current, order=False)
+        if not dlg.exec():
+            return
+        self._split_expr = dlg.expression()
+        idx = self._add_expression_item()
+        if self.split_combo.currentIndex() == idx:
+            self._on_split_changed()             # a new expression: read again
+        else:
+            self.split_combo.setCurrentIndex(idx)
+
+    def split_choice(self):
+        """(field name, expression, display name) of Split by; all None
+        without a split."""
+        data = self.split_combo.current_name()
+        if data is None:
+            return None, None, None
+        if data == EXPR_KEY:
+            return None, self._split_expr, self._split_expr
+        return data, None, data
 
     def on_schema_changed(self):
         """Fields renamed, added or removed in the explorer."""
@@ -465,7 +514,7 @@ class ChartPanel(QWidget):
         self._redraw()
 
     def _on_split_changed(self, *_args):
-        self.split_mode.setVisible(self.split_combo.current_name() is not None)
+        self.split_mode_row.setVisible(self.split_combo.current_name() is not None)
         self._show_controls()
         self.load()
 
@@ -496,7 +545,7 @@ class ChartPanel(QWidget):
 
     def _default_title(self):
         name = self.field_name() or ""
-        split = self.split_combo.current_name()
+        split = self.split_choice()[2]
         chart = self.chart()
         if chart == C.HISTOGRAM:
             title = f"Distribution of {name}"
@@ -548,8 +597,8 @@ class ChartPanel(QWidget):
         self._waiting = False
         fields = self._fields()
         idx = fields.indexOf(name)
-        split = self.split_combo.current_name()
-        split_idx = fields.indexOf(split) if split else None
+        split_field, split_expr, split = self.split_choice()
+        split_idx = fields.indexOf(split_field) if split_field else None
         selected_only = self.selected_btn.isChecked()
         spec = exp.chart_spec(selected_only)
         if spec is None:
@@ -564,8 +613,8 @@ class ChartPanel(QWidget):
             opts["bins"] = None              # the default for the data
 
         def work(job, spec=spec, idx=idx, kind=kind, name=name, split_idx=split_idx,
-                 split=split, opts=opts, sel_ids=sel_ids):
-            col = C.read(spec, job, idx, kind, name, split_idx, split)
+                 split=split, split_expr=split_expr, opts=opts, sel_ids=sel_ids):
+            col = C.read(spec, job, idx, kind, name, split_idx, split, split_expr)
             if opts["bins"] is None:
                 st = col.stats
                 opts["bins"] = C.default_bins(col.size, kind, st.get("min"), st.get("max"))
@@ -583,7 +632,7 @@ class ChartPanel(QWidget):
     def _scope_key(self):
         exp = self.explorer
         key = (getattr(exp, "_scope_key", None), self.field_name(),
-               self.split_combo.current_name(), self.selected_btn.isChecked())
+               self.split_choice()[2], self.selected_btn.isChecked())
         if self.selected_btn.isChecked():
             key += (getattr(exp, "_selection_version", 0),)
         return key

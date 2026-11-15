@@ -157,6 +157,28 @@ class Column:
         return arr
 
 
+def _is_condition(exp):
+    """True when a QGIS expression is a condition (a comparison, AND / OR /
+    NOT, IN, BETWEEN, LIKE, IS ...): QGIS returns 1 / 0 for those."""
+    import qgis.core as qc
+    node = exp.rootNode()
+    if node is None:
+        return False
+    for name in ("QgsExpressionNodeInOperator", "QgsExpressionNodeBetweenOperator"):
+        cls = getattr(qc, name, None)
+        if cls is not None and isinstance(node, cls):
+            return True
+    if isinstance(node, qc.QgsExpressionNodeUnaryOperator):
+        return node.op() == getattr(qc.QgsExpressionNodeUnaryOperator, "uoNot", None)
+    if isinstance(node, qc.QgsExpressionNodeBinaryOperator):
+        B = qc.QgsExpressionNodeBinaryOperator
+        arithmetic = [getattr(B, n, None) for n in ("boPlus", "boMinus", "boMul", "boDiv",
+                                                    "boIntDiv", "boMod", "boPow",
+                                                    "boConcat")]
+        return node.op() not in arithmetic
+    return False
+
+
 def _bool_key(v):
     """'true' / 'false' for a yes / no value, None for NULL, '' if unusable
     (the Explorer's rules)."""
@@ -177,13 +199,32 @@ def _bool_key(v):
     return ""
 
 
-def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
+def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None,
+         split_expr=None):
     """Read the scope of *spec* (a :class:`.scan.ScanSpec`) into a
-    :class:`Column`; runs inside a background job."""
+    :class:`Column`; runs inside a background job.  Split by is a field
+    (*split_idx*) or a QGIS expression (*split_expr*, evaluated for every
+    record; an evaluation error counts as NULL)."""
     from .scan import stream
 
     col = Column(kind, name)
     attrs = [field_idx] + ([split_idx] if split_idx is not None else [])
+    geometry = False
+    exp = ctx = None
+    if split_expr:
+        from qgis.core import QgsExpression, QgsExpressionContext, QgsFeatureRequest
+        exp = QgsExpression(split_expr)
+        ctx = QgsExpressionContext(spec.context)
+        ctx.setFields(spec.fields)
+        exp.prepare(ctx)
+        if QgsFeatureRequest.ALL_ATTRIBUTES in exp.referencedColumns():
+            attrs = list(range(spec.fields.count()))
+        else:
+            attrs += [i for i in exp.referencedAttributeIndexes(spec.fields) if i >= 0]
+        geometry = exp.needsGeometry()
+        condition = _is_condition(exp)       # 1 / 0 read as true / false
+        split_idx = -1                       # a split, from the expression
+        split_name = split_name or split_expr
     fids_append = col.fids.append
     split_codes = None
     split_index = {}
@@ -196,7 +237,15 @@ def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
     scope = missing = invalid = 0
 
     def split_code(feat):
-        sv = feat.attribute(split_idx)
+        if exp is not None:
+            ctx.setFeature(feat)
+            sv = exp.evaluate(ctx)
+            if exp.hasEvalError():
+                sv = None
+            elif condition and not (sv is None or is_null(sv)):
+                sv = "true" if sv else "false"
+        else:
+            sv = feat.attribute(split_idx)
         key = NULL_KEY if (sv is None or is_null(sv)) else (
             sv if type(sv) is str else F.display_value(sv))
         code = split_index.get(key)
@@ -215,7 +264,7 @@ def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
         counts = col.counts
         codes_append = col.codes.append
         boolean = kind == F.BOOL
-        for feat in stream(spec, job, attrs):
+        for feat in stream(spec, job, attrs, geometry=geometry):
             scope += 1
             v = feat.attribute(field_idx)
             if boolean:
@@ -257,7 +306,7 @@ def read(spec, job, field_idx, kind, name, split_idx=None, split_name=None):
         isfinite = math.isfinite
         numeric = chart == HISTOGRAM and kind != F.TIME
         tkey = F.temporal_key
-        for feat in stream(spec, job, attrs):
+        for feat in stream(spec, job, attrs, geometry=geometry):
             scope += 1
             v = feat.attribute(field_idx)
             if v is None or (type(v) not in (float, int) and is_null(v)):

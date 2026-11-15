@@ -332,13 +332,14 @@ class ExpressionDialog(_Dialog):
     """The QGIS expression builder with the sort direction (Sort by
     expression; the filter expression is edited in its own bar)."""
 
-    def __init__(self, panel, title, text=""):
+    def __init__(self, panel, title, text="", order=True):
         super().__init__(panel, title, icons.EXPRESSION)
         self.resize(760, 560)
         self.builder = _expression_builder(panel.layer, text)
         self.lay.addWidget(self.builder, 1)
         row = QHBoxLayout()
         self.descending = QCheckBox("Descending")
+        self.descending.setVisible(order)
         row.addWidget(self.descending)
         row.addStretch()
         self.lay.addLayout(row)
