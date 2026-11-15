@@ -1241,6 +1241,20 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(lines[0], "LAND_USE\tSCORE_MAX")
         self.assertEqual(len(lines), len(panel.model.fids) + 1)
         self.assertEqual(lines[1].split("\t")[0], str(panel.model.raw_value(0, lu)))
+        # a right-click selects the column as well (one already selected
+        # keeps the selection)
+        original = QMenu.exec
+        QMenu.exec = lambda *_a, **_k: None
+        try:
+            panel._header_menu(QPoint(h.sectionViewportPosition(s2) + 5, h.name_top() + 5))
+            self.assertEqual(panel.model.selected_cols, {s2})
+            panel._on_header_clicked(lu, ctrl)
+            panel._header_menu(QPoint(h.sectionViewportPosition(lu) + 5, h.name_top() + 5))
+            self.assertEqual(panel.model.selected_cols, {s2, lu})
+        finally:
+            QMenu.exec = original
+        panel._on_header_clicked(lu)
+        panel._on_header_clicked(sm, ctrl)
         # clicking a cell or Escape clears it
         panel.view.pressed.emit(panel.model.index(0, 0))
         self.assertEqual(panel.model.selected_cols, set())
