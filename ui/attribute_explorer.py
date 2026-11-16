@@ -594,6 +594,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             changed = [(a, b) for a, b in zip(before, after) if a != b]
             if len(changed) == 1:
                 renamed = dict(changed)
+        sorted_name = (self.model.fields[self.sort[0]].name()
+                       if self.sort is not None and 0 <= self.sort[0] < len(self.model.fields)
+                       else None)
         # keep filters of fields that still exist (by name)
         old = {}
         for cell in self.header.cells.values():
@@ -620,10 +623,15 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.profiles = {}
         self._scope_key = None
         self.refresh(keep_place=True)
+        notes = []
         if dropped:
-            self.status.set_status(
-                f"Fields changed — removed the filter on {', '.join(dropped)}",
-                "warning")
+            notes.append(f"removed the filter on {', '.join(dropped)}")
+        if sorted_name is not None and self.sort is None:
+            notes.append(f"the table is no longer sorted by {sorted_name}")
+        if notes:
+            text = f"Fields changed — {'; '.join(notes)}"
+            self.status.set_status(text, "warning")
+            self._status_note = (time.monotonic() + 10, text)     # stays a while
 
     # ====================================================================
     # SCOPE + SCANS
@@ -1325,7 +1333,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                          "width": h.sectionSize(logical),
                          "hidden": h.isSectionHidden(logical)})
         sort = None
-        if self.sort is not None:
+        if self.sort is not None and 0 <= self.sort[0] < len(self.model.fields):
             sort = [self.model.fields[self.sort[0]].name(), self.sort[1]]
         return {"version": 1, "columns": cols, "sort": sort,
                 "sort_expr": list(self.sort_expr) if self.sort_expr else None,
@@ -1389,6 +1397,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self.header.setSortIndicator(
                 self.sort[0], Qt.SortOrder.DescendingOrder if self.sort[1]
                 else Qt.SortOrder.AscendingOrder)
+        elif self.sort is not None:
+            # the sorted field is gone (a join or a field removed): no sort
+            self.sort = None
+            self.header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
         h.relayout()
 
     def _default_width(self, logical):
