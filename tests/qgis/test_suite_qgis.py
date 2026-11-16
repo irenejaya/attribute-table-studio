@@ -1513,8 +1513,50 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(chart.bars.labels[0], "RESIDENTIAL")
         self.assertEqual(chart.bars.counts[0], res)
         self.assertTrue(chart.sort_row.isVisible() and not chart.bins_row.isVisible())
-        chart.sort_combo.setCurrentIndex(1)                       # A -> Z
+        # sorts as ArcGIS Pro's, with icons; most records first by default
+        self.assertEqual([chart.sort_combo.itemData(i) for i in range(5)],
+                         ["az", "za", "fewest", "count", "custom"])
+        self.assertTrue(all(not chart.sort_combo.itemIcon(i).isNull() for i in range(5)))
+        self.assertEqual(chart.sort_combo.currentData(), "count")
+        chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("az"))
         self.assertEqual(chart.bars.labels, sorted(chart.bars.labels))
+        chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("fewest"))
+        self.assertEqual(chart.bars.counts, sorted(chart.bars.counts))
+        # Custom order…: the order set in its window
+        from attribute_table_studio.ui import explorer_dialogs as D
+        wanted = ["RURAL", "COMMERCIAL"]
+
+        class _Order:
+            def __init__(self, panel, field, entries):
+                self.entries = entries
+
+            def exec(self):
+                return True
+
+            def order(self):
+                rest = [label for label, _n in self.entries if label not in wanted]
+                return wanted + rest
+
+        real = D.CustomOrderDialog
+        D.CustomOrderDialog = _Order
+        try:
+            chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("custom"))
+            chart._on_sort_activated(chart.sort_combo.currentIndex())
+        finally:
+            D.CustomOrderDialog = real
+        self.assertEqual(chart.bars.labels[:2], wanted)
+        # the real window: move a value to the top, reset
+        dlg = D.CustomOrderDialog(chart, "LAND_USE", chart.custom_order_entries())
+        self.assertEqual(dlg.order()[:2], wanted)
+        dlg.list.setCurrentRow(dlg.list.count() - 1)
+        last = dlg.order()[-1]
+        dlg._move("top")
+        self.assertEqual(dlg.order()[0], last)
+        dlg._reset()
+        self.assertEqual(dlg.order()[0], "RESIDENTIAL")
+        self.assertEqual(dlg.ok_btn.width(), dlg.cancel_btn.width())
+        dlg.reject()
+        chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("az"))
         QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(0))
         H.settle(0.3)
         self.assertEqual(layer.selectedFeatureCount(),
@@ -1562,15 +1604,15 @@ class SuiteTests(unittest.TestCase):
         for ft in feats:
             codes[str(ft["ZONE_CODE"])] = codes.get(str(ft["ZONE_CODE"]), 0) + 1
         self.assertEqual(dict(zip(chart.bars.labels, chart.bars.counts)), codes)
-        self.assertEqual(chart.sort_combo.itemText(1), "Smallest first")
-        chart.sort_combo.setCurrentIndex(1)
+        self.assertEqual(chart.sort_combo.itemText(0), "Smallest value first")
+        chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("az"))
         self.assertEqual(chart.bars.labels, sorted(codes, key=int))
         H.settle(0.2)
         QTest.mouseClick(v, Qt.MouseButton.LeftButton, no, bar_point(1))
         H.settle(0.3)
         self.assertEqual(set(layer.selectedFeatureIds()),
                          {ft.id() for ft in feats if str(ft["ZONE_CODE"]) == chart.bars.labels[1]})
-        chart.sort_combo.setCurrentIndex(0)
+        chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("count"))
         chart.set_field(oi)                                  # every OWNER_ID is NULL
         self.assertTrue(ready("OWNER_ID"))
         chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("bar"))

@@ -360,6 +360,92 @@ class ExpressionDialog(_Dialog):
         return self.builder.expressionText().strip()
 
 
+class CustomOrderDialog(_Dialog):
+    """Visualize Statistics › Sort › Custom order…: the values of a field in
+    the order their bars should follow.  Drag them, or use the buttons;
+    Other and NULL bars always come last."""
+
+    def __init__(self, panel, field, entries):
+        super().__init__(panel, f"Custom order — {field}", icons.SORT)
+        self.resize(420, 520)
+        self.entries = list(entries)
+        self.note("Drag the values into the order of their bars, or select one and "
+                  "move it with the buttons. Values not in the top 10 or 25 stay "
+                  "in Other.")
+        row = QHBoxLayout()
+        row.setSpacing(self.metrics.gap)
+        self.list = QListWidget()
+        self.list.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+        self.list.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+        self._fill(self.entries)
+        row.addWidget(self.list, 1)
+        side = QVBoxLayout()
+        side.setSpacing(self.metrics.gap)
+        m = self.metrics
+        for text, glyph, tip, step in (
+                ("Top", "arrow_up", "Move to the top", "top"),
+                ("Up", "arrow_up", "Move up one place", -1),
+                ("Down", "arrow_down", "Move down one place", 1),
+                ("Bottom", "arrow_down", "Move to the bottom", "bottom")):
+            btn = W.button(m, text, icons.glyph(glyph, self.theme.text), tip)
+            btn.clicked.connect(lambda _c=False, st=step: self._move(st))
+            side.addWidget(btn)
+        side.addSpacing(m.group_gap)
+        reset = W.button(m, "Reset", icons.sort_icon("count", self.theme),
+                         "Most records first again")
+        reset.clicked.connect(self._reset)
+        side.addWidget(reset)
+        side.addStretch(1)
+        row.addLayout(side)
+        self.lay.addLayout(row, 1)
+        # OK and Cancel alike, as in the Join table window
+        buttons = QHBoxLayout()
+        buttons.addStretch(1)
+        self.cancel_btn = W.button(m, "Cancel")
+        self.ok_btn = W.button(m, "OK", None, "Sort the bars in this order")
+        self.cancel_btn.clicked.connect(self.reject)
+        self.ok_btn.clicked.connect(self.accept)
+        buttons.addWidget(self.cancel_btn)
+        buttons.addWidget(self.ok_btn)
+        self.lay.addLayout(buttons)
+        for btn in (self.cancel_btn, self.ok_btn):
+            btn.ensurePolished()
+        width = max(self.cancel_btn.sizeHint().width(), self.ok_btn.sizeHint().width())
+        for btn in (self.cancel_btn, self.ok_btn):
+            btn.setMinimumWidth(width)
+        if self.list.count():
+            self.list.setCurrentRow(0)
+
+    def _fill(self, entries):
+        self.list.clear()
+        for label, n in entries:
+            item = QListWidgetItem(f"{label}    ({n:,})")
+            item.setData(Qt.ItemDataRole.UserRole, label)
+            self.list.addItem(item)
+
+    def _move(self, step):
+        row = self.list.currentRow()
+        if row < 0:
+            return
+        last = self.list.count() - 1
+        target = 0 if step == "top" else last if step == "bottom" else row + step
+        target = max(0, min(last, target))
+        if target == row:
+            return
+        item = self.list.takeItem(row)
+        self.list.insertItem(target, item)
+        self.list.setCurrentRow(target)
+
+    def _reset(self):
+        self._fill(sorted(self.entries, key=lambda e: -e[1]))
+        self.list.setCurrentRow(0)
+
+    def order(self):
+        return [self.list.item(i).data(Qt.ItemDataRole.UserRole)
+                for i in range(self.list.count())]
+
+
 def _name_limit(layer):
     """(longest field name, the format's name) where the format limits it."""
     provider = layer.dataProvider()

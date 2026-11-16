@@ -154,7 +154,8 @@ chart window per explorer, as a window or docked.
   distribution curve), or one bar per value (handy for codes). Text and
   true / false: one bar or column per value (top 10 or 25 and Other, or all
   values; records or shares; NULL as a bar), names slanted under columns
-  when they don't fit. Dates: records per day, week, month, quarter or year.
+  when they don't fit. **Sort** as in ArcGIS Pro: A → Z, Z → A, fewest or
+  most records first (the default), or a custom order you drag into place. Dates: records per day, week, month, quarter or year.
   Text starts as a bar chart, numbers and dates as a histogram. Linear,
   logarithmic or square root scale.
 
