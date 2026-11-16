@@ -2481,6 +2481,40 @@ class SuiteTests(unittest.TestCase):
         panel.clear_filters()
         H.wait_for(lambda: idle(panel))
 
+    def test_14d_removing_the_sorted_join(self):
+        """Sorted by a joined field, then the join is removed (Layer
+        Properties or the Join table window): the sort goes, the table
+        reads the layer again and switching layer works (it raised
+        IndexError)."""
+        from qgis.core import QgsVectorLayerJoinInfo
+        layer = H.demo_layer(n=200, name="Sorted join parcels")
+        lookup = H.demo_layer(n=60, seed=4, name="lookup")
+        other = H.demo_layer(n=30, seed=8, name="Next layer")
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        n = len(panel.model.fields)
+        info = QgsVectorLayerJoinInfo()
+        info.setJoinLayer(lookup)
+        info.setJoinFieldName("PARCEL_ID")
+        info.setTargetFieldName("PARCEL_ID")
+        info.setUsingMemoryCache(True)
+        info.setJoinFieldNamesSubset(["SCORE_MAX"])
+        layer.addJoin(info)
+        self.assertTrue(H.wait_for(lambda: idle(panel) and len(panel.model.fields) == n + 1))
+        panel.sort_by(n, True)                               # lookup_SCORE_MAX
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        layer.removeJoin(lookup.id())                        # as Layer Properties does
+        self.assertTrue(H.wait_for(lambda: idle(panel) and len(panel.model.fields) == n))
+        self.assertIsNone(panel.sort)
+        self.assertEqual(len(panel.model.fids), 200)
+        self.assertIn("no longer sorted by lookup_SCORE_MAX", panel.status.message.fullText())
+        panel._save_layout()                                 # raised IndexError
+        panel.set_layer(other)                               # what switching layer does
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.plugin.explorers[layer.id()].close()            # still listed under the first
+        for lyr in (layer, lookup, other):
+            QgsProject.instance().removeMapLayer(lyr.id())
+
     def test_14c_close_while_scanning(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))
