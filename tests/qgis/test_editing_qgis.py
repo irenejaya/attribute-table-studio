@@ -427,6 +427,37 @@ class EditingTests(unittest.TestCase):
         values = [f["ZONE_CODE"] for f in layer.getFeatures()]
         self.assertEqual(values, list(range(1, layer.featureCount() + 1)))
 
+    def test_10b_quick_update_from_a_joined_field(self):
+        """A joined field whose name starts with a digit (a join prefix like
+        "1d_nwk_") can fill a field of the layer: QGIS's field box calls
+        such a bare name invalid, the quoted expression is fine."""
+        from qgis.core import QgsProject, QgsVectorLayerJoinInfo
+        p, layer = self.panel, self.layer
+        src = H.demo_layer(n=50, seed=5, name="1d_nwk_lookup")
+        info = QgsVectorLayerJoinInfo()
+        info.setJoinLayer(src)
+        info.setJoinFieldName("PARCEL_ID")
+        info.setTargetFieldName("PARCEL_ID")
+        info.setUsingMemoryCache(True)
+        info.setJoinFieldNamesSubset(["LAND_USE"])
+        self.assertTrue(layer.addJoin(info))
+        settle(p)
+        joined = layer.fields().names()[-1]
+        self.assertTrue(joined.startswith("1d_nwk_lookup_"))
+        self.start()
+        q = p.quick_bar
+        q.field_combo.setField("LAND_USE")
+        q.expression.setField(joined)                    # picked from the field list
+        p._update_quick_state()
+        self.assertTrue(q.run_btn.isEnabled())
+        wanted = {f.id(): f[joined] for f in layer.getFeatures()}
+        q.run_btn.click()
+        got = {f.id(): f["LAND_USE"] for f in layer.getFeatures()}
+        self.assertEqual(got, wanted)
+        layer.rollBack()
+        layer.removeJoin(src.id())
+        QgsProject.instance().removeMapLayer(src.id())
+
     def test_11_multi_edit(self):
         p = self.panel
         self.start()

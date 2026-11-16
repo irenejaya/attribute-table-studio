@@ -559,7 +559,7 @@ class EditingMixin:
         idx = self.layer.fields().indexFromName(name)
         if idx < 0:
             raise OPS.OperationError("Choose a field to update")
-        if not q.expression.isValidExpression():
+        if not W.field_expression_valid(q.expression):
             raise OPS.OperationError("Enter a valid expression")
         return name, idx, q.expression.asExpression()
 

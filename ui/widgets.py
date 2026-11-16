@@ -260,6 +260,20 @@ def set_button_text(btn, text):
     btn.setText(text)
 
 
+def field_expression_valid(widget):
+    """Whether a QgsFieldExpressionWidget holds a usable field or
+    expression.  Its own isValidExpression() parses a chosen field's bare
+    name, so it rejects names starting with a digit (a join prefix like
+    "1d_nwk_"); the quoted expression is checked against the layer instead."""
+    from qgis.core import QgsExpression, QgsExpressionContext
+    text = (widget.asExpression() or "").strip()
+    if not text:
+        return False
+    layer = widget.layer()
+    ctx = layer.createExpressionContext() if layer is not None else QgsExpressionContext()
+    return bool(QgsExpression.checkExpression(text, ctx)[0])
+
+
 def field_tooltip(field):
     try:
         type_desc = field.displayType(True)
