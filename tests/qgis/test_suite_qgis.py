@@ -1096,6 +1096,10 @@ class SuiteTests(unittest.TestCase):
         dlg.prefix_group.setChecked(True)
         self.assertFalse(dlg.prefix_group.isCollapsed())
         self.assertTrue(dlg.prefix_edit.isEnabled())
+        # the prefix box spans the window (as in QGIS's Joins dialog)
+        dlg.show()
+        H.settle(0.2)
+        self.assertGreater(dlg.prefix_edit.width(), dlg.prefix_group.width() - 40)
         self.assertTrue(H.wait_for(lambda: dlg.counts is not None, 20))
         codes = [f["ZONE_CODE"] for f in base.getFeatures()]
         matched = sum(1 for c in codes if c in (1, 2, 3, 4))
