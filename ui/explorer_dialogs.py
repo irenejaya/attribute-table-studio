@@ -392,7 +392,7 @@ class CustomOrderDialog(_Dialog):
             btn.clicked.connect(lambda _c=False, st=step: self._move(st))
             side.addWidget(btn)
         side.addSpacing(m.group_gap)
-        reset = W.button(m, "Reset", icons.sort_icon("count", self.theme),
+        reset = W.button(m, "Reset", icons.sort_icon("count", self.theme, True),
                          "Most records first again")
         reset.clicked.connect(self._reset)
         side.addWidget(reset)

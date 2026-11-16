@@ -1584,7 +1584,13 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(ready("LAND_USE"))
         self.assertEqual(chart.kind_combo.currentData(), "bar")         # its usual chart
         before = list(zip(chart.bars.labels, chart.bars.counts))
+        # the sort icons and axis names turn with the chart
+        self.assertIn("records along the bottom (X axis)", chart.sort_combo.toolTip())
+        bar_icon = chart.sort_combo.itemIcon(chart.sort_combo.findData("count")).cacheKey()
         chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("histogram"))
+        self.assertIn("records up the side (Y axis)", chart.sort_combo.toolTip())
+        self.assertNotEqual(
+            chart.sort_combo.itemIcon(chart.sort_combo.findData("count")).cacheKey(), bar_icon)
         self.assertFalse(v.model.horizontal)
         self.assertEqual(list(zip(chart.bars.labels, chart.bars.counts)), before)
         self.assertTrue(chart.sort_row.isVisible())

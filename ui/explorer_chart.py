@@ -295,10 +295,6 @@ class ChartPanel(QWidget):
         for key, text in SORT_TEXT_LABELS:
             self.sort_combo.addItem(icons.sort_icon(key, t), text, key)
         self.sort_combo.setCurrentIndex(self.sort_combo.findData("count"))
-        self.sort_combo.setToolTip(
-            "A → Z / Z → A: by the values (on the value axis)\n"
-            "Fewest / Most records first: by the bar lengths (on the records axis)\n"
-            "Custom order…: put the values in your own order")
         self._custom_orders = {}             # field -> [value labels]
         self.sort_combo.activated.connect(self._on_sort_activated)
         self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
@@ -523,6 +519,29 @@ class ChartPanel(QWidget):
         self.col = None
         self.load()
 
+    def _sort_icons_follow_chart(self):
+        """Sort icons and tooltip turn with the chart: in a bar chart the
+        values run down the left (Y axis) and the records along the bottom
+        (X axis); in a histogram the other way round."""
+        horizontal = self.chart_type() == "bar"
+        for i in range(self.sort_combo.count()):
+            key = self.sort_combo.itemData(i)
+            self.sort_combo.setItemIcon(i, icons.sort_icon(key, self.theme, horizontal))
+        if horizontal:
+            axes = ("Bar chart: the values run down the left (Y axis), the records "
+                    "along the bottom (X axis).\n"
+                    "A → Z / Z → A: the values from top to bottom (Y axis)\n"
+                    "Fewest / Most records first: by bar length (X axis ascending / "
+                    "descending)")
+        else:
+            axes = ("Histogram: the values run along the bottom (X axis), the records "
+                    "up the side (Y axis).\n"
+                    "A → Z / Z → A: the values from left to right (X axis)\n"
+                    "Fewest / Most records first: by column height (Y axis ascending / "
+                    "descending)")
+        self.sort_combo.setToolTip(axes + "\nCustom order…: put the values in your own "
+                                   "order")
+
     def _on_sort_activated(self, _index):
         """Custom order… opens its window (again, to change the order);
         cancelling it the first time goes back to the previous sort."""
@@ -591,6 +610,7 @@ class ChartPanel(QWidget):
         for key, text in SORT_TEXT_LABELS[:2]:
             self.sort_combo.setItemText(self.sort_combo.findData(key),
                                         text if as_text else SORT_NUMBER_LABELS[key])
+        self._sort_icons_follow_chart()
         self.bins_row.setVisible(hist)
         for w in (self.sort_row, self.top_row, self.values_row, self.null_row):
             w.setVisible(chart == C.BARS)

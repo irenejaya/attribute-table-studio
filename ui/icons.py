@@ -272,10 +272,14 @@ def _paint(kind, color, size):
     return pm
 
 
-def sort_icon(kind, theme):
-    """Chart sort icons: "az" / "za" (letters and an arrow), "fewest" /
-    "count" (rising / falling bars), "custom" (a two-way arrow)."""
-    key = ("sort", kind, theme.dark)
+def sort_icon(kind, theme, horizontal=False):
+    """Chart sort icons, drawn the way the chart runs.  *horizontal* (a
+    bar chart: values down the left, records along the bottom): letters
+    stacked with a down arrow, bars getting longer / shorter down the
+    icon, an up-down arrow for a custom order.  Columns (a histogram:
+    values left to right, records up): letters side by side with a right
+    arrow, columns rising / falling, a left-right arrow."""
+    key = ("sort", kind, theme.dark, bool(horizontal))
     if key in _cache:
         return _cache[key]
     icon = QIcon()
@@ -295,29 +299,49 @@ def sort_icon(kind, theme):
             p.setFont(font)
             p.setPen(QColor(theme.text))
             first, second = ("A", "Z") if kind == "az" else ("Z", "A")
-            p.drawText(QRectF(0, 0, s * 0.6, s * 0.5), Qt.AlignmentFlag.AlignCenter, first)
-            p.drawText(QRectF(0, s * 0.5, s * 0.6, s * 0.5), Qt.AlignmentFlag.AlignCenter,
-                       second)
             pen = QPen(accent, max(1.4, s / 11.0))
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            p.setPen(pen)
-            x = s * 0.78
-            p.drawLine(QPointF(x, s * 0.14), QPointF(x, s * 0.84))
-            p.drawLine(QPointF(x - s * 0.13, s * 0.66), QPointF(x, s * 0.84))
-            p.drawLine(QPointF(x + s * 0.13, s * 0.66), QPointF(x, s * 0.84))
+            if horizontal:                   # values top to bottom
+                p.drawText(QRectF(0, 0, s * 0.6, s * 0.5), Qt.AlignmentFlag.AlignCenter,
+                           first)
+                p.drawText(QRectF(0, s * 0.5, s * 0.6, s * 0.5),
+                           Qt.AlignmentFlag.AlignCenter, second)
+                p.setPen(pen)
+                x = s * 0.78
+                p.drawLine(QPointF(x, s * 0.14), QPointF(x, s * 0.84))
+                p.drawLine(QPointF(x - s * 0.13, s * 0.66), QPointF(x, s * 0.84))
+                p.drawLine(QPointF(x + s * 0.13, s * 0.66), QPointF(x, s * 0.84))
+            else:                            # values left to right
+                p.drawText(QRectF(0, 0, s * 0.5, s * 0.62), Qt.AlignmentFlag.AlignCenter,
+                           first)
+                p.drawText(QRectF(s * 0.5, 0, s * 0.5, s * 0.62),
+                           Qt.AlignmentFlag.AlignCenter, second)
+                p.setPen(pen)
+                y = s * 0.80
+                p.drawLine(QPointF(s * 0.14, y), QPointF(s * 0.86, y))
+                p.drawLine(QPointF(s * 0.68, y - s * 0.13), QPointF(s * 0.86, y))
+                p.drawLine(QPointF(s * 0.68, y + s * 0.13), QPointF(s * 0.86, y))
         elif kind in ("fewest", "count"):
-            heights = [0.30, 0.50, 0.70, 0.90]
+            sizes = [0.30, 0.50, 0.70, 0.90]
             if kind == "count":
-                heights.reverse()
+                sizes.reverse()
             bar = QColor(theme.bar)
             w = s * 0.17
-            for i, h in enumerate(heights):
-                p.fillRect(QRectF(s * 0.10 + i * (w + s * 0.05), s * (0.95 - h), w, s * h), bar)
-        else:                                # custom: a two-way arrow
+            for i, h in enumerate(sizes):
+                if horizontal:               # bars down the icon, from the left
+                    p.fillRect(QRectF(s * 0.05, s * 0.10 + i * (w + s * 0.05), s * h, w), bar)
+                else:                        # columns along the icon, from the bottom
+                    p.fillRect(QRectF(s * 0.10 + i * (w + s * 0.05), s * (0.95 - h), w, s * h),
+                               bar)
+        else:                                # custom: a two-way arrow along the values
             pen = QPen(accent, max(1.5, s / 10.0))
             pen.setCapStyle(Qt.PenCapStyle.RoundCap)
             pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
             p.setPen(pen)
+            if horizontal:
+                p.translate(s / 2, s / 2)
+                p.rotate(90)
+                p.translate(-s / 2, -s / 2)
             y = s * 0.5
             p.drawLine(QPointF(s * 0.14, y), QPointF(s * 0.86, y))
             for tip, back in ((0.14, 0.32), (0.86, 0.68)):
