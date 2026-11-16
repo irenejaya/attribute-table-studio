@@ -617,11 +617,17 @@ def _number_categories(col):
     col._categories = True
 
 
-def categories(col, sort="count", top=10, null_bar=False):
-    """One bar per value: *sort* "count", "az" (A → Z, smallest number
-    first) or "za"; *top* keeps that many and groups the rest as Other
-    (None keeps all, which still stops at 1,000 bars); *null_bar* draws
-    NULL as a bar."""
+SORTS = ("az", "za", "fewest", "count", "custom")
+
+
+def categories(col, sort="count", top=10, null_bar=False, order=None):
+    """One bar per value.  *sort*: "az" (A → Z, smallest number first),
+    "za", "fewest" (fewest records first), "count" (most records first) or
+    "custom" (the values in *order*, a list of labels; others follow, most
+    records first).  *top* keeps the most common that many (in the chosen
+    order) and groups the rest as Other (None keeps all, which still stops
+    at 1,000 bars); *null_bar* draws NULL as a bar.  Other and NULL always
+    come last."""
     ensure_categories(col)
     out = Bars(BARS)
     entries = [(label, n, code) for code, (label, n) in
@@ -635,6 +641,12 @@ def categories(col, sort="count", top=10, null_bar=False):
         entries.sort(key=alpha)
     elif sort == "za":
         entries.sort(key=alpha, reverse=True)
+    elif sort == "fewest":
+        entries.sort(key=lambda e: (e[1], alpha(e)))
+    elif sort == "custom" and order:
+        pos = {label: i for i, label in enumerate(order)}
+        last = len(pos)
+        entries.sort(key=lambda e: (pos.get(e[0], last), -e[1], alpha(e)))
     else:
         entries.sort(key=lambda e: (-e[1], alpha(e)))
     limit = 1000 if top is None else int(top)

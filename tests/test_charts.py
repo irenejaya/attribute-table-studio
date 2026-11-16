@@ -281,6 +281,16 @@ class TextTests(_Both, unittest.TestCase):
         za = C.categories(self.col, "za", top=None)
         self.assertEqual(za.labels[0], "Rural")
 
+    def test_fewest_and_custom(self):
+        bars = C.categories(self.col, "fewest", top=None)
+        self.assertEqual(bars.labels, ["Park", "Rural", "Industrial", "Commercial",
+                                       "Residential"])
+        bars = C.categories(self.col, "custom", top=None, order=["Rural", "Park"])
+        self.assertEqual(bars.labels, ["Rural", "Park", "Residential", "Commercial",
+                                       "Industrial"])
+        bars = C.categories(self.col, "custom", top=2, order=["Rural", "Commercial"])
+        self.assertEqual(bars.labels, ["Commercial", "Residential", "Other"])
+
     def test_sorted_top_keeps_most_common(self):
         bars = C.categories(self.col, "az", top=2)
         self.assertEqual(bars.labels, ["Commercial", "Residential", "Other"])

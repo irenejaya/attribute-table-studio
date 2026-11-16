@@ -42,6 +42,11 @@ from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
 SYNC_LIMIT = 250000              # up to this many records, rebuild at once
+# the Sort box, as ArcGIS Pro's: values (X) ascending / descending, records
+# (Y) ascending / descending - most records first is the default - and custom
+SORT_TEXT_LABELS = (("az", "A → Z"), ("za", "Z → A"), ("fewest", "Fewest records first"),
+                    ("count", "Most records first"), ("custom", "Custom order…"))
+SORT_NUMBER_LABELS = {"az": "Smallest value first", "za": "Largest value first"}
 EXPR_KEY = "\x00expression"      # Split by item that holds an expression
 TOP_CHOICES = (("Top 10 + Other", 10), ("Top 25 + Other", 25), ("All values", None))
 
@@ -284,9 +289,15 @@ class ChartPanel(QWidget):
         pl.addWidget(bins_row)
         self.bins_row = bins_row
 
-        self.sort_combo = self._combo((("Most records first", "count"), ("A → Z", "az"),
-                                       ("Z → A", "za")))
-        self.sort_combo.currentIndexChanged.connect(self._schedule_build)
+        self.sort_combo = QComboBox()
+        self.sort_combo.setFixedHeight(m.control_h)
+        self.sort_combo.setIconSize(QSize(m.icon, m.icon))
+        for key, text in SORT_TEXT_LABELS:
+            self.sort_combo.addItem(icons.sort_icon(key, t), text, key)
+        self.sort_combo.setCurrentIndex(self.sort_combo.findData("count"))
+        self._custom_orders = {}             # field -> [value labels]
+        self.sort_combo.activated.connect(self._on_sort_activated)
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
         self.sort_row = self._row(pl, "Sort", self.sort_combo)
         self.top_combo = self._combo(TOP_CHOICES)
         self.top_combo.currentIndexChanged.connect(self._schedule_build)
@@ -508,6 +519,78 @@ class ChartPanel(QWidget):
         self.col = None
         self.load()
 
+    def _sort_icons_follow_chart(self):
+        """Sort icons and tooltip turn with the chart: in a bar chart the
+        values run down the left (Y axis) and the records along the bottom
+        (X axis); in a histogram the other way round."""
+        horizontal = self.chart_type() == "bar"
+        for i in range(self.sort_combo.count()):
+            key = self.sort_combo.itemData(i)
+            self.sort_combo.setItemIcon(i, icons.sort_icon(key, self.theme, horizontal))
+        if horizontal:
+            axes = ("Bar chart: the values run down the left (Y axis), the records "
+                    "along the bottom (X axis).\n"
+                    "A → Z / Z → A: the values from top to bottom (Y axis)\n"
+                    "Fewest / Most records first: by bar length (X axis ascending / "
+                    "descending)")
+        else:
+            axes = ("Histogram: the values run along the bottom (X axis), the records "
+                    "up the side (Y axis).\n"
+                    "A → Z / Z → A: the values from left to right (X axis)\n"
+                    "Fewest / Most records first: by column height (Y axis ascending / "
+                    "descending)")
+        self.sort_combo.setToolTip(axes + "\nCustom order…: put the values in your own "
+                                   "order")
+
+    def _on_sort_activated(self, _index):
+        """Custom order… opens its window (again, to change the order);
+        cancelling it the first time goes back to the previous sort."""
+        if self.sort_combo.currentData() == "custom":
+            if not self.edit_custom_order() and not self._custom_orders.get(self.field_name()):
+                self.sort_combo.blockSignals(True)
+                self.sort_combo.setCurrentIndex(self.sort_combo.findData(
+                    getattr(self, "_last_sort", "count")))
+                self.sort_combo.blockSignals(False)
+                self._schedule_build()
+                return
+        self._last_sort = self.sort_combo.currentData()
+
+    def _on_sort_changed(self, *_args):
+        if self.sort_combo.currentData() == "custom" \
+                and not self._custom_orders.get(self.field_name()):
+            return                           # its window comes first (activated)
+        self._schedule_build()
+
+    def custom_order_entries(self):
+        """[(label, records)] of the field's values in the current custom
+        order (else most records first), at most 1,000."""
+        col = self.col
+        if col is None:
+            return []
+        C.ensure_categories(col)
+        entries = sorted(((label, n) for label, n in zip(col.labels, col.counts) if n),
+                         key=lambda e: -e[1])[:1000]
+        order = self._custom_orders.get(self.field_name())
+        if order:
+            pos = {label: i for i, label in enumerate(order)}
+            entries.sort(key=lambda e: (pos.get(e[0], len(pos)), -e[1]))
+        return entries
+
+    def edit_custom_order(self):
+        """The Custom order window; True when a new order was set."""
+        from .explorer_dialogs import CustomOrderDialog
+        entries = self.custom_order_entries()
+        if not entries:
+            return False
+        dlg = CustomOrderDialog(self, self.field_name(), entries)
+        if not dlg.exec():
+            return False
+        self._custom_orders[self.field_name()] = dlg.order()
+        self._last_sort = "custom"
+        self._last_options = None            # the order changed: draw again
+        self._schedule_build()
+        return True
+
     def _on_chart_type_changed(self, *_args):
         self._show_controls()
         self._schedule_build()
@@ -524,8 +607,10 @@ class ChartPanel(QWidget):
         hist = chart == C.HISTOGRAM
         numbers = hist and kind != F.TIME
         as_text = kind not in F.NUMERIC and kind != F.TIME
-        self.sort_combo.setItemText(1, "A → Z" if as_text else "Smallest first")
-        self.sort_combo.setItemText(2, "Z → A" if as_text else "Largest first")
+        for key, text in SORT_TEXT_LABELS[:2]:
+            self.sort_combo.setItemText(self.sort_combo.findData(key),
+                                        text if as_text else SORT_NUMBER_LABELS[key])
+        self._sort_icons_follow_chart()
         self.bins_row.setVisible(hist)
         for w in (self.sort_row, self.top_row, self.values_row, self.null_row):
             w.setVisible(chart == C.BARS)
@@ -561,6 +646,7 @@ class ChartPanel(QWidget):
         return {"chart": self.chart_type(),
                 "bins": self.bins_spin.value(),
                 "sort": self.sort_combo.currentData(),
+                "order": tuple(self._custom_orders.get(self.field_name(), ())),
                 "top": self.top_combo.currentData(),
                 "null": self.null_tick.isChecked(),
                 "interval": self.interval_combo.currentData(),
@@ -574,7 +660,8 @@ class ChartPanel(QWidget):
         elif kind == C.TIME:
             bars = C.periods(col, opts["interval"], opts["empty"])
         else:
-            bars = C.categories(col, opts["sort"], opts["top"], opts["null"])
+            bars = C.categories(col, opts["sort"], opts["top"], opts["null"],
+                                opts.get("order"))
         return C.apply_split(col, bars)
 
     # ====================================================================

@@ -278,9 +278,11 @@ minimum to the maximum (the last bin holds the maximum); <b>Bins</b> sets
 their number, whole numbers spanning a few values get one bar each. Mean,
 median, ± 1 standard deviation and a normal distribution curve can be drawn
 on it. The bar chart has one bar per value (handy for codes).</li>
-<li><b>Text</b> and true / false: one bar or column per value, sorted by
-records or A → Z (numbers: smallest or largest first), the top 10 or 25 and
-Other, or all values; <b>Values</b> shows records or shares, and NULL can be
+<li><b>Text</b> and true / false: one bar or column per value. <b>Sort</b>
+(as in ArcGIS Pro): A → Z or Z → A by the values (numbers: smallest or
+largest value first), fewest or most records first (the default), or
+<b>Custom order…</b>, where you drag the values into place (choose it again
+to change the order). Show the top 10 or 25 and Other, or all values; <b>Values</b> shows records or shares, and NULL can be
 a bar. Names that don't fit under their columns are slanted.</li>
 <li><b>Dates</b>: records per day, week (from Monday), month, quarter or
 year; <b>Auto</b> picks about 120 bars at most.</li>
