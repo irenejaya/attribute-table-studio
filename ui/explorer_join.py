@@ -207,19 +207,13 @@ class JoinTableDialog(_Dialog):
         self.prefix_group.setCheckable(True)
         self.prefix_group.setChecked(False)
         self.prefix_group.setCollapsed(True)
-        # the prefix box spans the window, as in QGIS's own Joins dialog; the
-        # names the joined fields will get show on a line of their own below
+        # just the prefix box, across the window, as in QGIS's own Joins dialog
         prefix_col = QVBoxLayout(self.prefix_group)
-        prefix_col.setSpacing(4)
         self.prefix_edit = QLineEdit()
         self.prefix_edit.setFixedHeight(m.control_h)
         self.prefix_edit.setToolTip("Put before the name of every joined field "
                                     "(empty: the names as they are)")
         prefix_col.addWidget(self.prefix_edit)
-        self.names_preview = W.ElideLabel("")
-        self.names_preview.setObjectName("gtsDim")
-        self.names_preview.setVisible(False)
-        prefix_col.addWidget(self.names_preview)
         self.lay.addWidget(self.prefix_group)
         self.clash_label = QLabel("")
         self.clash_label.setObjectName("gtsJoinClash")
@@ -503,10 +497,6 @@ class JoinTableDialog(_Dialog):
         return J.default_prefix(layer.name()) if layer is not None else ""
 
     def _update_names(self):
-        names = J.joined_names(self.chosen_fields(), self.prefix())
-        self.names_preview.setText(("→ " + ", ".join(names)) if names else "")
-        self.names_preview.setToolTip("\n".join(names))
-        self.names_preview.setVisible(bool(names))
         clash = J.clashes(self.layer.fields(), self.chosen_fields(), self.prefix())
         if clash:
             self.clash_label.setText(
