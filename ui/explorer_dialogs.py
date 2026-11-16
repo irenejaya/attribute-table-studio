@@ -213,7 +213,8 @@ class NewFieldDialog(_Dialog):
         data = self.type_combo.currentData()
         if not problem and data is None:
             problem = "Choose a type"
-        if not problem and not self.physical.isChecked() and not self.expr.isValidExpression():
+        if not problem and not self.physical.isChecked() \
+                and not W.field_expression_valid(self.expr):
             problem = "Enter a valid expression for the virtual field"
         if problem:
             E.ask(self, "New field", problem, [("ok", "OK", "accept")], icon="warning")
@@ -231,7 +232,8 @@ class NewFieldDialog(_Dialog):
             self.panel.status.set_status(f"Field {name} added (unsaved — Save edits writes it)",
                                          "success")
         else:
-            layer.addExpressionField(self.expr.expression(), fld)
+            # quoted when a field is chosen (a name may start with a digit)
+            layer.addExpressionField(self.expr.asExpression(), fld)
             self.panel.status.set_status(
                 f"Virtual field {name} added — save the project to keep it", "success")
         self.accept()

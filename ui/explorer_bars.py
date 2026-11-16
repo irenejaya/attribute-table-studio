@@ -467,7 +467,7 @@ class QuickUpdateBar(QFrame):
 
     def _sync(self):
         n_main, n_selected = self._counts
-        valid = self.expression.isValidExpression()
+        valid = W.field_expression_valid(self.expression)
         what = "filtered record" if self.filtered else "record"
         self.run_btn.setEnabled(valid and n_main > 0)
         self.run_btn.setToolTip(
