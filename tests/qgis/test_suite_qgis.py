@@ -2078,15 +2078,27 @@ class SuiteTests(unittest.TestCase):
         self.assertGreater(first, 0)
         self.assertTrue(view.rowAt(0) <= first <= view.rowAt(view.viewport().height() - 1))
         layer.removeSelection()
-        # a data refresh (an edit) keeps the framed feature in view
+        # a data refresh (an edit, Quick update) keeps the view where it is,
+        # also when the framed feature is off screen (no jump back to it) ...
         view.setCurrentIndex(model.index(40, 0))
-        fid = model.fid(40)
         bar.setValue(bar.maximum())
         panel._on_data_settled()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
         H.settle(0.1)
+        self.assertEqual(bar.value(), bar.maximum())
+        # ... and follows the framed feature when an edit moves it out of view
+        # (the table is sorted by SCORE_MIN)
+        bar.setValue(0)
+        H.settle(0.1)
+        view.setCurrentIndex(model.index(2, 0))
+        fid = model.fid(2)
+        layer.startEditing()
+        layer.changeAttributeValue(fid, layer.fields().indexOf("SCORE_MIN"), 99999.0)
+        self.assertTrue(H.wait_for(lambda: idle(panel) and model.row_of(fid) > 2000, 20))
+        H.settle(0.3)
         row = model.row_of(fid)
         self.assertTrue(view.rowAt(0) <= row <= view.rowAt(view.viewport().height() - 1))
+        layer.rollBack()
         self.plugin.explorers[layer.id()].close()
         QgsProject.instance().removeMapLayer(layer.id())
 

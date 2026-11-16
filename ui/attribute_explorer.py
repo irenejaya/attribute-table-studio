@@ -786,29 +786,43 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._failing_counts = (hard, len(failing) - hard)
         if self._map_filter:             # before the rows are read
             self._sync_map_filter(fids if map_fids is None else map_fids)
-        # the framed cell stays on its feature. The view follows it after a
-        # data refresh (an edit: you keep your place) or to a new record;
-        # after a sort, a filter or a scope change it shows the start: the
-        # first selected feature, else the top
+        # the framed cell stays on its feature.  After a data refresh (an
+        # edit, Quick update, the field calculator) the view stays where you
+        # are - never sideways - and only follows the framed record up or
+        # down when it was on screen and has moved out of view (a sorted
+        # column); a new record is scrolled to.  After a sort, a filter or a
+        # scope change it shows the start: the first selected feature, else
+        # the top
         current = self.view.currentIndex()
         pending = self._pending_focus
         focus_fid = pending if pending is not None \
             else (self.model.fid(current.row()) if current.isValid() else None)
         focus_col = current.column() if current.isValid() else max(self.view.columnAt(0), 0)
         self._pending_focus = None
-        follow = pending is not None or self._place == "keep"
+        keep = self._place == "keep" or pending is not None
         self._place = None
+        hbar, vbar = self.view.horizontalScrollBar(), self.view.verticalScrollBar()
+        h_before, v_before = hbar.value(), vbar.value()
+        port = self.view.viewport().rect()
+        framed_shown = current.isValid() and port.intersects(self.view.visualRect(current))
         self.model.set_fids(self._ordered(fids))
+        target = None
         if focus_fid is not None:
             row = self.model.row_of(focus_fid)
             if row is not None:
-                self.view.setAutoScroll(follow)    # no jump to the frame
-                self.view.setCurrentIndex(self.model.index(row, focus_col))
+                target = self.model.index(row, focus_col)
+                self.view.setAutoScroll(False)     # no jump to the frame
+                self.view.setCurrentIndex(target)
                 self.view.setAutoScroll(True)
-                if follow:
-                    self._scroll_to_features([focus_fid])
-        if not follow and not self._scroll_to_features(self.model.selected):
-            self.view.verticalScrollBar().setValue(0)
+        if keep:
+            hbar.setValue(h_before)
+            vbar.setValue(v_before)
+            if target is not None and (pending is not None or framed_shown):
+                rect = self.view.visualRect(target)
+                if rect.bottom() < 0 or rect.top() > port.height():
+                    self._scroll_to_features([focus_fid])     # up or down only
+        elif not self._scroll_to_features(self.model.selected):
+            vbar.setValue(0)
         self._anchor = None
         self.view.verticalHeader().updateGeometry()
         self._has_result = True

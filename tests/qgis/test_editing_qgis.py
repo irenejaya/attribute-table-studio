@@ -458,6 +458,38 @@ class EditingTests(unittest.TestCase):
         layer.removeJoin(src.id())
         QgsProject.instance().removeMapLayer(src.id())
 
+    def test_10c_quick_update_keeps_the_view(self):
+        """After Quick update the table stays where you are: no jump sideways
+        or up / down to the framed cell you scrolled away from."""
+        from qgis.PyQt.QtCore import Qt
+        from qgis.PyQt.QtTest import QTest
+        p = self.panel
+        win = self.plugin.explorers[self.layer.id()]._window
+        win.resize(900, 600)
+        H.settle(0.3)
+        hbar, vbar = p.view.horizontalScrollBar(), p.view.verticalScrollBar()
+        self.assertGreater(hbar.maximum(), 0)
+        self.start()
+        hbar.setValue(hbar.maximum())
+        H.settle(0.1)
+        last = p.model.columnCount() - 1
+        QTest.mouseClick(p.view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier,
+                         p.view.visualRect(p.model.index(2, last)).center())
+        H.settle(0.1)
+        self.assertEqual(p.view.currentIndex().column(), last)       # framed far right
+        hbar.setValue(0)
+        vbar.setValue(vbar.maximum() // 2)
+        H.settle(0.1)
+        h, v = hbar.value(), vbar.value()
+        q = self._quick("LAND_USE", "'X'")
+        q.run_btn.click()
+        settle(p)
+        H.settle(0.3)
+        self.assertEqual({f["LAND_USE"] for f in self.layer.getFeatures()}, {"X"})
+        self.assertEqual((hbar.value(), vbar.value()), (h, v))
+        self.assertEqual(p.view.currentIndex().column(), last)        # still framed
+
     def test_11_multi_edit(self):
         p = self.panel
         self.start()
