@@ -651,6 +651,9 @@ class ExplorerTableView(QTableView):
         (QKeySequence.StandardKey.Delete, "delete"),
     )
 
+    frozen = None                    # the table's frozen columns (FrozenColumns)
+    strip_of = None                  # the frozen strip: the table it lies over
+
     def __init__(self, theme, metrics, header, parent=None):
         super().__init__(parent)
         self.setObjectName("gtsTable")
@@ -802,7 +805,16 @@ class ExplorerTableView(QTableView):
         super().keyPressEvent(event)           # the arrows move the frame
 
     def moveCursor(self, action, modifiers):
-        """Tab / Shift+Tab move to the next editable shown column."""
+        """Tab / Shift+Tab move to the next editable shown column.  In the
+        frozen strip, left / right and Tab follow the whole table, so the
+        arrows go on into the scrolling columns."""
+        main = self.strip_of
+        if main is not None and action in (
+                QAbstractItemView.CursorAction.MoveLeft,
+                QAbstractItemView.CursorAction.MoveRight,
+                QAbstractItemView.CursorAction.MoveNext,
+                QAbstractItemView.CursorAction.MovePrevious):
+            return main.moveCursor(action, modifiers)
         if not self.editing or action not in (
                 QAbstractItemView.CursorAction.MoveNext,
                 QAbstractItemView.CursorAction.MovePrevious):
@@ -834,6 +846,23 @@ class ExplorerTableView(QTableView):
         self.contextRequested.emit(self.viewport().mapToGlobal(pos),
                                    idx.row() if idx.isValid() else -1,
                                    idx.column() if idx.isValid() else -1)
+
+    def scrollTo(self, index, hint=QAbstractItemView.ScrollHint.EnsureVisible):
+        """With frozen columns: a frozen column is always on screen (no
+        sideways scroll for it) and any other is kept clear of the strip."""
+        strip = self.frozen
+        if strip is None or not strip.names or not index.isValid():
+            return super().scrollTo(index, hint)
+        bar = self.horizontalScrollBar()
+        keep = bar.value()
+        super().scrollTo(index, hint)
+        if strip.is_frozen(index.column()):
+            bar.setValue(keep)
+            return None
+        covered = strip.width() - self.columnViewportPosition(index.column())
+        if covered > 0:
+            bar.setValue(max(bar.minimum(), bar.value() - covered))
+        return None
 
     def scrollContentsBy(self, dx, dy):
         super().scrollContentsBy(dx, dy)

@@ -1729,6 +1729,123 @@ class SuiteTests(unittest.TestCase):
         H.settle(0.3)
         self.assertIsNone(panel.chart_host)
 
+    def test_13r_freeze_columns(self):
+        """Freeze / Unfreeze Column (as ArcGIS Pro): only the view changes."""
+        from qgis.PyQt.QtTest import QTest
+        layer = H.demo_layer(n=300, name="Frozen parcels")
+        order_before = layer.fields().names()
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        win = self.plugin.explorers[layer.id()]._window
+        win.resize(1000, 560)
+        H.settle(0.3)
+        f = layer.fields()
+        lu, sd, zc = (f.indexOf(n) for n in ("LAND_USE", "SURVEY_DATE", "ZONE_CODE"))
+        h, fz = panel.header, panel.frozen
+
+        def menu_texts(logical, header=None):
+            shown = []
+            original = QMenu.exec
+            QMenu.exec = lambda menu, *a: shown.extend(
+                a for a in menu.actions() if not a.isSeparator())
+            try:
+                hdr = header or h
+                if hdr is h:
+                    panel.view.scrollTo(panel.model.index(0, logical))
+                    H.pump()
+                panel._header_menu(QPoint(hdr.sectionViewportPosition(logical) + 5,
+                                          hdr.name_top() + 5), hdr)
+            finally:
+                QMenu.exec = original
+            return {a.text(): a for a in shown}
+
+        # freeze from the column name's menu: it goes to the left edge
+        acts = menu_texts(lu)
+        self.assertNotIn("Unfreeze All Columns", acts)
+        acts["Freeze Column LAND_USE"].trigger()
+        menu_texts(sd)["Freeze Column SURVEY_DATE"].trigger()
+        H.settle(0.3)
+        self.assertEqual([h.logicalIndex(v) for v in range(2)], [lu, sd])
+        self.assertEqual(fz.names, ["LAND_USE", "SURVEY_DATE"])
+        self.assertEqual(layer.fields().names(), order_before)      # data untouched
+        self.assertTrue(fz.view.isVisible())
+        self.assertEqual(fz.view.width(), h.sectionSize(lu) + h.sectionSize(sd))
+        self.assertIs(h.cards[lu].parent(), fz.header.viewport())    # its card and filter
+        self.assertIs(h.cells[sd].parent(), fz.header.viewport())
+        # scrolling sideways leaves the strip; up and down moves both
+        geometry = fz.view.geometry()
+        bar = panel.view.horizontalScrollBar()
+        bar.setValue(bar.maximum())
+        H.settle(0.2)
+        self.assertEqual(fz.view.geometry(), geometry)
+        self.assertTrue(h.cards[lu].isVisible() and h.cells[lu].isVisible())
+        panel.view.verticalScrollBar().setValue(40)
+        self.assertEqual(fz.view.verticalScrollBar().value(), 40)
+        # going to a scrolling column keeps it clear of the strip
+        bar.setValue(bar.maximum())
+        panel.view.scrollTo(panel.model.index(0, f.indexOf("PARCEL_ID")))
+        self.assertGreaterEqual(panel.view.columnViewportPosition(f.indexOf("PARCEL_ID")),
+                                fz.width())
+        # the frozen column's filter, sort and cells work as before
+        h.cells[lu].set_filter(FL.ColumnFilter("LAND_USE", F.TEXT, "in",
+                                               values=["RESIDENTIAL"]))
+        panel.refresh()
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        res = sum(1 for ft in layer.getFeatures() if ft["LAND_USE"] == "RESIDENTIAL")
+        self.assertEqual(len(panel.model.fids), res)
+        panel.clear_filters()
+        self.assertTrue(H.wait_for(lambda: idle(panel) and len(panel.model.fids) == 300))
+        panel._on_sort_clicked(sd)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        self.assertEqual(panel.sort, (sd, False))
+        self.assertEqual(fz.header.sortIndicatorSection(), sd)
+        H.settle(0.2)
+        cell = fz.view.visualRect(panel.model.index(2, lu)).center()
+        QTest.mouseClick(fz.view.viewport(), Qt.MouseButton.LeftButton,
+                         Qt.KeyboardModifier.NoModifier, cell)
+        self.assertEqual((panel.view.currentIndex().row(), panel.view.currentIndex().column()),
+                         (2, lu))                                   # one framed cell
+        # the arrows go on from the strip into the scrolling columns
+        QTest.keyClick(fz.view, Qt.Key.Key_Right)
+        self.assertEqual(panel.view.currentIndex().column(), sd)
+        QTest.keyClick(fz.view, Qt.Key.Key_Right)
+        self.assertEqual(panel.view.currentIndex().column(), h.logicalIndex(2))
+        QTest.keyClick(panel.view, Qt.Key.Key_Left)
+        self.assertEqual(panel.view.currentIndex().column(), sd)
+        # editing a frozen cell
+        layer.startEditing()
+        H.settle(0.3)
+        fz.view.edit(panel.model.index(2, lu))
+        self.assertTrue(panel.cell_editing())
+        panel.flush_editors()
+        self.assertFalse(panel.cell_editing())
+        layer.rollBack()
+        H.settle(0.2)
+        # kept with the layer: close and open the Explorer again
+        self.plugin.explorers[layer.id()].close()
+        H.settle(0.3)
+        panel = self.plugin.open_explorer(layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        h, fz = panel.header, panel.frozen
+        self.assertEqual(fz.names, ["LAND_USE", "SURVEY_DATE"])
+        self.assertEqual([h.logicalIndex(v) for v in range(2)], [lu, sd])
+        # unfreeze from the strip's menu: it stays first among the scrolling ones
+        acts = menu_texts(lu, fz.header)
+        acts["Unfreeze Column LAND_USE"].trigger()
+        H.settle(0.2)
+        self.assertEqual(fz.names, ["SURVEY_DATE"])
+        self.assertEqual([h.logicalIndex(v) for v in range(2)], [sd, lu])
+        self.assertIs(h.cards[lu].parent(), h.viewport())            # back in the table
+        menu_texts(zc)["Freeze Column ZONE_CODE"].trigger()
+        menu_texts(zc, fz.header)["Unfreeze All Columns"].trigger()
+        H.settle(0.2)
+        self.assertEqual(fz.names, [])
+        self.assertFalse(fz.view.isVisible())
+        self.assertEqual([h.logicalIndex(v) for v in range(2)], [sd, zc])
+        self.assertEqual(layer.fields().names(), order_before)
+        self.plugin.explorers[layer.id()].close()
+        QgsProject.instance().removeMapLayer(layer.id())
+
     def test_13g_round9_ui(self):
         from qgis.PyQt.QtWidgets import QToolButton
         from attribute_table_studio.ui import icons

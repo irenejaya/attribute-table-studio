@@ -91,6 +91,12 @@ by the records shown in the table when that is different: **9,434 (484)**.
   reorder (Shift+click selects a range of fields, Ctrl+click adds one; Space or
   *Toggle Selection* ticks them together); layouts are saved with the layer in
   the project.
+- **Freeze Column** (right-click a column name), as in ArcGIS Pro: the column
+  moves to the left edge and stays there, with its statistics and filter,
+  while the other columns scroll; freeze several, in the order you want them.
+  **Unfreeze Column** lets it scroll again as the first scrolling column;
+  **Unfreeze All Columns** frees them all. Only the view changes, never the
+  layer's field order, and frozen columns are kept with the column layout.
 - **Rename Field…** (right-click a column name) renames the field in the
   layer, as QGIS's Fields tab does: it starts editing when needed, checks the
   new name as you type (empty, already used, too long for a shapefile's 10
