@@ -108,8 +108,9 @@ class EditingMixin:
         self.model.editRejected.connect(lambda msg: self.status.set_status(
             f"Value not accepted — {msg}", "error"))
         self.model.editWarned.connect(lambda msg: self.status.set_status(msg, "warning"))
-        self.view.editKeyRequested.connect(self._on_edit_key)
-        self.view.editorClosed.connect(self._apply_pending_scan)
+        for view in self.table_views():          # the table and the frozen strip
+            view.editKeyRequested.connect(self._on_edit_key)
+            view.editorClosed.connect(self._apply_pending_scan)
 
     def _edit_layer_changed(self, layer):
         self.edit.set_layer(layer)
@@ -202,7 +203,8 @@ class EditingMixin:
                   "Reload the layer from its data source", "Save or discard the "
                   "unsaved edits before reloading")
         self.model.set_editing(editing, editable_cols)
-        self.view.set_editing(editing)
+        for view in self.table_views():
+            view.set_editing(editing)
         self._dirty_timer.start()
         self._update_query_btn()
         self._update_status()
@@ -270,7 +272,8 @@ class EditingMixin:
     def flush_editors(self, commit=True):
         """Close the active cell editor / write the form before saving,
         switching tools or views, and starting a calculation."""
-        self.view.commit_editor(commit)
+        for view in self.table_views():
+            view.commit_editor(commit)
         form = getattr(self, "form_view", None)
         if form is not None and self.is_form_view():
             form.flush(commit)

@@ -70,6 +70,7 @@ from .explorer_editing import EditingMixin
 from .explorer_bars import ExpressionBar
 from .explorer_find import FindBar
 from .explorer_form import FormView
+from .explorer_frozen import FrozenColumns
 from .explorer_header import ExplorerHeader, ProfileDetails
 from .explorer_table import COPY_ROWS_KEY, ExplorerTableView, FeatureTableModel
 from .theme import Metrics, Theme, stylesheet
@@ -309,17 +310,18 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         # click sorts: ascending, descending, off
         self.header.sectionClicked.connect(self._on_header_clicked)
         self.header.sectionDoubleClicked.connect(self._on_sort_clicked)
-        self.view.pressed.connect(lambda *_: self.select_columns(set()))
-        self.view.escapePressed.connect(lambda: self.select_columns(set()))
         self.view.horizontalScrollBar().valueChanged.connect(
             lambda _v: self._profile_timer.start())
-        self.view.rowActivated.connect(self._zoom_to_row)
-        self.view.selectAllRequested.connect(self.select_all)
-        self.view.copyCellRequested.connect(self.copy_current_cell)
-        self.view.copyRowsRequested.connect(self.copy_selected_rows)
-        self.view.toggleRequested.connect(
-            lambda r: self._on_row_pressed(r, Qt.KeyboardModifier.ControlModifier))
-        self.view.contextRequested.connect(self._context_menu)
+        self._wire_table(self.view)
+        # frozen columns: a strip over the table's left edge, wired the same
+        self.frozen = FrozenColumns(self)
+        self._wire_table(self.frozen.view)
+        strip = self.frozen.header
+        strip.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        strip.customContextMenuRequested.connect(
+            lambda pos: self._header_menu(pos, self.frozen.header))
+        strip.sectionClicked.connect(self._on_header_clicked)
+        strip.sectionDoubleClicked.connect(self._on_sort_clicked)
         self.view.row_header.rowPressed.connect(self._on_tick_pressed)
         self.view.row_header.rowDragged.connect(self._on_row_dragged)
         self._wire_editing()
@@ -784,7 +786,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._finish_busy("Cancelled — the previous result is still shown",
                               "warning")
             return
-        if self.view.state() == QAbstractItemView.State.EditingState:
+        if self.cell_editing():
             # a cell is being edited: apply when its editor closes
             self._pending_scan = job
             return
@@ -1025,6 +1027,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         W.set_button_text(self.summary_btn, "Summary: On" if checked else "Summary: Off")
         settings.set_value("explorer/summaryVisible", checked)
         self.header.set_profiles_visible(checked)
+        self.frozen.refresh()
         if checked:
             self._profile_timer.start()
         self._layout_timer.start()
@@ -1300,6 +1303,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._col_anchor = None
         self.header.viewport().update()
         self.view.viewport().update()
+        self.frozen.refresh()
 
     def _on_sort_clicked(self, logical):
         self.sort_expr = None
@@ -1336,6 +1340,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.sort is not None and 0 <= self.sort[0] < len(self.model.fields):
             sort = [self.model.fields[self.sort[0]].name(), self.sort[1]]
         return {"version": 1, "columns": cols, "sort": sort,
+                "frozen": list(self.frozen.names),
                 "sort_expr": list(self.sort_expr) if self.sort_expr else None,
                 "selected_top": self.selected_top}
 
@@ -1369,10 +1374,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         for logical, fld in enumerate(self.model.fields):
             h.resizeSection(logical, self._default_width(logical))
         if not text:
+            self.frozen.set_names([])        # nothing frozen on a new layer
             return
         try:
             state = json.loads(text)
         except (TypeError, ValueError):
+            self.frozen.set_names([])
             return
         target = 0
         for col in state.get("columns", []):
@@ -1401,6 +1408,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             # the sorted field is gone (a join or a field removed): no sort
             self.sort = None
             self.header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        self.frozen.set_names(state.get("frozen") or [])
         h.relayout()
 
     def _default_width(self, logical):
@@ -1571,7 +1579,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if event.key() == Qt.Key.Key_F3 and self.find_bar.isVisible():
             return "previous" if mods & Qt.KeyboardModifier.ShiftModifier else "next"
         if event.key() == Qt.Key.Key_Escape and self.find_bar.isVisible() \
-                and not mods and self.view.state() != QAbstractItemView.State.EditingState:
+                and not mods and not self.cell_editing():
             return "close"
         return None
 
@@ -1715,6 +1723,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _scroll_to_column(self, logical):
         h = self.header
         if self.layer is None or h.isSectionHidden(logical):
+            return
+        if self.frozen.is_frozen(logical):       # always on screen
+            self.frozen.header.flash(logical)
+            self.frozen.view.setFocus()
             return
         # the table updates its scroll range on a timer of its own: bring it
         # up to date first, or a column just shown again is out of reach
@@ -2001,6 +2013,28 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is None or not self._has_result:
             return
         self.openPivotRequested.emit(self.layer, self.current_scope())
+
+    def _wire_table(self, view):
+        """The table's (and the frozen strip's) clicks and keys."""
+        view.pressed.connect(lambda *_: self.select_columns(set()))
+        view.escapePressed.connect(lambda: self.select_columns(set()))
+        view.rowActivated.connect(self._zoom_to_row)
+        view.selectAllRequested.connect(self.select_all)
+        view.copyCellRequested.connect(self.copy_current_cell)
+        view.copyRowsRequested.connect(self.copy_selected_rows)
+        view.toggleRequested.connect(
+            lambda r: self._on_row_pressed(r, Qt.KeyboardModifier.ControlModifier))
+        view.contextRequested.connect(self._context_menu)
+
+    def table_views(self):
+        """The table and, when columns are frozen, the frozen strip."""
+        frozen = getattr(self, "frozen", None)
+        return [self.view] + ([frozen.view] if frozen is not None else [])
+
+    def cell_editing(self):
+        """A cell editor is open (in the table or the frozen strip)."""
+        return any(v.state() == QAbstractItemView.State.EditingState
+                   for v in self.table_views())
 
     def visualize_statistics(self, logical=None):
         """Open (or raise) the chart window on column *logical*."""

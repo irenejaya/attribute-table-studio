@@ -906,6 +906,7 @@ class ExplorerHeader(QHeaderView):
         self._name_press = False
         self.values_provider = None
         self.selected_cols = set()        # names highlighted as selected
+        self.frozen = set()               # frozen columns: shown by the strip
         self.setSectionsClickable(True)
         self.setSectionsMovable(True)
         self.setHighlightSections(False)
@@ -1003,6 +1004,9 @@ class ExplorerHeader(QHeaderView):
         width = self.viewport().width()
         out = []
         for logical in self.visible_logicals():
+            if logical in self.frozen:   # always on screen, in the frozen strip
+                out.append(logical)
+                continue
             x = self.sectionViewportPosition(logical)
             if x + self.sectionSize(logical) > 0 and x < width:
                 out.append(logical)
@@ -1122,8 +1126,14 @@ class ExplorerHeader(QHeaderView):
         top = self.name_top()
         filt_y = top + self.name_h + 3
         width = self.viewport().width()
+        vp = self.viewport()
         for logical, card in self.cards.items():
             cell = self.cells[logical]
+            if logical in self.frozen:   # placed by the frozen strip's header
+                continue
+            for widget in (card, cell):  # back from the strip once unfrozen
+                if widget.parent() is not vp:
+                    widget.setParent(vp)
             if self.isSectionHidden(logical):
                 card.hide()
                 cell.hide()

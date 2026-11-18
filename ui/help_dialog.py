@@ -229,7 +229,13 @@ is shown again. The list shows each field's type icon, name and QGIS type.</p>
 one, Shift+click a range; <b>Ctrl+C</b> copies their values for the records
 shown, with the field names first; clicking a cell or <b>Escape</b> clears it).
 Double-click a column name to sort (again for descending, a third time to
-reset). Drag names to reorder, drag edges to resize, and use the
+reset). Right-click a name and choose <b>Freeze Column</b> to keep it at the
+left edge while the other columns scroll (as in ArcGIS Pro; several can be
+frozen, in the order you freeze them); <b>Unfreeze Column</b> lets it scroll
+again as the first scrolling column, and <b>Unfreeze All Columns</b> frees
+them all. Only the view changes, never the layer's field order; frozen
+columns are kept with the layer's column layout. Drag names to reorder, drag
+edges to resize, and use the
 <b>Columns</b> icon to show, hide and reorder (Shift+click selects a range
 of fields, Ctrl+click adds one; <b>Space</b> or <b>Toggle Selection</b> ticks
 them together); the layout is saved with the layer in the project. <b>Export</b> writes the filtered records to Excel

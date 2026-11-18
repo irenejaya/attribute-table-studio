@@ -418,8 +418,11 @@ class BrowseMixin:
     # ------------------------------------------------------------------
     # context menus
     # ------------------------------------------------------------------
-    def _header_menu(self, pos):
-        logical = self.header.logicalIndexAt(pos.x())
+    def _header_menu(self, pos, header=None):
+        """A column name's right-click menu (*header*: the table's, or the
+        frozen strip's)."""
+        header = header if header is not None else self.header
+        logical = header.logicalIndexAt(pos.x())
         if logical < 0:
             return
         # the column is selected too (one already in the selection keeps it)
@@ -451,6 +454,20 @@ class BrowseMixin:
             lambda: self._hide_column(logical))
         menu.addAction(icons.native(icons.COLUMNS), "Columns…").triggered.connect(
             self._choose_columns)
+        # ArcGIS Pro's Freeze / Unfreeze Column: only the view changes
+        frozen = self.frozen
+        if frozen.is_frozen(logical):
+            act = menu.addAction(f"Unfreeze Column {name}")
+            act.setToolTip("Let it scroll again (it stays first among the scrolling "
+                           "columns)")
+            act.triggered.connect(lambda: frozen.unfreeze(logical))
+        else:
+            act = menu.addAction(f"Freeze Column {name}")
+            act.setToolTip("Keep it at the left edge while the other columns scroll "
+                           "(the layer's field order does not change)")
+            act.triggered.connect(lambda: frozen.freeze(logical))
+        if frozen.names:
+            menu.addAction("Unfreeze All Columns").triggered.connect(frozen.unfreeze_all)
         menu.addSeparator()
         act = menu.addAction(icons.native(icons.CALCULATE), f"Calculate {name}…")
         act.setEnabled(self.can_calculate(name))
@@ -465,4 +482,4 @@ class BrowseMixin:
         act.triggered.connect(lambda: self.delete_field(name))
         menu.addAction(icons.native(icons.FIELD_PROPS), "Field Properties…").triggered.connect(
             lambda: self.field_properties(name))
-        menu.exec(self.header.mapToGlobal(pos))
+        menu.exec(header.mapToGlobal(pos))
