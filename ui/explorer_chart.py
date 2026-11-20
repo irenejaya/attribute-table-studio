@@ -863,8 +863,10 @@ class ChartPanel(QWidget):
             m.x_title = "" if m.horizontal else name
         if kind == F.TIME and bars.chart == C.HISTOGRAM:
             m.fmt_axis = lambda v: F.key_to_text(v, F.TIME)
+        elif bars.chart == C.HISTOGRAM and bars.integer:
+            m.fmt_axis = lambda v: F.plain_number(round(v))   # a column per value
         elif bars.chart == C.HISTOGRAM:
-            d = _decimals(bars.width) if not bars.integer else 0
+            d = _decimals(bars.width)
             m.fmt_axis = lambda v, d=d: F.format_number(round(v, d) if d else round(v))
         m.fmt_bar = self._bar_title
         shown = set()
@@ -905,6 +907,8 @@ class ChartPanel(QWidget):
         lo, hi = bars.lows[i], bars.highs[i]
         if col.kind == F.TIME:
             fmt = lambda v: F.key_to_text(v, F.TIME)       # noqa: E731
+        elif bars.integer:                   # a column per value: the value itself
+            fmt = F.plain_number
         else:
             d = max(_decimals(bars.width), 1) if not bars.integer else 0
             fmt = lambda v, d=d: F.format_number(round(v, d))   # noqa: E731

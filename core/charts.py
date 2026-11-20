@@ -611,8 +611,7 @@ def _number_categories(col):
     if col.kind == F.TIME:
         col.labels = [F.key_to_text(v, F.TIME) for v in values]
     else:
-        col.labels = [F.format_number(int(v)) if float(v).is_integer() and abs(v) < 1e15
-                      else F.format_number(v) for v in values]
+        col.labels = [F.plain_number(v) for v in values]     # each bar names a value
     col._np_cache.pop("codes", None)
     col._categories = True
 

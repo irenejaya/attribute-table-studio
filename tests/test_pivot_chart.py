@@ -181,5 +181,39 @@ class Columns(unittest.TestCase):
         self.assertEqual(len(rows[0]), 4 + len(bars.series))
 
 
+class Labels(unittest.TestCase):
+    """Group values name a value (a year, a code): no thousands separator;
+    counts and statistics keep it."""
+
+    def test_plain_values(self):
+        from core import fields as F
+        self.assertEqual(F.display_value(2023), "2023")
+        self.assertEqual(F.display_value(2023.0), "2023")
+        self.assertEqual(F.display_value(10450.25), "10450.25")
+        self.assertEqual(F.display_value(-0.0), "0")
+        self.assertEqual(F.display_value(True), "true")
+        self.assertEqual(F.format_number(2023), "2,023")          # an amount
+        self.assertEqual(P.key_label((2023, None)), "2023 · NULL")
+
+    def test_year_columns_and_rows(self):
+        data = [(1, ("North", "House", 1.0, None, 2023)), (2, ("South", "Shop", 2.0, None, 2024)),
+                (3, ("North", "Shop", 3.0, None, 2024))]
+        from core import fields as F
+        spec = P.PivotSpec(["YEAR"], ["ZONE"], [P.Measure("VALUE", "sum")])
+        result = P.compute(data, FIELDS + ["YEAR"], spec,
+                           {"ZONE": F.TEXT, "VALUE": F.REAL, "YEAR": F.INTEGER})
+        bars = PC.chart_bars(result, 0, sort="az")
+        self.assertEqual(bars.labels, ["2023", "2024"])
+        header, _rows, _total = result.table()
+        self.assertIn("North", [h["group"] for h in header])
+        spec = P.PivotSpec(["ZONE"], ["YEAR"], [P.Measure("VALUE", "sum")])
+        result = P.compute(data, FIELDS + ["YEAR"], spec,
+                           {"ZONE": F.TEXT, "VALUE": F.REAL, "YEAR": F.INTEGER})
+        self.assertEqual(sorted(PC.chart_bars(result, 0).series), ["2023", "2024"])
+        header, _rows, _total = result.table()
+        self.assertEqual(sorted(h["group"] for h in header if h["group"] not in ("", "Total")),
+                         ["2023", "2024"])
+
+
 if __name__ == "__main__":
     unittest.main()
