@@ -504,6 +504,21 @@ if THEME == "dark":
     tbl.selectRow(rows[6])
     save(cwin, "review")
 
+    # the changed fields, from the Changed chip of the Review row
+    tbl.clearSelection()
+    pop = cp.show_changed_fields()
+    H.settle(0.4)
+    chip = cp.changed_field_legend
+    corner = chip.mapTo(cwin, chip.rect().bottomRight())
+    shot = cwin.grab()
+    painter = QPainter(shot)
+    painter.drawPixmap(corner.x() - pop.width(), corner.y() + 4, pop.grab())
+    painter.end()
+    shot = shot.copy(0, 0, shot.width(), min(shot.height(), corner.y() + pop.height() + 90))
+    shot.save(os.path.join(OUT, "dark_changed_fields.png"))
+    print("saved", os.path.relpath(os.path.join(OUT, "dark_changed_fields.png")))
+    pop.close()
+
     plugin.toolbar.setIconSize(QSize(24, 24))
     save(plugin.toolbar, "toolbar")
 

@@ -33,7 +33,7 @@ from qgis.PyQt.QtWidgets import (
     QMessageBox, QAbstractItemView, QWidget, QFrame, QApplication, QLineEdit,
     QStackedWidget, QSizePolicy, QScrollArea, QCompleter, QMenu,
     QDoubleSpinBox, QProgressBar, QPushButton, QStyle, QStyledItemDelegate,
-    QStyleOptionViewItem,
+    QStyleOptionViewItem, QToolButton,
 )
 from qgis.core import (
     Qgis, QgsWkbTypes, NULL, QgsGeometry, QgsFeature, QgsCsException,
@@ -627,6 +627,9 @@ class GeoTableCompareDialog(QWidget):
         self._geom_by_part_run = False
         self._reviewable_total = 0
         self._value_total = 0            # changed values (OLD | NEW cells)
+        self._changed_counts = {}        # field -> records it changed in
+        self._field_cols = {}            # field -> its column in the results
+        self._changed_filter = None      # show only the changes of this field
         self._has_results = False
 
         self._build_ui()
@@ -1093,14 +1096,21 @@ class GeoTableCompareDialog(QWidget):
         buttons.add_stretch()
         self.review_buttons = buttons
         lay.addWidget(buttons, 1)
-        self.changed_field_legend = QLabel("Changed")
+        # the Changed legend is also a button: the changed fields, to show
+        # the changes of one field only
+        self.changed_field_legend = QToolButton()
+        self.changed_field_legend.setText("Changed ▾")
         self.changed_field_legend.setObjectName("legendChanged")
         self.changed_field_legend.setFixedHeight(m.compact_h)
+        self.changed_field_legend.setCursor(Qt.CursorShape.PointingHandCursor)
         self.changed_field_legend.setToolTip(
             "A highlighted cell shows a value that differs between OLD and "
             "NEW:\nOLD value on the left | NEW value on the right "
-            "(blank = empty / NULL).\nRight-click it to accept or reject it."
+            "(blank = empty / NULL).\nRight-click it to accept or reject it.\n\n"
+            "Click for the changed fields: how many records each one changed "
+            "in;\npick one to show only its changes."
         )
+        self.changed_field_legend.clicked.connect(self.show_changed_fields)
         lay.addWidget(self.changed_field_legend)
         self.accepted_legend = QLabel("Accepted")
         self.accepted_legend.setObjectName("legendAccepted")
@@ -1228,10 +1238,16 @@ class GeoTableCompareDialog(QWidget):
             QLabel#gtsBadge {{ background: {t.base}; color: {t.text_strong};
                 border: 1px solid {t.border}; border-radius: 4px;
                 padding: 0px 10px; }}
-            QLabel#legendChanged {{ background: {t.bg('ChangedField').name()};
+            QToolButton#legendChanged {{ background: {t.bg('ChangedField').name()};
                 color: {t.row_text};
                 border: 1px solid {t.accent_of('ChangedField').name()};
                 border-radius: 4px; padding: 0px 8px; }}
+            QToolButton#legendChanged:hover {{
+                border: 2px solid {t.accent_of('ChangedField').name()};
+                padding: 0px 7px; }}
+            QToolButton#legendChanged[active="true"] {{ font-weight: bold;
+                border: 2px solid {t.accent_of('ChangedField').name()};
+                padding: 0px 7px; }}
             QLabel#legendAccepted {{ background: {t.bg('AcceptedValue').name()};
                 color: {t.row_text};
                 border: 1px solid {t.accent_of('AcceptedValue').name()};
@@ -1754,6 +1770,8 @@ class GeoTableCompareDialog(QWidget):
         show = {s: b.isChecked() for s, b in self.filter_buttons.items()}
         needle = self.search_edit.text().strip().lower()
         cols = list(self._filter_columns())
+        only = self._field_cols.get(self._changed_filter) \
+            if self._changed_filter else None
 
         visible = 0
         for row in range(tbl.rowCount()):
@@ -1761,6 +1779,9 @@ class GeoTableCompareDialog(QWidget):
             if not item:
                 continue
             vis = show.get(item.text(), True)
+            if vis and only is not None:     # only the changes of one field
+                cell = tbl.item(row, only)
+                vis = cell is not None and cell.data(_ROLE_KIND) == "changed"
             if vis and needle:
                 vis = any(
                     needle in v.lower()
@@ -1771,7 +1792,10 @@ class GeoTableCompareDialog(QWidget):
                 visible += 1
 
         self._update_dynamic_row_numbers()
-        self.rows_label.setText(f"Showing {visible:,} of {tbl.rowCount():,} rows")
+        text = f"Showing {visible:,} of {tbl.rowCount():,} rows"
+        if only is not None:
+            text += f"  ·  changes in {self._changed_filter}"
+        self.rows_label.setText(text)
         self._update_review_tally()
 
     # ====================================================================
@@ -1986,9 +2010,71 @@ class GeoTableCompareDialog(QWidget):
         self.review_tally.setText("Rows: " + text + f"  ·  Pending {pend:,}")
         values = Counter(self.cell_decisions.values())
         pending = max(self._value_total - values["Accepted"] - values["Rejected"], 0)
-        self.changed_field_legend.setText(f"Changed · {pending:,}")
+        # the same width with or without a field picked (the Review row's
+        # buttons keep their labels); a picked field shows as a bold chip
+        self.changed_field_legend.setText(f"Changed · {pending:,} ▾")
         self.accepted_legend.setText(f"Accepted · {values['Accepted']:,}")
         self.rejected_legend.setText(f"Rejected · {values['Rejected']:,}")
+
+    # ------------------------------------------------------------------
+    # Changed fields (the Changed chip)
+    # ------------------------------------------------------------------
+
+    def changed_fields_summary(self):
+        """[(field, changed records, accepted, rejected)], most first."""
+        from .compare_fields import summary_rows
+        return summary_rows(self._changed_counts, self.cell_decisions)
+
+    def show_changed_fields(self):
+        """The changed fields of the comparison, in a popup under the chip."""
+        if not self._has_results:
+            self._set_status("Compare OLD → NEW first: then the Changed chip "
+                             "lists the fields that changed", "warning")
+            return None
+        from .compare_fields import ChangedFieldsPopup
+        modified = int((self._compare_info.get("counts") or {}).get("Modified", 0))
+        popup = ChangedFieldsPopup(
+            self.changed_fields_summary(), modified, self._changed_filter,
+            self.theme, self.metrics,
+            icon_of=lambda name: self._field_icon_and_tip(name)[0], parent=self)
+        popup.fieldPicked.connect(self._on_changed_field_picked)
+        popup.show_below(self.changed_field_legend)
+        self._changed_popup = popup
+        return popup
+
+    def _set_changed_filter(self, name, apply=True):
+        self._changed_filter = name
+        chip = self.changed_field_legend
+        chip.setProperty("active", bool(name))
+        chip.style().unpolish(chip)
+        chip.style().polish(chip)
+        tip = chip.toolTip().split("\n\nShowing only")[0]
+        if name:
+            tip += (f"\n\nShowing only the changes in {name}: click, then All, to "
+                    "show every change again.")
+        chip.setToolTip(tip)
+        if apply:
+            self.apply_filters()
+
+    def _on_changed_field_picked(self, name):
+        """Only the records where *name* changed (None: every change)."""
+        if name is not None and name not in self._field_cols:
+            return
+        if name is not None:                 # the changes are Modified rows
+            self.filter_buttons["Modified"].setChecked(True)
+        self._set_changed_filter(name)
+        if name is None:
+            self._set_status("Showing every change again", "info")
+            return
+        tbl = self.results_table
+        col = self._field_cols[name]
+        first = next((r for r in range(tbl.rowCount()) if not tbl.isRowHidden(r)), None)
+        if first is not None:
+            tbl.scrollTo(tbl.model().index(first, col),
+                         QAbstractItemView.ScrollHint.EnsureVisible)
+        n = self._changed_counts.get(name, 0)
+        self._set_status(f"Showing the {n:,} record(s) where {name} changed  ·  "
+                         "Changed ▾ > All shows every change again", "info")
 
     # ------------------------------------------------------------------
     # Right-click menu on the results
@@ -2823,6 +2909,9 @@ class GeoTableCompareDialog(QWidget):
             self.results_table.setColumnCount(0)
             self.decisions = {}
             self.cell_decisions = {}
+            self._changed_counts = {}
+            self._field_cols = {}
+            self._set_changed_filter(None, apply=False)
             self._fid_maps = {"old": {}, "new": {}}
             self._run_layer_ids = (old_layer.id(), new_layer.id())
 
@@ -3140,6 +3229,7 @@ class GeoTableCompareDialog(QWidget):
 
         counts = {s: 0 for s in STATUSES}
         value_total = 0
+        changed_counts = Counter()       # field -> records it changed in
         geom_change_count = 0
         geom_field_set = set(self._get_geom_field_names())
         check_set = set(check_fields)
@@ -3201,6 +3291,7 @@ class GeoTableCompareDialog(QWidget):
                     new_v = self.format_value(new_d.get(fn))
                     item = _SortItem(f"{old_v} → {new_v}")
                     value_total += 1
+                    changed_counts[fn] += 1
                     item.setData(_ROLE_USER, (old_v, new_v))
                     item.setData(_ROLE_KIND, "changed")
                     item.setBackground(QBrush(t.bg("ChangedField")))
@@ -3220,6 +3311,7 @@ class GeoTableCompareDialog(QWidget):
                     name, status, gd, unit)
                 item = self._new_row_item(text, status)
                 if pink:
+                    changed_counts[name] += 1
                     item.setData(_ROLE_KIND, "changed")
                     item.setBackground(QBrush(t.bg("ChangedField")))
                 if pair:
@@ -3241,6 +3333,9 @@ class GeoTableCompareDialog(QWidget):
         self._has_results = True
         self._reviewable_total = sum(counts[s] for s in REVIEWABLE)
         self._value_total = value_total
+        self._changed_counts = dict(changed_counts)
+        self._field_cols = {fn: col for col, fn in enumerate(
+            display_fields + extra_names, COL_FIRST_FIELD)}
         self.results_stack.setCurrentIndex(1)
         self.export_btn.setEnabled(True)
         for w in self.review_widgets:

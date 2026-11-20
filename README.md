@@ -331,6 +331,13 @@ plugin v1.1 (the regression test checks that exports match it byte for byte).
   value of whole rows. The Decision column follows the values: Accepted,
   Rejected, Mixed or *Pending 1/3*. Exports keep OLD for rejected values and
   NEW otherwise.
+- **Which fields changed?** The *Changed* chip of the Review row opens the
+  changed fields: one line per field, most changes first, with the modified
+  records it changed in, their share and a small bar (accepted, rejected and
+  pending on hover). Click a field to show only the records where it changed
+  (the table scrolls to its column); *All* shows every change again.
+
+  ![Changed fields](docs/screenshots/dark_changed_fields.png)
 - **Export ▾ › GeoPackage — features** writes the features of the rows shown
   to one GeoPackage, one layer per kind (added, deleted, modified, unchanged),
   and adds them to the map as a group named after the file. Every layer has

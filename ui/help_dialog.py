@@ -468,6 +468,12 @@ visible rows. Added rows are decided as a whole.</li>
 <li>The <b>Decision</b> column follows the values: <i>Accepted</i>,
 <i>Rejected</i>, <i>Mixed</i> (some each way) or <i>Pending 1/3</i> while
 values are still undecided.</li>
+<li><b>Which fields changed?</b> Click the <b>Changed</b> chip of the Review
+row: one line per field that changed, most changes first, with the number of
+modified records it changed in, their share and a small bar. Hover a field
+for how many of its changes are accepted, rejected or still pending. Click a
+field to show only the records where it changed (the table scrolls to its
+column and the chip turns bold); <b>All</b> shows every change again.</li>
 </ul>
 <h4>On the map</h4>
 <p><b>Zoom to selection</b> (also in the right-click menu) selects the

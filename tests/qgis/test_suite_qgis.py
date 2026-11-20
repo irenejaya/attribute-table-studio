@@ -24,7 +24,7 @@ PKG = H.plugin_package()
 
 from qgis.PyQt.QtCore import QPoint, Qt  # noqa: E402
 from qgis.PyQt.QtGui import QColor  # noqa: E402
-from qgis.PyQt.QtWidgets import (QFileDialog, QMenu, QMessageBox,  # noqa: E402
+from qgis.PyQt.QtWidgets import (QFileDialog, QLabel, QMenu, QMessageBox,  # noqa: E402
                                  QTextBrowser)
 from qgis.core import (QgsFeatureRequest, QgsProject,  # noqa: E402
                        QgsVectorLayer)
@@ -685,6 +685,83 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(os.path.exists(path))
         host = self.plugin.compare_host
         self.assertEqual(host.window_title(), "Geometry and Table Compare")
+
+    def test_13s_compare_changed_fields(self):
+        """The Changed chip lists the changed fields; a field shows only
+        the records where it changed, All every change again."""
+        base = H.demo_layer(n=600, name="Parcels baseline")
+        new = H.demo_updated_layer(base)
+        new.startEditing()
+        lu = new.fields().indexOf("LAND_USE")
+        for f in list(new.getFeatures())[30:34]:          # a second changed field
+            new.changeAttributeValue(f.id(), lu, "RURAL" if f[lu] != "RURAL" else "OTHER")
+        self.assertTrue(new.commitChanges())
+        panel = self.plugin.open_compare()
+        panel.old_table_combo.setLayer(base)
+        panel.new_table_combo.setLayer(new)
+        panel.join_field_combo.setCurrentIndex(panel.join_field_combo.findText("PARCEL_ID"))
+        panel.search_edit.clear()
+        for box in panel.filter_buttons.values():
+            box.setChecked(True)
+        panel.columns_to_check = []                    # every field, as on a first run
+        panel.compare_tables()
+        tbl = panel.results_table
+        header = [tbl.horizontalHeaderItem(c).text() for c in range(tbl.columnCount())]
+
+        def changed_rows(name):
+            col = header.index(name)
+            return [r for r in range(tbl.rowCount())
+                    if tbl.item(r, col) is not None
+                    and tbl.item(r, col).data(Qt.ItemDataRole.UserRole + 1) == "changed"]
+
+        rows = panel.changed_fields_summary()
+        names = [r[0] for r in rows]
+        self.assertEqual(names[0], "SCORE_MAX")              # most changes first
+        self.assertIn("LAND_USE", names)
+        n_land = dict((r[0], r[1]) for r in rows)["LAND_USE"]
+        self.assertEqual(n_land, 4)
+        # accept one LAND_USE change: the hover text counts it
+        col = header.index("LAND_USE")
+        tbl.clearSelection()
+        tbl.item(changed_rows("LAND_USE")[0], col).setSelected(True)
+        panel._decide_values("Accepted")
+        popup = panel.show_changed_fields()
+        self.assertIsNotNone(popup)
+        self.assertEqual(popup.tree.topLevelItemCount(), len(rows))
+        item = next(popup.tree.topLevelItem(i) for i in range(popup.tree.topLevelItemCount())
+                    if popup.tree.topLevelItem(i).text(0) == "LAND_USE")
+        self.assertEqual(item.text(1), "4")
+        self.assertIn("Accepted 1", item.toolTip(0))
+        self.assertIn("Pending 3", item.toolTip(0))
+        self.assertFalse(popup.all_btn.isEnabled())          # nothing to reset yet
+        modified = panel._compare_info["counts"]["Modified"]
+        self.assertIn(f"{modified:,} modified", popup.findChildren(QLabel)[1].text())
+        # a click: only the records where LAND_USE changed
+        before = sum(1 for r in range(tbl.rowCount()) if not tbl.isRowHidden(r))
+        popup.tree.itemClicked.emit(item, 0)
+        H.settle(0.1)
+        shown = [r for r in range(tbl.rowCount()) if not tbl.isRowHidden(r)]
+        self.assertEqual(sorted(shown), sorted(changed_rows("LAND_USE")))
+        self.assertIn("LAND_USE", panel.changed_field_legend.toolTip())
+        self.assertTrue(panel.changed_field_legend.property("active"))
+        self.assertIn("changes in LAND_USE", panel.rows_label.fullText())
+        # All: every change again
+        popup = panel.show_changed_fields()
+        self.assertTrue(popup.all_btn.isEnabled())
+        self.assertEqual(popup.tree.currentItem().text(0), "LAND_USE")
+        popup.all_btn.click()
+        H.settle(0.1)
+        self.assertEqual(sum(1 for r in range(tbl.rowCount()) if not tbl.isRowHidden(r)),
+                         before)
+        self.assertFalse(panel.changed_field_legend.property("active"))
+        # a new comparison starts without the field filter
+        popup = panel.show_changed_fields()
+        popup.tree.itemClicked.emit(popup.tree.topLevelItem(0), 0)
+        self.assertEqual(panel._changed_filter, "SCORE_MAX")
+        panel.compare_tables()
+        self.assertIsNone(panel._changed_filter)
+        self.assertEqual(sum(1 for r in range(tbl.rowCount()) if not tbl.isRowHidden(r)),
+                         before)
 
     def test_13b_round2_ui_rules(self):
         panel = self.plugin.open_explorer(self.layer)

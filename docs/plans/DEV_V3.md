@@ -1,6 +1,12 @@
-# dev-v3 plan (not built yet)
+# dev-v3 plan
 
 Three improvements, the first one in detail.
+
+| Item | Status |
+| --- | --- |
+| 1. Attribute Explorer on big layers | On hold, to be discussed again |
+| 2. Pivot Table chart | Built |
+| 3. Compare changed-fields summary | Built |
 
 ## 1. Attribute Explorer: lighter and faster on big layers
 
@@ -90,7 +96,7 @@ For GeoPackage and PostGIS layers without unsaved edits, the database
 itself could count (SQL), faster still; it only works for some formats and
 filters, so it would come after this.
 
-## 2. Pivot Table: chart the result
+## 2. Pivot Table: chart the result (built)
 
 A chart icon in the Pivot Table's top row (the Visualize Statistics icon)
 opens the pivot result as a chart in the same window as Visualize
@@ -99,7 +105,14 @@ a column field, the columns become the Split by colours (stacked or side by
 side). Hover shows the numbers, a click selects that row's records on the
 layer, as the drill-through does.
 
-## 3. Geometry and Table Compare: changed-fields summary
+As built: a **Value** box picks which of the pivot's values the bars show
+(the first by default, or Records); stacked bars only for values that add
+up (counts and sums), side by side for the others; past 8 columns the rest
+form an *Other* worked out from its records (exact for a mean too);
+negative values hang below the 0 line; right-click a bar for the
+drill-through; the chart follows every new Build Pivot and the table's sort.
+
+## 3. Geometry and Table Compare: changed-fields summary (built)
 
 No new row: the existing **Changed · 36** chip in the Review row becomes a
 button that opens a popup, like the Explorer's statistics popup:
@@ -119,3 +132,7 @@ button that opens a popup, like the Explorer's statistics popup:
 - A click on a field shows only the records where that field changed and
   scrolls to its column; **All** shows every change again.
 - Accepted and rejected counts per field on hover.
+
+As built: the chip keeps its width (so the Review row's buttons keep their
+labels) and turns bold while one field is picked; the rows count at the
+bottom says "changes in FIELD".
