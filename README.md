@@ -298,6 +298,17 @@ the profiles afterwards; stale results are never shown.
   results); NULL groups are separate from the text "NULL"; missing cross-tab
   cells show NULL (Count records: 0).
 - Double-click a result to open its records in Attribute Explorer.
+- **Chart** (the chart icon next to *Build Pivot*): the built pivot as a chart
+  in the Visualize Statistics window — one bar per row, its value one of the
+  pivot's values (column or bar chart). With a column field the pivot's
+  columns become the colours, stacked (counts and sums, which add up) or side
+  by side; beyond 8 columns the rest form an exact *Other*. Hover for the
+  numbers, click a bar to select its records (Ctrl+click adds, drag for a
+  range), right-click to inspect them in Attribute Explorer. It sorts as the
+  table or by value, draws negative values below the 0 line, follows every
+  new build and exports as PNG, SVG or CSV.
+
+  ![Pivot Table chart](docs/screenshots/dark_pivot_chart.png)
 - Save / load layouts (recipes only) in the project or a JSON file; export to
   Excel, CSV or a non-spatial GeoPackage table with the layout and scope.
 
@@ -355,7 +366,7 @@ core/                  UI-free engines (pure Python where possible)
   fields.py            field kinds, NULL handling, formatting
   stats.py             column profiles
   filters.py           column filters → QGIS expressions
-  pivot.py             pivot engine
+  pivot.py             pivot engine; pivot_chart.py its chart's bars
   scan.py              background feature scans (geometry only when needed)
   charts.py            Visualize Statistics: compact columns, bins, periods
   constraints.py       field constraint checks (failing records scope)
@@ -376,7 +387,7 @@ ui/
   explorer_browse.py   View / Select menus, scopes, expression filters
   explorer_ops.py, explorer_dialogs.py, explorer_form.py
                        calculator, field and form dialogs, form view
-  pivot_table.py
+  pivot_table.py       Pivot Table window; pivot_chart.py its chart window
   geotable_compare.py
   settings_dialog.py, help_dialog.py
 icons/                 toolbar icons

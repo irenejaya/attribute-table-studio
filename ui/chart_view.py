@@ -73,6 +73,11 @@ class ChartModel:
         self.sel = None                  # selected records per bar
         self.sel_series = None           # [[per series]] per bar
         self.sel_colour = QColor("#ffff00")
+        # charts of values other than record counts (the Pivot Table's)
+        self.fmt_value = None            # value -> text (None: a record count)
+        self.card = None                 # (bar, series) -> (title, [(series, text,
+        #                                  strong)], footer): the hover card
+        self.sel_records = None          # selected records (legend), else sum(sel)
 
     @property
     def chart(self):
@@ -84,6 +89,7 @@ class ChartView(QWidget):
 
     barsPicked = pyqtSignal(list, bool, object)    # bars, add, series or None
     seriesPicked = pyqtSignal(int, bool)           # series, add
+    barMenuRequested = pyqtSignal(int, object, object)  # bar, series or None, global pos
 
     def __init__(self, theme, metrics, parent=None):
         super().__init__(parent)
@@ -95,6 +101,7 @@ class ChartView(QWidget):
         self._hover = None               # (bar, series or None)
         self._press = None               # bar under the mouse press
         self._drag = None                # bar under the mouse while dragging
+        self._signed = False             # negative values: a linear axis through 0
         self.setMouseTracking(True)
         self.setMinimumSize(QSize(360, 260))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -209,15 +216,26 @@ class ChartView(QWidget):
     def _f(self, v):
         """Value -> drawing scale (linear, square root or logarithmic)."""
         s = self.model.scale
+        if self._signed:
+            return float(v)
         if s == "sqrt":
             return math.sqrt(max(v, 0))
         if s == "log":
             return math.log10(1 + max(v, 0))
         return float(v)
 
-    def _ticks(self, top):
-        """(ticks, scaled top) for the count axis."""
+    def _ticks(self, top, floor=0.0):
+        """(ticks, scaled bottom, scaled top) for the value axis; *floor*
+        below 0 (negative values) gives a linear axis through 0."""
         s = self.model.scale
+        if floor < 0:
+            span = (top - floor) * 1.06
+            step = nice_step(span)
+            top_v = math.ceil(top * 1.06 / step) * step if top > 0 else 0.0
+            lo_v = math.floor(floor * 1.06 / step) * step
+            n = int(round((top_v - lo_v) / step))
+            ticks = [lo_v + k * step for k in range(n + 1)]
+            return ticks, float(lo_v), float(top_v)
         if s == "log":
             ticks, v = [0], 1
             while v <= top * 1.0001:
@@ -226,14 +244,14 @@ class ChartView(QWidget):
             top_v = max(ticks[-1] * (10 if ticks[-1] < top else 1), 10)
             if ticks[-1] != top_v:
                 ticks.append(top_v)
-            return ticks, self._f(top_v)
+            return ticks, 0.0, self._f(top_v)
         step = nice_step(top * 1.06 if top else 1)
         top_v = math.ceil((top * 1.06 if top else 1) / step) * step
         ticks, v = [], 0.0
         while v <= top_v + 1e-9:
             ticks.append(v)
             v += step
-        return ticks, self._f(top_v)
+        return ticks, 0.0, self._f(top_v)
 
     def _series_colour(self, s):
         names = self.model.bars.series
@@ -259,7 +277,39 @@ class ChartView(QWidget):
         if m.share:
             total = float(m.bars.total or 1)
             return f"{100.0 * n / total:.1f}%"
+        if m.fmt_value is not None:
+            return m.fmt_value(n)
         return f"{n:,}"
+
+    def _tick_text(self, v, ticks):
+        """Axis text of tick *v*: records as whole numbers, other values
+        with the decimals the tick step needs."""
+        m = self.model
+        if m.share:
+            return f"{100.0 * v / float(m.bars.total or 1):.0f}%"
+        if m.fmt_value is None:
+            return f"{int(v):,}"
+        step = abs(ticks[1] - ticks[0]) if len(ticks) > 1 else 1.0
+        d = 0
+        while d < 6 and abs(step * 10 ** d - round(step * 10 ** d)) > 1e-6:
+            d += 1
+        text = f"{v:,.{d}f}"
+        return "0" if not text.strip("-0.,") else text
+
+    @staticmethod
+    def _extent(bars, side):
+        """(highest, lowest) value the bars reach, 0 included."""
+        split = bars.split
+        if split is None:
+            values = bars.counts
+            return max(max(values), 0), min(min(values), 0)
+        if side:
+            hi = max((max(row) if row else 0) for row in split)
+            lo = min((min(row) if row else 0) for row in split)
+        else:
+            hi = max(sum(c for c in row if c > 0) for row in split)
+            lo = min(sum(c for c in row if c < 0) for row in split)
+        return max(hi, 0), min(lo, 0)
 
     # ---- vertical columns: histogram and over time ---------------------
     def _paint_columns(self, p, r, fm):
@@ -268,13 +318,10 @@ class ChartView(QWidget):
         n = len(bars)
         split = bars.split
         side = split is not None and m.split_mode == "side"
-        if side:
-            peak = max((max(row) if row else 0) for row in split)
-        else:
-            peak = max(bars.counts)
-        ticks, top_t = self._ticks(peak)
-        tick_texts = [self._count_text(int(v)) if not m.share else
-                      f"{100.0 * v / float(bars.total or 1):.0f}%" for v in ticks]
+        peak, floor = self._extent(bars, side)
+        self._signed = floor < 0
+        ticks, lo_t, top_t = self._ticks(peak, floor)
+        tick_texts = [self._tick_text(v, ticks) for v in ticks]
         ylab_w = max(fm.horizontalAdvance(s) for s in tick_texts) + 10
         plot = QRectF(r.left() + ylab_w + 30, r.top() + 46, 0, 0)
         legend_w = self._outside_legend_width(fm)
@@ -292,7 +339,9 @@ class ChartView(QWidget):
         self._geo["plot"] = plot
 
         def yof(v):
-            return plot.bottom() - plot.height() * self._f(v) / top_t if top_t else plot.bottom()
+            if top_t <= lo_t:
+                return plot.bottom()
+            return plot.bottom() - plot.height() * (self._f(v) - lo_t) / (top_t - lo_t)
 
         # count labels (the grid lines are drawn over the bars, below)
         for v, s in zip(ticks, tick_texts):
@@ -343,19 +392,24 @@ class ChartView(QWidget):
         if cats:
             cw = max(min(bw * 0.72, 64.0), 1.0)
             inset = (bw - cw) / 2
+        base = yof(0)                        # bars grow up from 0, negative ones down
+
+        def span(y_a, y_b):
+            return min(y_a, y_b), abs(y_a - y_b)
+
         for i in range(n):
             x = plot.left() + i * bw
             if split is None:
                 c = bars.counts[i]
-                h = plot.bottom() - yof(c)
-                rect = QRectF(x + inset, plot.bottom() - h, cw, h)
+                top, h = span(base, yof(c))
+                rect = QRectF(x + inset, top, cw, h)
                 p.fillRect(rect, QColor(t.bar_hover) if i == hover_bar and m.colour is None
                            else (colour.darker(125) if i == hover_bar else colour))
                 if sel[i]:
-                    hs = plot.bottom() - yof(sel[i])
-                    self._paint_sel(p, QRectF(rect.left(), plot.bottom() - hs, rect.width(), hs))
+                    top, h = span(base, yof(sel[i]))
+                    self._paint_sel(p, QRectF(rect.left(), top, rect.width(), h))
                 if c:
-                    geo.append((self._col_hit(rect, plot.bottom()), i, None))
+                    geo.append((self._col_hit(rect, base, c < 0), i, None))
                 if m.labels and c:
                     count_labels.append((rect, c))
                 continue
@@ -365,55 +419,54 @@ class ChartView(QWidget):
                 k = max(1, len(row))
                 sw = max(cw / k, 1.0)
                 for s, c in enumerate(row):
-                    h = plot.bottom() - yof(c)
-                    rect = QRectF(x + inset + s * sw, plot.bottom() - h, max(sw - 0.5, 0.8), h)
+                    top, h = span(base, yof(c))
+                    rect = QRectF(x + inset + s * sw, top, max(sw - 0.5, 0.8), h)
                     if c:
                         p.fillRect(rect, self._series_colour(s))
                         if sel_row and sel_row[s]:
-                            hs = plot.bottom() - yof(sel_row[s])
-                            self._paint_sel(p, QRectF(rect.left(), plot.bottom() - hs,
-                                                      rect.width(), hs))
+                            top, h = span(base, yof(sel_row[s]))
+                            self._paint_sel(p, QRectF(rect.left(), top, rect.width(), h))
                     if c:
-                        geo.append((self._col_hit(rect, plot.bottom()), i, s))
+                        geo.append((self._col_hit(rect, base, c < 0), i, s))
                     if m.labels and c:
                         count_labels.append((rect, c))
-                peak = max(row) if row else 0
-                if peak:
-                    top_y = yof(peak)
-                    geo.append((self._col_hit(QRectF(x + inset, top_y, cw,
-                                                     plot.bottom() - top_y), plot.bottom()),
+                hi = max(max(row) if row else 0, 0)
+                lo = min(min(row) if row else 0, 0)
+                if hi or lo:
+                    geo.append((self._span_hit(x + inset, cw, yof(hi), yof(lo), base, hi, lo),
                                 i, None))
             else:
-                y = plot.bottom()
-                acc = 0
+                pos = neg = 0                    # positive parts up, negative down
                 for s, c in enumerate(row):
                     if not c:
                         continue
-                    y_top = yof(acc + c)
-                    rect = QRectF(x + inset, y_top, cw, y - y_top)
+                    a = pos if c > 0 else neg
+                    if c > 0:
+                        pos = a + c
+                    else:
+                        neg = a + c
+                    y_a = yof(a)
+                    top, h = span(y_a, yof(a + c))
+                    rect = QRectF(x + inset, top, cw, h)
                     p.fillRect(rect.adjusted(0, 0.5, 0, -0.5) if rect.height() > 3 else rect,
                                self._series_colour(s))
                     if sel_row and sel_row[s]:       # from the base of this part
-                        y_sel = yof(acc + sel_row[s])
-                        self._paint_sel(p, QRectF(rect.left(), y_sel, rect.width(), y - y_sel))
+                        top, h = span(y_a, yof(a + sel_row[s]))
+                        self._paint_sel(p, QRectF(rect.left(), top, rect.width(), h))
                     geo.append((rect, i, s))
-                    y = y_top
-                    acc += c
-                if bars.counts[i]:
-                    top_y = yof(bars.counts[i])
-                    geo.append((self._col_hit(QRectF(x + inset, top_y, cw,
-                                                     plot.bottom() - top_y), plot.bottom()),
-                                i, None))
-                if m.labels and bars.counts[i]:
-                    count_labels.append((QRectF(x, yof(bars.counts[i]), bw,
-                                                plot.bottom() - yof(bars.counts[i])),
-                                         bars.counts[i]))
+                if pos or neg:
+                    geo.append((self._span_hit(x + inset, cw, yof(pos), yof(neg), base, pos,
+                                               neg), i, None))
+                total = bars.counts[i]
+                if m.labels and total:
+                    top, h = span(base, yof(pos) if total > 0 else yof(neg))
+                    count_labels.append((QRectF(x, top, bw, h), total))
         if m.grid:                           # over the bars, to read them off
-            self._grid_lines(p, plot, [yof(v) for v in ticks if v > 0], across=True)
+            self._grid_lines(p, plot, [yof(v) for v in ticks if v != 0], across=True)
         for rect, c in count_labels:
             self._column_label(p, rect, c, fm)
         p.setPen(QPen(QColor(t.border), 1))
-        p.drawLine(plot.bottomLeft(), plot.bottomRight())
+        p.drawLine(QPointF(plot.left(), base), QPointF(plot.right(), base))
 
         # x labels: as many as fit, never rotated
         p.setPen(QColor(t.text_dim))
@@ -511,17 +564,42 @@ class ChartView(QWidget):
             p.restore()
 
     @staticmethod
-    def _col_hit(rect, bottom):
+    def _col_hit(rect, base, down=False):
         """Hover and click area of a column: the bar itself (3 px of slack
-        above it, at least 6 px tall), never the empty space above it."""
-        top = min(rect.top() - 3, bottom - 6)
-        return QRectF(rect.left(), top, rect.width(), bottom - top)
+        past its end, at least 6 px tall), never the empty space beyond
+        it.  *base* is the 0 line; *down*, a negative bar below it."""
+        if down:
+            bottom = max(rect.bottom() + 3, base + 6)
+            return QRectF(rect.left(), base, rect.width(), bottom - base)
+        top = min(rect.top() - 3, base - 6)
+        return QRectF(rect.left(), top, rect.width(), base - top)
+
+    @classmethod
+    def _span_hit(cls, x, w, y_hi, y_lo, base, hi, lo):
+        """Area of a whole column (all its parts) from *lo* to *hi*."""
+        if not lo:
+            return cls._col_hit(QRectF(x, y_hi, w, base - y_hi), base)
+        if not hi:
+            return cls._col_hit(QRectF(x, base, w, y_lo - base), base, True)
+        return QRectF(x, y_hi - 3, w, y_lo - y_hi + 6)
 
     @staticmethod
-    def _row_hit(rect, left):
-        """The same for a horizontal bar (slack after its end)."""
-        right = max(rect.right() + 3, left + 6)
-        return QRectF(left, rect.top(), right - left, rect.height())
+    def _row_hit(rect, base, left=False):
+        """The same for a horizontal bar (slack after its end); *left*, a
+        negative bar left of the 0 line."""
+        if left:
+            start = min(rect.left() - 3, base - 6)
+            return QRectF(start, rect.top(), base - start, rect.height())
+        right = max(rect.right() + 3, base + 6)
+        return QRectF(base, rect.top(), right - base, rect.height())
+
+    @classmethod
+    def _row_span_hit(cls, y, h, x_hi, x_lo, base, hi, lo):
+        if not lo:
+            return cls._row_hit(QRectF(base, y, x_hi - base, h), base)
+        if not hi:
+            return cls._row_hit(QRectF(x_lo, y, base - x_lo, h), base, True)
+        return QRectF(x_lo - 3, y, x_hi - x_lo + 6, h)
 
     def _column_label(self, p, rect, c, fm):
         p.setPen(QColor(self.theme.text_dim))
@@ -529,7 +607,8 @@ class ChartView(QWidget):
         w = fm.horizontalAdvance(text)
         if w > rect.width() + 24:
             return
-        p.drawText(QRectF(rect.center().x() - w / 2 - 6, rect.top() - 17, w + 12, 15),
+        y = rect.top() - 17 if c >= 0 else rect.bottom() + 2    # past the bar's end
+        p.drawText(QRectF(rect.center().x() - w / 2 - 6, y, w + 12, 15),
                    Qt.AlignmentFlag.AlignCenter, text)
 
     def _normal_curve(self, p, plot, xof, yof, st, bars, lo, hi):
@@ -556,27 +635,31 @@ class ChartView(QWidget):
         split = bars.split
         side = split is not None and m.split_mode == "side"
         total = float(bars.total or 1)
+        peak, floor = self._extent(bars, side)
+        self._signed = floor < 0
         lab_w = min(max(fm.horizontalAdvance(str(s)) for s in bars.labels) + 16,
                     int(r.width() * 0.35))
         value_texts = [self._value_text(c, total) for c in bars.counts]
         val_w = (max(fm.horizontalAdvance(s) for s in value_texts) + 18) if m.labels else 18
         self._value_col_w = val_w
         plot = QRectF(r.left() + lab_w + 12, r.top() + 50, 0, 0)
+        if self._signed and m.labels:        # room for the values of negative bars
+            plot.setLeft(plot.left() + val_w)
         plot.setRight(r.right() - val_w - 8 - self._outside_legend_width(fm))
         plot.setBottom(r.bottom() - 46)
         self._geo["plot"] = plot
-        peak = max((max(row) if row else 0) for row in split) if side else max(bars.counts)
-        ticks, top_t = self._ticks(peak)
+        ticks, lo_t, top_t = self._ticks(peak, floor)
 
         def xof(v):
-            return plot.left() + plot.width() * self._f(v) / top_t if top_t else plot.left()
+            if top_t <= lo_t:
+                return plot.left()
+            return plot.left() + plot.width() * (self._f(v) - lo_t) / (top_t - lo_t)
 
         for v in ticks:
             x = xof(v)
             p.setPen(QColor(t.text_dim))
-            text = (f"{100.0 * v / total:.0f}%" if m.share else f"{int(v):,}")
             p.drawText(QRectF(x - 40, plot.bottom() + 4, 80, 18), Qt.AlignmentFlag.AlignCenter,
-                       text)
+                       self._tick_text(v, ticks))
         p.setPen(QColor(t.text))
         p.drawText(QRectF(plot.left(), plot.bottom() + 22, plot.width(), 20),
                    Qt.AlignmentFlag.AlignCenter,
@@ -589,80 +672,96 @@ class ChartView(QWidget):
         hover_bar = self._hover[0] if self._hover else None
         sel = m.sel or [0] * n
         geo = self._geo["bars"]
+        base = xof(0)                        # bars grow right from 0, negative ones left
+
+        def span(x_a, x_b):
+            return min(x_a, x_b), abs(x_a - x_b)
+
         for i in range(n):
             y = plot.top() + i * bh
             thick = min(bh * 0.68, 34.0)        # thin marks, also for few bars
-            inner = QRectF(plot.left(), y + (bh - thick) / 2, 0, thick)
+            inner = QRectF(base, y + (bh - thick) / 2, 0, thick)
             if split is None:
-                rect = QRectF(inner.left(), inner.top(), xof(bars.counts[i]) - plot.left(),
-                              inner.height())
+                c = bars.counts[i]
+                hi, lo = max(c, 0), min(c, 0)
+                left, w = span(base, xof(c))
+                rect = QRectF(left, inner.top(), w, inner.height())
                 p.fillRect(rect, QColor(t.bar_hover) if i == hover_bar and m.colour is None
                            else (colour.darker(125) if i == hover_bar else colour))
                 if sel[i]:
-                    self._paint_sel(p, QRectF(rect.left(), rect.top(),
-                                              xof(sel[i]) - plot.left(), rect.height()))
-                if bars.counts[i]:
-                    geo.append((self._row_hit(rect, plot.left()), i, None))
+                    left, w = span(base, xof(sel[i]))
+                    self._paint_sel(p, QRectF(left, rect.top(), w, rect.height()))
+                if c:
+                    geo.append((self._row_hit(rect, base, c < 0), i, None))
             elif side:
                 row = split[i]
                 k = max(1, len(row))
                 sh = inner.height() / k
                 sel_row = m.sel_series[i] if m.sel_series else None
                 for s, c in enumerate(row):
-                    rect = QRectF(plot.left(), inner.top() + s * sh,
-                                  xof(c) - plot.left(), max(sh - 0.5, 0.8))
+                    left, w = span(base, xof(c))
+                    rect = QRectF(left, inner.top() + s * sh, w, max(sh - 0.5, 0.8))
                     if c:
                         p.fillRect(rect, self._series_colour(s))
                         if sel_row and sel_row[s]:
-                            self._paint_sel(p, QRectF(rect.left(), rect.top(),
-                                                      xof(sel_row[s]) - plot.left(),
-                                                      rect.height()))
+                            left, w = span(base, xof(sel_row[s]))
+                            self._paint_sel(p, QRectF(left, rect.top(), w, rect.height()))
                     if c:
-                        geo.append((self._row_hit(rect, plot.left()), i, s))
-                peak = max(row) if row else 0
-                if peak:
-                    geo.append((self._row_hit(QRectF(plot.left(), inner.top(),
-                                                     xof(peak) - plot.left(), inner.height()),
-                                              plot.left()), i, None))
+                        geo.append((self._row_hit(rect, base, c < 0), i, s))
+                hi = max(max(row) if row else 0, 0)
+                lo = min(min(row) if row else 0, 0)
+                if hi or lo:
+                    geo.append((self._row_span_hit(inner.top(), inner.height(), xof(hi),
+                                                   xof(lo), base, hi, lo), i, None))
             else:
-                acc = 0
+                hi = lo = 0                      # positive parts right, negative left
                 sel_row = m.sel_series[i] if m.sel_series else None
                 for s, c in enumerate(split[i]):
                     if not c:
                         continue
-                    x0, x1 = xof(acc), xof(acc + c)
-                    rect = QRectF(x0, inner.top(), x1 - x0, inner.height())
+                    a = hi if c > 0 else lo
+                    if c > 0:
+                        hi = a + c
+                    else:
+                        lo = a + c
+                    x_a = xof(a)
+                    left, w = span(x_a, xof(a + c))
+                    rect = QRectF(left, inner.top(), w, inner.height())
                     p.fillRect(rect.adjusted(0.5, 0, -0.5, 0) if rect.width() > 3 else rect,
                                self._series_colour(s))
                     if sel_row and sel_row[s]:       # from the start of this part
-                        self._paint_sel(p, QRectF(x0, rect.top(), xof(acc + sel_row[s]) - x0,
-                                                  rect.height()))
+                        left, w = span(x_a, xof(a + sel_row[s]))
+                        self._paint_sel(p, QRectF(left, rect.top(), w, rect.height()))
                     geo.append((rect, i, s))
-                    acc += c
-                if bars.counts[i]:
-                    geo.append((self._row_hit(QRectF(plot.left(), inner.top(),
-                                                     xof(bars.counts[i]) - plot.left(),
-                                                     inner.height()), plot.left()), i, None))
+                if hi or lo:
+                    geo.append((self._row_span_hit(inner.top(), inner.height(), xof(hi),
+                                                   xof(lo), base, hi, lo), i, None))
             label = str(bars.labels[i])
             p.setPen(QColor(t.text_dim if i in (bars.other, bars.null_bar) else t.text))
             p.drawText(QRectF(r.left() + 8, y, lab_w, bh),
                        Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                        fm.elidedText(label, Qt.TextElideMode.ElideRight, lab_w - 4))
-            end = xof(bars.counts[i]) if not side else xof(max(split[i]) if split[i] else 0)
             if m.labels:                         # "Label bars with their count"
-                value_places.append((QRectF(end + 8, y, val_w + 40, bh), value_texts[i]))
+                if bars.counts[i] >= 0:
+                    value_places.append((QRectF(xof(hi) + 8, y, val_w + 40, bh),
+                                         value_texts[i], Qt.AlignmentFlag.AlignLeft))
+                else:                            # a negative bar: left of its end
+                    value_places.append((QRectF(xof(lo) - 8 - val_w - 40, y, val_w + 40, bh),
+                                         value_texts[i], Qt.AlignmentFlag.AlignRight))
         if m.grid:                           # over the bars, to read them off
-            self._grid_lines(p, plot, [xof(v) for v in ticks if v > 0], across=False)
+            self._grid_lines(p, plot, [xof(v) for v in ticks if v != 0], across=False)
         p.setPen(QColor(t.text_dim))
-        for rect, text in value_places:
-            p.drawText(rect, Qt.AlignmentFlag.AlignVCenter, text)
+        for rect, text, align in value_places:
+            p.drawText(rect, align | Qt.AlignmentFlag.AlignVCenter, text)
         p.setPen(QPen(QColor(t.border), 1))
-        p.drawLine(plot.topLeft(), plot.bottomLeft())
+        p.drawLine(QPointF(base, plot.top()), QPointF(base, plot.bottom()))
         legend = []
         self._series_legend(legend)
         self._paint_legend(p, plot, legend, fm, corner_pref=("br", "tr"))
 
     def _value_text(self, c, total):
+        if self.model.fmt_value is not None:
+            return self.model.fmt_value(c)
         if self.model.share:
             return f"{100.0 * c / total:.1f}%  ({c:,})"
         return f"{c:,}  ({100.0 * c / total:.0f}%)"
@@ -674,7 +773,7 @@ class ChartView(QWidget):
         if bars.split is not None:
             for s, name in enumerate(bars.series):
                 legend.append(("box", self._series_colour(s), str(name), s))
-        n_sel = sum(m.sel) if m.sel else 0
+        n_sel = m.sel_records if m.sel_records is not None else (sum(m.sel) if m.sel else 0)
         if n_sel:
             legend.append(("sel", QColor(m.sel_colour), f"Selected  {n_sel:,}", None))
 
@@ -776,6 +875,10 @@ class ChartView(QWidget):
         """(title, [(swatch colour or None, text)], footer) for bar *i*."""
         m = self.model
         bars = m.bars
+        if m.card is not None:               # the window's own numbers
+            title, lines, foot = m.card(i, series)
+            return title, [(self._series_colour(s) if s is not None else None, text, strong)
+                           for s, text, strong in lines], foot
         total = float(bars.total or 1)
         title = m.fmt_bar(i) if m.fmt_bar else str(bars.labels[i])
         n = bars.counts[i]
@@ -901,6 +1004,14 @@ class ChartView(QWidget):
         if hit != self._hover:
             self._hover = hit
             self.update()
+
+    def contextMenuEvent(self, event):
+        hit = self.hit(event.pos())
+        if hit is None:
+            return super().contextMenuEvent(event)
+        self._hover = None
+        self.update()
+        self.barMenuRequested.emit(hit[0], hit[1], event.globalPos())
 
     def leaveEvent(self, event):
         if self._hover is not None:

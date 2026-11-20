@@ -503,6 +503,167 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(count_row.field.isEnabled())
         self.assertIn(count_row.field.kind(), F.NUMERIC)
 
+    def test_12c_pivot_chart(self):
+        """The chart icon of the Pivot Table: one bar per row of the built
+        pivot, the columns as coloured parts; clicks select records."""
+        from attribute_table_studio.core import pivot_chart as PC
+        pivot = self.plugin.open_pivot(self.other)
+        self.assertFalse(pivot.chart_btn.isEnabled())       # nothing built yet
+        pivot.set_layer(self.layer)
+        pivot._capture("all")
+        pivot.set_spec(P.PivotSpec(["LAND_USE"], ["ZONE_CODE"], [
+            P.Measure("SCORE_MAX", "sum"), P.Measure("SCORE_MAX", "mean")]))
+        pivot.build()
+        self.assertTrue(H.wait_for(lambda: pivot.model.result is not None
+                                   and not pivot.runner.busy, 30))
+        self.assertTrue(pivot.chart_btn.isEnabled())
+        pivot.chart_btn.click()
+        chart = pivot.chart_host.panel
+        chart.window().resize(1180, 700)
+        H.settle(0.3)
+        result = pivot.model.result
+        self.assertEqual(len(chart.bars), result.group_count)
+        self.assertEqual([chart.value_combo.itemText(i)
+                          for i in range(chart.value_combo.count())],
+                         ["Sum SCORE_MAX", "Mean SCORE_MAX", "Records"])
+        self.assertEqual(chart.bars.series, [P.key_label(ck) for ck in result.col_keys])
+        self.assertEqual(chart.split_mode.currentData(), "stacked")
+        self.assertIn("Sum SCORE_MAX by LAND_USE", chart.title_edit.text())
+        # the bars follow the table's order; sorting the table reorders them
+        self.assertEqual(chart.bars.row_keys, [r[0]["rk"] for r in pivot.model.rows])
+        sum_col = next(c for c, h in enumerate(pivot.model.header)
+                       if h["kind"] == "value" and h["ck"] is P.TOTAL and h["measure"] == 0)
+        pivot.model.sort(sum_col, Qt.SortOrder.DescendingOrder)
+        H.settle(0.1)
+        self.assertEqual(chart.bars.values, sorted(chart.bars.values, reverse=True))
+        # a mean does not add up: side by side only
+        chart.value_combo.setCurrentIndex(1)
+        self.assertEqual(chart.split_mode.currentData(), "side")
+        stacked = chart.split_mode.model().item(chart.split_mode.findData("stacked"))
+        self.assertFalse(stacked.isEnabled())
+        chart.value_combo.setCurrentIndex(0)
+        self.assertTrue(stacked.isEnabled())
+        # a click on a bar selects its records; the bar is drawn selected
+        res_row = next(i for i, rk in enumerate(chart.bars.row_keys) if rk == ("RESIDENTIAL",))
+        chart.view.barsPicked.emit([res_row], False, None)
+        H.settle(0.3)
+        want = set(result.fids(("RESIDENTIAL",), P.TOTAL))
+        self.assertEqual(set(self.layer.selectedFeatureIds()), want)
+        self.assertEqual(chart.sel_records[res_row], len(want))
+        self.assertEqual(chart.sel[res_row], chart.bars.counts[res_row])
+        # a part of a bar, then a whole column of the pivot from the legend
+        chart.view.barsPicked.emit([res_row], False, 0)
+        H.settle(0.3)
+        ck = chart.bars.series_keys[0][0]
+        self.assertEqual(set(self.layer.selectedFeatureIds()),
+                         set(result.fids(("RESIDENTIAL",), ck)))
+        chart.view.seriesPicked.emit(0, False)
+        H.settle(0.3)
+        self.assertEqual(set(self.layer.selectedFeatureIds()),
+                         set(result.fids(P.TOTAL, ck)))
+        chart._clear_selection()
+        H.settle(0.3)
+        self.assertEqual(self.layer.selectedFeatureCount(), 0)
+        # hovering shows the row's numbers
+        title, lines, _foot = chart.view.card_lines(res_row)
+        self.assertEqual(title, "RESIDENTIAL")
+        self.assertTrue(any(text.startswith("Total: ") for _c, text, _s in lines))
+        # the drill-through of the table, from a right-click on a bar
+        chart.inspect(res_row)
+        explorer = self.plugin.explorer_for(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(explorer)))
+        self.assertEqual(set(explorer.model.fids), want)
+        explorer.clear_external_scope()
+        # bars as CSV
+        path = os.path.join(OUT, "pivot_chart.csv")
+        self.assertTrue(chart.write_csv(path))
+        with open(path, encoding="utf-8-sig") as fh:
+            rows = list(csv.reader(fh))
+        self.assertEqual(rows[0][:4], ["LAND_USE", "Sum SCORE_MAX", "Records", "Selected"])
+        self.assertEqual(len(rows), len(chart.bars) + 1)
+        # an edit pauses selecting until the pivot is built again
+        self.layer.startEditing()
+        f = next(self.layer.getFeatures())
+        self.layer.changeAttributeValue(f.id(), self.layer.fields().indexOf("SCORE_MAX"), 1.0)
+        H.settle(0.1)
+        self.assertTrue(chart._data_changed())
+        chart.view.barsPicked.emit([res_row], False, None)
+        H.settle(0.2)
+        self.assertEqual(self.layer.selectedFeatureCount(), 0)
+        self.assertIn("press Build Pivot", chart.status.message.fullText())
+        self.layer.rollBack()
+        # a new build: the chart follows (one row field, no columns)
+        pivot.refresh_input()
+        pivot.set_spec(P.PivotSpec(["ZONE_CODE"], [], [P.Measure(None, "count")]))
+        pivot.build()
+        self.assertTrue(H.wait_for(lambda: not pivot.runner.busy, 30))
+        H.settle(0.2)
+        self.assertIsNone(chart.bars.split)
+        self.assertEqual(chart.value_combo.count(), 1)       # Records is the measure
+        self.assertEqual(sum(chart.bars.values), self.layer.featureCount())
+        self.assertFalse(chart.split_mode_row.isVisibleTo(chart))
+        # another layer: nothing built for it yet
+        pivot.set_layer(self.other)
+        H.settle(0.1)
+        self.assertIsNone(chart.bars)
+        self.assertIn("Build the pivot", chart.view.message)
+        # closing the pivot closes its chart
+        self.plugin.pivot_host.close()
+        H.settle(0.1)
+        self.assertIsNone(pivot.chart_host)
+        self.assertEqual(PC.SORTS[0], "table")
+
+    def test_12d_pivot_chart_negative_values(self):
+        """Values below 0: columns hang below the 0 line, a linear axis."""
+        from qgis.core import QgsFeature
+        lyr = QgsVectorLayer("None?field=DISTRICT:string&field=CHANGE:double",
+                             "Made-up changes", "memory")
+        feats = []
+        for k, (d, v) in enumerate([("East", 4.0), ("East", 2.5), ("West", -6.0),
+                                    ("West", 1.0), ("North", -0.5)]):
+            f = QgsFeature(lyr.fields())
+            f.setAttributes([d, v])
+            feats.append(f)
+        lyr.dataProvider().addFeatures(feats)
+        QgsProject.instance().addMapLayer(lyr)
+        try:
+            pivot = self.plugin.open_pivot(lyr)
+            pivot._capture("all")
+            pivot.set_spec(P.PivotSpec(["DISTRICT"], [], [P.Measure("CHANGE", "sum")]))
+            pivot.build()
+            self.assertTrue(H.wait_for(lambda: pivot.model.result is not None
+                                       and not pivot.runner.busy, 30))
+            chart = pivot.open_chart()
+            chart.window().resize(1000, 600)
+            chart.scale_combo.setCurrentIndex(chart.scale_combo.findData("linear"))
+            chart.sort_combo.setCurrentIndex(chart.sort_combo.findData("count"))
+            H.settle(0.3)
+            self.assertEqual(chart.bars.labels, ["East", "North", "West"])
+            self.assertEqual(chart.bars.values, [6.5, -0.5, -5.0])
+            self.assertTrue(chart.bars.negative)
+            log = chart.scale_combo.model().item(chart.scale_combo.findData("log"))
+            self.assertFalse(log.isEnabled())
+            view = chart.view
+            plot = view._geo["plot"]
+            west = next(r for r, i, s in view._geo["bars"] if i == 2 and s is None)
+            east = next(r for r, i, s in view._geo["bars"] if i == 0 and s is None)
+            self.assertLess(east.top(), west.top())            # up, then down from 0
+            self.assertGreater(west.bottom(), east.bottom())
+            self.assertGreater(west.bottom(), plot.center().y())
+            self.assertEqual(view.hit(QPoint(int(west.center().x()),
+                                             int(west.bottom() - 2)))[0], 2)
+            chart.view.barsPicked.emit([2], False, None)
+            H.settle(0.2)
+            self.assertEqual(lyr.selectedFeatureCount(), 2)
+            chart.kind_combo.setCurrentIndex(chart.kind_combo.findData("bar"))
+            H.settle(0.3)
+            west = next(r for r, i, s in view._geo["bars"] if i == 2 and s is None)
+            east = next(r for r, i, s in view._geo["bars"] if i == 0 and s is None)
+            self.assertLess(west.left(), east.left())          # left of the 0 line
+            self.plugin.pivot_host.close()
+        finally:
+            QgsProject.instance().removeMapLayer(lyr.id())
+
     def test_13_compare(self):
         base = H.demo_layer(n=800, name="Parcels baseline")
         new = H.demo_updated_layer(base)
