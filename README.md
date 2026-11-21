@@ -10,6 +10,14 @@ One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
 Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
+**Version 1.3** makes Attribute Explorer much lighter and faster on big
+layers: all column statistics come from one read, filters reuse the values
+already read and sorting never freezes QGIS. With 10 million records the
+statistics are ready in 78 s instead of 185 s, a filter takes 14 s instead
+of 125 s and memory peaks at 1.0 GB instead of 3.1 GB (see
+[Big layers](#attribute-explorer); the full list of changes is in the
+changelog of `metadata.txt`).
+
 Inspired by Microsoft's [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
 
@@ -17,7 +25,7 @@ extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
 
 ## Install
 
-1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.0.zip`
+1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.3.zip`
 2. QGIS → *Plugins › Manage and Install Plugins › Install from ZIP*.
 3. If the standalone *Geometry and Table Compare* plugin is installed, disable
    it — Attribute Table Studio includes it (the plugin warns when both are enabled).
