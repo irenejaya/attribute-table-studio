@@ -445,6 +445,22 @@ H.wait_for(lambda: pv.model.result is not None and not pv.runner.busy, 60)
 pv.table.sortByColumn(1, Qt.SortOrder.DescendingOrder)
 save(pwin, "pivot")
 
+if THEME == "dark":
+    # the pivot as a chart: land use by owner type, one bar selected
+    pv.set_spec(P.PivotSpec(["LAND_USE"], ["OWNER_TYPE"], [P.Measure("AREA_M2", "sum")]))
+    pv.build()
+    H.wait_for(lambda: pv.model.result is not None and not pv.runner.busy, 60)
+    pc = pv.open_chart()
+    pc_win = pv.chart_host._window
+    pc_win.resize(1180, 680)
+    pc.sort_combo.setCurrentIndex(pc.sort_combo.findData("count"))
+    H.settle(0.3)
+    pc.view.barsPicked.emit([1], False, None)
+    H.settle(0.5)
+    save(pc_win, "pivot_chart")
+    pv.chart_host.close()
+    layer.removeSelection()
+
 # Geometry and Table Compare
 base = sample_parcels(n=2000, seed=7, name="Sample parcels (baseline)")
 new = sample_update(base)
@@ -487,6 +503,21 @@ if THEME == "dark":
     tbl.clearSelection()
     tbl.selectRow(rows[6])
     save(cwin, "review")
+
+    # the changed fields, from the Changed chip of the Review row
+    tbl.clearSelection()
+    pop = cp.show_changed_fields()
+    H.settle(0.4)
+    chip = cp.changed_field_legend
+    corner = chip.mapTo(cwin, chip.rect().bottomRight())
+    shot = cwin.grab()
+    painter = QPainter(shot)
+    painter.drawPixmap(corner.x() - pop.width(), corner.y() + 4, pop.grab())
+    painter.end()
+    shot = shot.copy(0, 0, shot.width(), min(shot.height(), corner.y() + pop.height() + 90))
+    shot.save(os.path.join(OUT, "dark_changed_fields.png"))
+    print("saved", os.path.relpath(os.path.join(OUT, "dark_changed_fields.png")))
+    pop.close()
 
     plugin.toolbar.setIconSize(QSize(24, 24))
     save(plugin.toolbar, "toolbar")

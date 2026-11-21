@@ -490,6 +490,41 @@ class EditingTests(unittest.TestCase):
         self.assertEqual((hbar.value(), vbar.value()), (h, v))
         self.assertEqual(p.view.currentIndex().column(), last)        # still framed
 
+    def test_10d_quick_update_row_stays_open(self):
+        """Opening the Explorer on a layer already being edited shows the
+        Quick update row with its button on, and it stays open after an
+        update; only the button (or stopping editing) hides it."""
+        p = self.panel
+        host = self.plugin.explorers[self.layer.id()]
+        host.close()
+        H.settle(0.1)
+        self.layer.startEditing()                    # editing started in QGIS
+        p = self.panel = self.plugin.open_explorer(self.layer)
+        settle(p)
+        H.settle(0.2)
+        btn = p.edit_bar.quick_btn
+        self.assertTrue(btn.isChecked())
+        self.assertTrue(p.quick_bar.isVisibleTo(p))
+        q = self._quick("LAND_USE", "'X'")
+        q.run_btn.click()
+        settle(p)
+        H.settle(0.3)
+        self.assertEqual({f["LAND_USE"] for f in self.layer.getFeatures()}, {"X"})
+        self.assertTrue(btn.isChecked())
+        self.assertTrue(p.quick_bar.isVisibleTo(p))   # still open after the update
+        p.save_edits()
+        settle(p)
+        H.settle(0.2)
+        self.assertTrue(p.quick_bar.isVisibleTo(p))   # and after Save
+        btn.click()                                  # the user hides it
+        self.assertFalse(p.quick_bar.isVisibleTo(p))
+        f = next(self.layer.getFeatures())
+        self.layer.changeAttributeValue(f.id(), self.lu, "Y")
+        H.settle(0.3)
+        self.assertFalse(p.quick_bar.isVisibleTo(p))  # hidden stays hidden
+        btn.click()
+        self.assertTrue(p.quick_bar.isVisibleTo(p))
+
     def test_11_multi_edit(self):
         p = self.panel
         self.start()

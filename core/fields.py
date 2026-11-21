@@ -215,8 +215,30 @@ def cell_text(field, value):
         return display_value(value)
 
 
+def plain_number(value):
+    """A number as a value, not an amount: no thousands separator, as the
+    QGIS attribute table shows it (a year 2023, a code 10450); up to 6
+    decimals, trailing zeros dropped."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if not math.isfinite(value):
+        return str(value)
+    if value == int(value) and abs(value) < 1e15:
+        return str(int(value))
+    text = f"{value:.6f}".rstrip("0").rstrip(".")
+    return text if text not in ("", "-0") else "0"
+
+
 def display_value(value):
-    """Plain text for a raw attribute value (labels, frequency lists)."""
+    """Plain text for a raw attribute value (labels, frequency lists).
+    Numbers have no thousands separator: here they name a value (a year, a
+    zone, a code); counts and statistics use :func:`format_number`."""
     if is_null(value):
         return NULL_TEXT
     if isinstance(value, str):
@@ -224,7 +246,7 @@ def display_value(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (int, float)):
-        return format_number(value)
+        return plain_number(value)
     if isinstance(value, (datetime.datetime, datetime.date, datetime.time)):
         return value.isoformat(sep=" ") if isinstance(
             value, datetime.datetime) else value.isoformat()

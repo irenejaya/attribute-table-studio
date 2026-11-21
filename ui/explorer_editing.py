@@ -113,11 +113,19 @@ class EditingMixin:
             view.editorClosed.connect(self._apply_pending_scan)
 
     def _edit_layer_changed(self, layer):
-        self.edit.set_layer(layer)
+        # Quick update starts closed for the new layer, then follows its edit
+        # session: a layer that is already being edited opens it too (as
+        # starting to edit does).  The button is reset first: resetting it
+        # after the session state came in left the row showing with the
+        # button off, and the next edit then hid the row.
+        quick = self.edit_bar.quick_btn
+        quick.blockSignals(True)
+        quick.setChecked(False)
+        quick.blockSignals(False)
+        self.quick_bar.setVisible(False)
         self.quick_bar.set_layer(layer)
-        self.edit_bar.quick_btn.blockSignals(True)
-        self.edit_bar.quick_btn.setChecked(False)
-        self.edit_bar.quick_btn.blockSignals(False)
+        self._was_editing = False
+        self.edit.set_layer(layer)
 
     # ------------------------------------------------------------------
     # state

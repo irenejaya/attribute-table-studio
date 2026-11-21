@@ -277,6 +277,46 @@ class PivotResult:
                     out.extend(hit[1])
         return out
 
+    # ---- several columns at once (the chart's "Other") ------------------
+    def _merged(self, rk, col_keys):
+        rows = self.row_keys if rk is TOTAL else [rk]
+        states = None
+        for r in rows:
+            for c in col_keys:
+                hit = self._leaf.get((r, c))
+                if not hit:
+                    continue
+                if states is None:
+                    states = [_State(s.values is not None, s.distinct is not None)
+                              for s in hit[0]]
+                for acc, s in zip(states, hit[0]):
+                    acc.merge(s)
+        return states
+
+    def value_over(self, rk, col_keys, measure_index):
+        """Measure value of row *rk* over the column keys *col_keys*
+        together, worked out from their records (exact for every
+        aggregation, as a total is)."""
+        if len(col_keys) == 1:
+            return self.value(rk, col_keys[0], measure_index)
+        states = self._merged(rk, col_keys)
+        agg = self.spec.measures[measure_index].agg
+        if states is None:
+            return 0 if agg == "count" else None
+        return _result(states[measure_index], agg)
+
+    def record_count_over(self, rk, col_keys):
+        if len(col_keys) == 1:
+            return self.record_count(rk, col_keys[0])
+        states = self._merged(rk, col_keys)
+        return states[0].records if states else 0
+
+    def fids_over(self, rk, col_keys):
+        out = []
+        for ck in col_keys:
+            out.extend(self.fids(rk, ck))
+        return out
+
     # ------------------------------------------------------------------
     def table(self):
         """Display layout shared by the result view and the exporters.

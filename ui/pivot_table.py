@@ -465,6 +465,7 @@ class PivotPanel(QWidget):
         self.filters = []
         self.row_rows, self.col_rows, self.measure_rows = [], [], []
         self._closing = False
+        self.chart_host = None             # the chart of the pivot (its own window)
         self._build_ui()
 
     # ====================================================================
@@ -520,6 +521,11 @@ class PivotPanel(QWidget):
         self.build_btn = W.action_button(m, "Build Pivot",
                                          "Calculate the pivot from the input")
         row.add(self.build_btn)
+        self.chart_btn = row.add(W.square_button(
+            m, icons.native(icons.CHART),
+            "Chart\nThe built pivot as a chart: one bar per row, the columns as "
+            "colours; a click on a bar selects its records"))
+        self.chart_btn.clicked.connect(self.open_chart)
         export_menu = QMenu(self)
         self.export_xlsx = export_menu.addAction(icons.native(icons.XLSX),
                                                  "Excel (.xlsx)")
@@ -1188,7 +1194,15 @@ class PivotPanel(QWidget):
 
     def _set_result_actions(self, on):
         self.export_btn.setEnabled(on)
+        self.chart_btn.setEnabled(on)
         self.hint1.setVisible(on)
+
+    def open_chart(self):
+        """The built pivot as a chart, in the window of Visualize Statistics."""
+        if self.model.result is None:
+            return None
+        from .pivot_chart import open_pivot_chart
+        return open_pivot_chart(self)
 
     def _stale_reason(self):
         r = self._result_input
@@ -1209,6 +1223,8 @@ class PivotPanel(QWidget):
         self._update_status()
 
     def _update_status(self):
+        if self.chart_host is not None:
+            self.chart_host.panel.on_pivot_status()
         if self.runner.busy:
             return
         if self.layer is None:
@@ -1524,4 +1540,7 @@ class PivotPanel(QWidget):
     def shutdown(self):
         self._closing = True
         self.runner.new_generation()
+        if self.chart_host is not None:
+            from .pivot_chart import close_pivot_chart
+            close_pivot_chart(self)
         self._disconnect_layer()

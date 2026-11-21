@@ -365,6 +365,37 @@ and <i>Show grand total</i> (under Options) add those rows and columns.</li>
 <li><b>Double-click</b> a result to open the records behind it in Attribute
 Explorer.</li>
 </ul>
+<h4>Chart the result</h4>
+<p>The <b>chart icon</b> next to <b>Build Pivot</b> opens the built pivot as
+a chart, in the window of Visualize Statistics: <b>one bar per row</b> of
+the pivot. <b>Value</b> picks which of the pivot's values the bars show (the
+first one at first, or <i>Records</i>); <b>Chart</b> draws vertical columns
+or horizontal bars. With a column field, the <b>columns of the pivot become
+the colours</b> of the bars: <i>Stacked</i> (the parts add up to the row's
+total) or <i>Side by side</i>. A mean, median, minimum, maximum, standard
+deviation or distinct count does not add up, so those are always side by
+side. More than 8 columns: the 8 with the most records keep their own
+colour, the rest are shown together as <i>Other</i> (worked out from their
+records, so a mean of Other is the mean of those records).</p>
+<ul>
+<li><b>Hover</b> a bar for its numbers: the value of each column, the total,
+its records and how many of them are selected.</li>
+<li><b>Click</b> a bar to select its records on the layer (<b>Ctrl+click</b>
+adds, <b>drag</b> across bars selects the range); click a coloured part for
+that column's records only, or a colour in the legend for that column across
+the chart. A bar turns the selection colour once all its records are selected
+(for a count of records, the selected ones fill it from the bottom).
+<b>Right-click</b> a bar to <i>Inspect Contributing Records</i> in Attribute
+Explorer, as a double-click on the table does.</li>
+<li><b>Sort</b> keeps the table's order (sort the table by a column to
+reorder the chart), or A → Z, Z → A, smallest or largest value first.
+<b>Show</b> keeps the first rows of a long pivot. Negative values hang below
+the 0 line (or left of it).</li>
+<li>The chart follows the pivot: a new <b>Build Pivot</b> draws it again.
+After an edit of the layer, selecting from the chart waits for a new
+Build Pivot. <b>Export</b> saves the chart as a PNG or SVG image, copies it,
+or writes the bars as CSV.</li>
+</ul>
 <h4>Rules</h4>
 <ul>
 <li>Numeric measures skip NULL and keep zero; a group with no valid value
@@ -437,6 +468,12 @@ visible rows. Added rows are decided as a whole.</li>
 <li>The <b>Decision</b> column follows the values: <i>Accepted</i>,
 <i>Rejected</i>, <i>Mixed</i> (some each way) or <i>Pending 1/3</i> while
 values are still undecided.</li>
+<li><b>Which fields changed?</b> Click the <b>Changed</b> chip of the Review
+row: one line per field that changed, most changes first, with the number of
+modified records it changed in, their share and a small bar. Hover a field
+for how many of its changes are accepted, rejected or still pending. Click a
+field to show only the records where it changed (the table scrolls to its
+column and the chip turns bold); <b>All</b> shows every change again.</li>
 </ul>
 <h4>On the map</h4>
 <p><b>Zoom to selection</b> (also in the right-click menu) selects the
