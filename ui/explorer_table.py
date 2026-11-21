@@ -122,10 +122,12 @@ class FeatureTableModel(QAbstractTableModel):
         self.load_styles()
         self.endResetModel()
 
-    def set_fids(self, fids):
+    def set_fids(self, fids, index=None):
+        """*index*: a RowIndex of these ids built beforehand (in the
+        background job), so finding a row never sorts on the screen."""
         self.beginResetModel()
         self.fids = CP.ids(fids)
-        self._index = None
+        self._index = index if index is not None and index.values is self.fids else None
         self.endResetModel()
 
     def _row_index(self):

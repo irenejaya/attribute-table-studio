@@ -763,6 +763,81 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(sum(1 for r in range(tbl.rowCount()) if not tbl.isRowHidden(r)),
                          before)
 
+    def test_13t_big_layer_kept_columns(self):
+        """A layer above 50,000 records: the read of all records keeps its
+        columns, so a filter's statistics and a sort need no new read; they
+        equal a fresh calculation; an edit drops what was kept."""
+        import random
+        from qgis.core import QgsFeature, QgsFeatureRequest as Req
+        from attribute_table_studio.core import stats as S
+        from attribute_table_studio.core.compat import NO_GEOMETRY
+        rnd = random.Random(5)
+        lyr = QgsVectorLayer("None?field=USE:string&field=AREA:double&field=ZONE:integer",
+                             "Made-up big table", "memory")
+        uses = ["Residential", "Commercial", "Rural", None]
+        feats = []
+        for k in range(60000):
+            f = QgsFeature(lyr.fields())
+            f.setAttributes([rnd.choice(uses),
+                             None if rnd.random() < 0.02 else round(rnd.uniform(1, 900), 1),
+                             rnd.randint(1, 9)])
+            feats.append(f)
+        lyr.dataProvider().addFeatures(feats)
+        QgsProject.instance().addMapLayer(lyr)
+        try:
+            panel = self.plugin.open_explorer(lyr)
+            self.assertTrue(H.wait_for(lambda: idle(panel), 120))
+            store = panel._kept
+            self.assertIsNotNone(store)
+            self.assertEqual(store.records, 60000)
+            use, area = lyr.fields().indexOf("USE"), lyr.fields().indexOf("AREA")
+            self.assertIn(area, store.columns)
+
+            def fresh(logical):
+                shown = set(panel.model.fids)
+                req = Req().setFlags(NO_GEOMETRY).setSubsetOfAttributes([logical])
+                vals = [f.attribute(logical) for f in lyr.getFeatures(req) if f.id() in shown]
+                return S.compute_profile(panel.model.kinds[logical], vals)
+
+            # a filter: statistics from the kept columns, exactly a new read's
+            used = []
+            original = store.profile
+
+            def counting(logical, *a, **k):
+                used.append(logical)
+                return original(logical, *a, **k)
+            store.profile = counting
+            panel.set_column_filter("USE", FL.ColumnFilter("USE", F.TEXT, "in",
+                                                           values=["Rural"]))
+            self.assertTrue(H.wait_for(lambda: idle(panel), 120))
+            store.profile = original
+            self.assertEqual(sorted(used), sorted(store.columns))     # no column read again
+            self.assertEqual(len(panel.model.fids),
+                             sum(1 for f in lyr.getFeatures() if f["USE"] == "Rural"))
+            for logical in (use, area, lyr.fields().indexOf("ZONE")):
+                ref, got = fresh(logical), panel.profiles[logical]
+                for name in ("count", "missing", "distinct", "minimum", "maximum", "total",
+                             "mean", "median", "std", "bins", "frequencies"):
+                    self.assertEqual(getattr(ref, name), getattr(got, name), name)
+            self.assertIs(panel._kept, store)               # still the same store
+            # a sort by a kept column: no new read, the right order
+            panel.sort_by(area, True)
+            self.assertTrue(H.wait_for(lambda: idle(panel), 120))
+            shown = [panel.model.raw_value(r, area) for r in range(len(panel.model.fids))]
+            present = [v for v in shown if v is not None]
+            self.assertEqual(present, sorted(present, reverse=True))
+            self.assertTrue(all(v is None for v in shown[len(present):]))   # NULL last
+            # an edit: what was kept belongs to the old layer state
+            lyr.startEditing()
+            first = next(lyr.getFeatures())
+            lyr.changeAttributeValue(first.id(), area, 1.0)
+            self.assertTrue(H.wait_for(lambda: idle(panel) and panel._kept is not store, 120))
+            lyr.rollBack()
+            self.assertTrue(H.wait_for(lambda: idle(panel), 120))
+            self.plugin.explorers[lyr.id()].close()
+        finally:
+            QgsProject.instance().removeMapLayer(lyr.id())
+
     def test_13b_round2_ui_rules(self):
         panel = self.plugin.open_explorer(self.layer)
         H.wait_for(lambda: idle(panel))

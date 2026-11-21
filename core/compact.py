@@ -20,6 +20,8 @@ Python works the same, slower.
 import bisect
 from array import array
 
+from . import fields as F
+
 try:
     import numpy as np
     HAS_NUMPY = True
@@ -90,6 +92,11 @@ class RowIndex:
         self._rows = None            # the row of each sorted id
         self._dict = None            # plain Python fallback for any order
 
+    def build(self):
+        """Prepare now (in a background job): later look-ups do not sort."""
+        self._build()
+        return self
+
     def _build(self):
         if self._ready:
             return
@@ -155,3 +162,115 @@ class RowIndex:
         """The smallest row of *fids* in the list, or None."""
         rows = self.rows(fids)
         return min(rows) if rows else None
+
+
+class SortKeys:
+    """The sort key of each record as a scan reads it, kept compact:
+    numbers and dates as 8-byte values, text as codes.  :meth:`order`
+    gives exactly the order of ``sort_key(group_value(v))`` (NULL last, ties
+    in reading order, *desc* reversed with ties still in reading order),
+    sorted by numpy, which lets QGIS's screen run while it sorts (Python's
+    own sort holds it: about 5 seconds at 10 million records).  Values of
+    mixed kinds fall back to Python's sort of the full keys."""
+
+    def __init__(self):
+        self.mode = None             # "num", "date", "text", "obj"
+        self.null = bytearray()      # per record: 1 = NULL (sorted last)
+        self.vals = array("d")       # num / date keys of the non-NULL records
+        self.codes = array("i")      # text: codes of the non-NULL records
+        self.index = {}              # text -> code
+        self.objs = None             # obj: full sort keys of the non-NULL records
+
+    def _to_objects(self):
+        """Mixed kinds: the full sort keys of what was read so far."""
+        if self.mode == "num":
+            objs = [(1, v) for v in self.vals]
+        elif self.mode == "date":
+            objs = [(2, v) for v in self.vals]
+        elif self.mode == "text":
+            labels = [None] * len(self.index)
+            for text, code in self.index.items():
+                labels[code] = text
+            objs = [(3, labels[c].lower(), labels[c]) for c in self.codes]
+        else:
+            objs = []
+        self.mode, self.objs = "obj", objs
+        self.vals, self.codes, self.index = array("d"), array("i"), {}
+
+    def add(self, v):
+        t = type(v)
+        if t is float or t is int or t is bool:
+            mode, key = "num", float(v)
+        elif t is str:
+            mode, key = "text", v
+        elif v is None or F.is_null(v):
+            self.null.append(1)
+            return
+        elif hasattr(v, "toJulianDay") and not hasattr(v, "toMSecsSinceEpoch") \
+                and v.isValid():                       # a valid QDate
+            mode, key = "date", float(v.toJulianDay() - F._JULIAN_OFFSET)
+        else:
+            full = F.sort_key(F.group_value(v))
+            if full[0] == 2:
+                mode, key = "date", full[1]
+            else:
+                mode, key = "obj", full
+        self.null.append(0)
+        if self.mode is None:
+            self.mode = mode
+        elif mode != self.mode and self.mode != "obj":
+            self._to_objects()                   # mixed kinds: full keys from now
+        if self.mode == "obj":
+            self.objs.append(key if mode == "obj" else F.sort_key(F.group_value(v)))
+        elif mode == "text":
+            code = self.index.get(key)
+            if code is None:
+                code = self.index[key] = len(self.index)
+            self.codes.append(code)
+        else:
+            self.vals.append(key)
+
+    def __len__(self):
+        return len(self.null)
+
+    def order(self, desc=False):
+        """Row numbers in sorted order (numpy array, or a list without
+        numpy)."""
+        xp = _np()
+        n = len(self.null)
+        present = [i for i in range(n) if not self.null[i]] if xp is None else \
+            xp.flatnonzero(xp.frombuffer(self.null, dtype=xp.uint8) == 0) if n else \
+            xp.zeros(0, dtype=xp.int64)
+        missing = [i for i in range(n) if self.null[i]] if xp is None else \
+            xp.flatnonzero(xp.frombuffer(self.null, dtype=xp.uint8) == 1) if n else \
+            xp.zeros(0, dtype=xp.int64)
+        if self.mode == "text":
+            labels = sorted(self.index, key=lambda t: (t.lower(), t))
+            rank = {t: r for r, t in enumerate(labels)}
+            by_code = [0] * len(self.index)
+            for text, code in self.index.items():
+                by_code[code] = rank[text]
+            if xp is not None:
+                keys = xp.asarray(by_code, dtype=xp.int64)[
+                    xp.frombuffer(self.codes, dtype=xp.int32)] if len(self.codes) else \
+                    xp.zeros(0, dtype=xp.int64)
+            else:
+                keys = [by_code[c] for c in self.codes]
+        elif self.mode in ("num", "date"):
+            keys = xp.frombuffer(self.vals, dtype=xp.float64) if (xp is not None and
+                                                                   len(self.vals)) \
+                else (list(self.vals) if xp is None else xp.zeros(0))
+        elif self.mode == "obj":
+            idx = sorted(range(len(self.objs)), key=self.objs.__getitem__, reverse=desc)
+            if xp is not None:
+                return xp.concatenate([present[xp.asarray(idx, dtype=xp.int64)], missing])
+            return [present[i] for i in idx] + missing
+        else:
+            keys = None
+        if keys is None or not len(present):
+            return missing if xp is None else xp.concatenate([present, missing])
+        if xp is None:
+            idx = sorted(range(len(keys)), key=keys.__getitem__, reverse=desc)
+            return [present[i] for i in idx] + missing
+        o = xp.argsort(-keys if desc else keys, kind="stable")
+        return xp.concatenate([present[o], missing])

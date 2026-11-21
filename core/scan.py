@@ -59,7 +59,7 @@ class ScanSpec:
 
 
 def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None,
-         builders=None):
+         builders=None, raw_order=False):
     """Read the scope.
 
     Returns (fids, columns) where columns[i] holds the raw values of
@@ -72,7 +72,8 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None,
     *builders* (one per attr_idxs entry, see :mod:`.stats`) take each value
     as it is read instead of keeping it: then *columns* is the builders, and
     a column costs what its builder keeps (8 bytes a number or date, the
-    distinct texts), not a Python object per value.
+    distinct texts), not a Python object per value.  *raw_order* keeps the
+    ids in the order they were read (the builders' order: kept columns).
     """
     attr_idxs = list(attr_idxs)
     sort_idx, desc = sort if sort else (None, False)
@@ -105,7 +106,7 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None,
     collect = builders is None
     fids = CP.ids() if (want_fids or sorting or (collect and attr_idxs)) else None
     fids_append = fids.append if fids is not None else None
-    keys = []
+    keys = CP.SortKeys() if sorting else None    # compact, sorted by numpy
     if collect:
         cols = [[] for _ in attr_idxs]
         pairs = [(c.append, idx) for c, idx in zip(cols, attr_idxs)]
@@ -138,9 +139,9 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None,
         if fids_append is not None:
             fids_append(fid)
         if sort_exp is not None:
-            keys.append(sort_exp.evaluate(ctx))
+            keys.add(sort_exp.evaluate(ctx))
         elif sort_idx is not None:
-            keys.append(feat.attribute(sort_idx))
+            keys.add(feat.attribute(sort_idx))
         if whole:
             attrs = feat.attributes()
             for add, idx in pairs:
@@ -152,9 +153,9 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None,
 
     order = None
     if sorting:
-        order = _sort_order(keys, desc)
+        order = keys.order(desc)
         keys = None
-    elif fids is not None and not CP.ascending(fids):
+    elif fids is not None and not raw_order and not CP.ascending(fids):
         if collect and attr_idxs:
             order = sorted(range(len(fids)), key=fids.__getitem__)
         else:

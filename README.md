@@ -65,10 +65,15 @@ by the records shown in the table when that is different: **9,434 (484)**.
 - **Big layers**: the records show first, then all the shown columns'
   statistics come from one read of the layer, numbers and dates kept as
   8-byte values and text counted as it is read (the same exact statistics).
-  The record list takes 8 bytes a record. In tests with 10 million records
-  (5 fields) the statistics were ready after 68 s instead of 185 s, a filter
-  took 47 s instead of 125 s, and QGIS used at most 0.7 GB more instead of
-  3 GB.
+  Those values are **kept**, within a memory budget (Settings › *Memory for
+  fast filters*: automatic, about 10 % of the computer's memory), so a
+  filter, a View scope or a drill-through works out its statistics without
+  reading the layer again, and a sort by a kept column is a numpy sort that
+  never freezes QGIS. Any edit or field change lets the kept values go (the
+  next read keeps them again); closing the explorer gives the memory back.
+  In tests with 10 million records (5 fields): statistics ready after 78 s
+  instead of 185 s, a filter 14 s instead of 125 s (a second one 6 s), a sort
+  3.5 s instead of 27 s, peak memory 1.0 GB instead of 3.1 GB.
 - **Selection** stays in sync with the map: select features with the row tick
   boxes / numbers (a click selects only that row, Ctrl adds or removes, Shift
   or a drag extends, also while editing). A click on a cell only frames it,

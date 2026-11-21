@@ -60,6 +60,14 @@ layer, field, active filters and record count.
 NULL is missing; zero and empty text are values. <b>Σ Summary: On / Off</b>
 collapses the strip; the chart icon beside it opens Visualize Statistics. Statistics are exact and calculated in the
 background - visible columns first.</p>
+<p><b>Big layers</b> (more than 50,000 records): the records show first and
+the statistics of all shown columns follow from one read of the layer. The
+values read are kept, so a filter, a View scope or a drill-through works out
+its statistics without reading the layer again, and sorting by a kept column
+takes seconds. They take memory while the explorer is open (about 600 MB for
+10 million records of 5 fields): <b>Settings › Memory for fast filters</b>
+sets how much (automatic: about 10 % of the computer's memory). An edit or a
+field change lets them go and the next read keeps them again.</p>
 <h4>Selection and map</h4>
 <p>Select features with the tick boxes / row numbers (a click selects only
 that feature, Ctrl+click adds or removes it, Shift+click or a drag selects a

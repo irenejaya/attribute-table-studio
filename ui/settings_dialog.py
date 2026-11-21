@@ -80,6 +80,22 @@ class SettingsDialog(QDialog):
             "unload the plugin.\nThe native table stays available in the Layer menu "
             "and in Explorer's More menu.")
         ef.addRow(self.keys_cb)
+        from ..core import keep as K
+        auto_mb = K.auto_budget() // 2 ** 20
+        self.keep_mb = QSpinBox()
+        self.keep_mb.setRange(0, 65536)
+        self.keep_mb.setSingleStep(256)
+        self.keep_mb.setSuffix(" MB")
+        self.keep_mb.setSpecialValueText(f"Automatic ({auto_mb:,} MB)")
+        self.keep_mb.setFixedHeight(m.control_h)
+        self.keep_mb.setToolTip(
+            "Big layers: the values read for the column statistics are kept, so a "
+            "filter, a View scope or a drill-through works out its statistics at once "
+            "instead of reading the layer again.\nAutomatic uses about 10 % of this "
+            "computer's memory; a smaller number keeps fewer columns (they are read "
+            "again, slower).\nThe memory is given back when the explorer closes or "
+            "the layer changes.")
+        ef.addRow("Memory for fast filters", self.keep_mb)
         lay.addWidget(exp)
 
         # ---- pivot ----
@@ -128,6 +144,7 @@ class SettingsDialog(QDialog):
         self.delay.setValue(get("explorer/filterDelayMs"))
         self.quick_cb.setChecked(get("explorer/quickUpdateOnEdit"))
         self.keys_cb.setChecked(get("explorer/replaceTableKeys"))
+        self.keep_mb.setValue(get("explorer/keepMemoryMB"))
         self.cell_limit.setValue(get("pivot/cellLimit"))
         self.decimals.setValue(get("pivot/decimals"))
 
@@ -141,6 +158,7 @@ class SettingsDialog(QDialog):
         settings.set_value("explorer/filterDelayMs", self.delay.value())
         settings.set_value("explorer/quickUpdateOnEdit", self.quick_cb.isChecked())
         settings.set_value("explorer/replaceTableKeys", self.keys_cb.isChecked())
+        settings.set_value("explorer/keepMemoryMB", self.keep_mb.value())
         settings.set_value("pivot/cellLimit", self.cell_limit.value())
         settings.set_value("pivot/decimals", self.decimals.value())
         self.accept()

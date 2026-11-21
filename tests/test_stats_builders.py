@@ -139,6 +139,9 @@ class _QDate:
     def toJulianDay(self):
         return self.jd
 
+    def toPyDate(self):
+        return datetime.date.fromordinal(self.jd - 1721425)
+
 
 class _QDateTime(_QDate):
     def toMSecsSinceEpoch(self):
@@ -210,6 +213,48 @@ class Planning(unittest.TestCase):
         for k in range(300):
             lone.add(str(k))
         self.assertFalse(S.shed([lone], limit=10))       # a lone column finishes
+
+
+class Sorting(Both):
+    """Compact sort keys sort exactly as the scan's Python sort did."""
+
+    @staticmethod
+    def ref(values, desc):
+        """The scan's sort before (core.scan._sort_order, which needs QGIS)."""
+        present, missing = [], []
+        for i, v in enumerate(values):
+            (missing if F.is_null(v) else present).append(i)
+        present.sort(key=lambda i: F.sort_key(F.group_value(values[i])), reverse=desc)
+        return present + missing
+
+    def same_order(self, values):
+        for desc in (False, True):
+            keys = CP.SortKeys()
+            for v in values:
+                keys.add(v)
+            self.assertEqual([int(i) for i in keys.order(desc)], self.ref(values, desc),
+                             f"desc={desc} numpy={CP.USE_NUMPY}")
+
+    def test_numbers_with_ties_and_null(self):
+        rnd = random.Random(8)
+        self.same_order([rnd.choice([None, 1, 2, 2.0, 3.5, -1, 0, -0.0, 7, True])
+                         for _ in range(500)])
+        self.same_order([])
+        self.same_order([None, None])
+
+    def test_text_and_dates(self):
+        rnd = random.Random(9)
+        self.same_order([rnd.choice([None, "b", "B", "a", "A", "", "Zeta", "alpha"])
+                         for _ in range(400)])
+        base = datetime.date(2020, 1, 1)
+        self.same_order([None if rnd.random() < 0.1 else
+                         base + datetime.timedelta(days=rnd.randint(0, 40))
+                         for _ in range(300)])
+        self.same_order([_QDate(2459000 + rnd.randint(0, 30)) for _ in range(200)]
+                        + [None])
+
+    def test_mixed_kinds_fall_back(self):
+        self.same_order([3, "a", None, 1.5, "B", datetime.date(2020, 1, 1), 2])
 
 
 class Compact(Both):

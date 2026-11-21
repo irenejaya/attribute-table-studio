@@ -118,6 +118,36 @@ each value.  Sorting still holds QGIS's screen for about 5 s at 10 million
 records (Python's sort keeps the interpreter); Step 4 sorts with numpy,
 which lets the screen run.
 
+### Round 2 built (branch dev-v4): Steps 3 and 4
+
+| Step | Before | Round 1 | Round 2 |
+| --- | --- | --- | --- |
+| Records shown | 14.9 s | 12.1 s | 12 - 15 s (the same: this machine varies by 2 s) |
+| All statistics ready | 185 s | 68 s | 78 s (it also keeps the values) |
+| A filter (6 million left) | 125 s | 47 s | **13.9 s** |
+| Another filter (1.9 million) | - | - | **5.7 s** |
+| Back to all records | - | - | 15.0 s |
+| Sort by a number column | 27 s (screen held 4.7 s) | 25 s | **3.5 s** (screen held 0.06 s) |
+| Peak memory | 3,061 MB | 732 MB | 997 MB (1.6 GB while sorting) |
+| Memory once open | 1,398 MB | 435 MB | 920 MB (609 MB of it kept values) |
+
+At 1 million records: a filter 8.3 s -> 1.2 s, another 0.5 s, a sort 0.3 s;
+the filtered statistics were compared with today's (no difference).
+
+How: the read of all records also keeps a status byte per record (value,
+NULL, invalid) with the values, text as a code per record (not for more
+than a million distinct values), within the memory budget (Settings,
+automatic about 10 % of the memory).  A filter's records are looked up
+among the kept ones and each column's statistics computed from them; a sort
+by a kept column orders the kept values with numpy (as a read would: NULL
+last, ties in reading order).  Sorting by any other field collects compact
+keys and sorts them with numpy too, so QGIS's screen runs meanwhile.
+
+Not done: an edit lets all kept values go (the next read of all records
+keeps them again) instead of updating what changed; Visualize Statistics
+does not use the kept values yet; a small layer (up to 50,000 records)
+keeps nothing (it is read again in well under a second).
+
 ### Later (not in this plan)
 
 For GeoPackage and PostGIS layers without unsaved edits, the database

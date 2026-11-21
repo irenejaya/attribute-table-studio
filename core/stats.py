@@ -261,9 +261,18 @@ TEXT_LIMIT = 2000000             # distinct texts kept by one read, all columns
 _CHUNK = 262144                  # values turned into Python numbers at a time
 
 
-def builder(kind):
+def builder(kind, keep=False):
     """A builder for a field of *kind*: ``add(value)`` per record, then
-    ``profile()``."""
+    ``profile()``.  *keep*: it also remembers each record's value (see
+    :mod:`.keep`), so later scopes are worked out without reading again."""
+    if keep:
+        if kind in F.NUMERIC:
+            return KeepNumberBuilder(kind)
+        if kind in F.TEMPORAL:
+            return KeepDateBuilder(kind)
+        if kind == F.BOOL:
+            return KeepBoolBuilder(kind)
+        return KeepTextBuilder(kind)
     if kind in F.NUMERIC:
         return NumberBuilder(kind)
     if kind in F.TEMPORAL:
@@ -271,6 +280,15 @@ def builder(kind):
     if kind == F.BOOL:
         return BoolBuilder(kind)
     return TextBuilder(kind)
+
+
+def kept_bytes(kind, records):
+    """Memory a column kept for *records* records takes (at most)."""
+    if kind in F.NUMERIC or kind in F.TEMPORAL:
+        return 9 * records               # the value and a byte for NULL / invalid
+    if kind == F.BOOL:
+        return records
+    return 4 * records                   # a code per record (+ the distinct texts)
 
 
 def value_bytes(kind, records):
@@ -570,6 +588,187 @@ class TextBuilder(_Builder):
             p.frequencies = heapq.nsmallest(freq_limit, counter.items(), key=order)
             p.frequencies_truncated = True
         self.counts = None
+        return p
+
+
+# ---- keeping: the same builders, remembering each record ---------------------
+#
+# A kept column is aligned with the records of its read: a status byte per
+# record (0 a value, 1 NULL, 2 invalid) and the values of the records with
+# status 0, in record order (text: a code per record, -1 for NULL).  The
+# profile of the read itself is the builder's as usual; keep.py works out
+# any part of the records from these.
+
+KEEP_TEXT_LIMIT = 1000000        # more distinct texts than this: not kept
+
+
+class _Keep:
+    keepable = True
+
+    def kept(self):
+        """The column as kept (see keep.KeptColumn), or None."""
+        from .keep import KeptColumn
+        if not self.keepable or self.dropped:
+            return None
+        return KeptColumn.from_builder(self)
+
+
+class KeepNumberBuilder(_Keep, NumberBuilder):
+    def __init__(self, kind):
+        super().__init__(kind)
+        self.status = bytearray()
+        self._st = self.status.append
+
+    def _widen(self, typecode):
+        super()._widen(typecode)
+        if type(self.values) is not array:
+            self.keepable = False        # beyond 8 bytes: profiled, not kept
+
+    def add(self, v):
+        t = type(v)
+        if t is float:
+            if v - v == 0.0:
+                if type(self.values) is array and self.values.typecode == "q":
+                    self._widen("d")
+                self._put(v)
+                self._st(0)
+            else:
+                self.invalid += 1
+                self._st(2)
+        elif t is int:
+            self._put(v)
+            self._st(0)
+        elif v is None or F.is_null(v):
+            self.missing += 1
+            self._st(1)
+        else:
+            try:
+                x = float(v)
+            except (TypeError, ValueError):
+                self.invalid += 1
+                self._st(2)
+                return
+            if math.isfinite(x):
+                if type(self.values) is array and self.values.typecode == "q":
+                    self._widen("d")
+                self._put(x)
+                self._st(0)
+            else:
+                self.invalid += 1
+                self._st(2)
+
+    def profile(self, bins=DEFAULT_BINS):
+        values = self.values
+        n = len(values)
+        p = Profile(self.kind, n + self.missing + self.invalid)
+        p.missing, p.invalid, p.valid = self.missing, self.invalid, n
+        if not n:
+            return p
+        a = _view(values)
+        if a is None:
+            _numbers_from_sorted(p, sorted(values), bins)
+        else:
+            _numbers_from_sorted_np(p, CP.np.sort(a), bins)    # a copy: kept in order
+        return p
+
+
+class KeepDateBuilder(_Keep, DateBuilder):
+    def __init__(self, kind):
+        super().__init__(kind)
+        self.status = bytearray()
+
+    def add(self, v):
+        read = self._readers.get(type(v))
+        if read is None:
+            read = self._readers[type(v)] = _date_reader(v)
+        k = read(v)
+        if k is None:
+            self.missing += 1
+            self.status.append(1)
+            return
+        if k is False:
+            self.invalid += 1
+            self.status.append(2)
+            return
+        self.keys.append(k)
+        self.status.append(0)
+        if self.lo is None or k < self.lo:
+            self.lo, self.earliest = k, v
+        if self.hi is None or k > self.hi:
+            self.hi, self.latest = k, v
+
+    def profile(self, bins=DEFAULT_BINS):
+        keys = self.keys
+        n = len(keys)
+        p = Profile(self.kind, n + self.missing + self.invalid)
+        p.missing, p.invalid, p.valid = self.missing, self.invalid, n
+        if not n:
+            return p
+        p.earliest, p.latest = self.earliest, self.latest
+        integer = self.kind == F.DATE
+        a = _view(keys)
+        if a is None:
+            p.distinct = len(set(keys))
+            ordered = sorted(keys)
+            p.minimum, p.maximum = ordered[0], ordered[-1]
+            p.bins, p.integer_bins = histogram(ordered, bins, integer=integer)
+        else:
+            a = CP.np.sort(a)
+            p.distinct = _np_distinct(a)
+            p.minimum, p.maximum = a[0].item(), a[-1].item()
+            p.bins, p.integer_bins = _np_histogram(a, bins, integer)
+        return p
+
+
+class KeepBoolBuilder(_Keep, BoolBuilder):
+    """Yes / no: a code per record (0 false, 1 true, 2 NULL, 3 invalid)."""
+
+    def __init__(self, kind):
+        super().__init__(kind)
+        self.codes = bytearray()
+
+    def add(self, v):
+        t, f, m, i = self.true, self.false, self.missing, self.invalid
+        BoolBuilder.add(self, v)
+        self.codes.append(1 if self.true > t else 0 if self.false > f
+                          else 2 if self.missing > m else 3)
+
+
+class KeepTextBuilder(_Keep, TextBuilder):
+    """Text: a code per record (-1 NULL) into the distinct values."""
+
+    def __init__(self, kind):
+        super().__init__(kind)
+        self.codes = array("i")
+        self.index = {}
+
+    def add(self, v):
+        if type(v) is str:
+            key = v
+        elif v is None or F.is_null(v):
+            self.missing += 1
+            if self.keepable:
+                self.codes.append(-1)
+            return
+        else:
+            key = F.display_value(v)
+        counts = self.counts
+        counts[key] = counts.get(key, 0) + 1
+        if self.keepable:
+            code = self.index.get(key)
+            if code is None:
+                if len(self.index) >= KEEP_TEXT_LIMIT:
+                    self.keepable = False    # IDs and the like: profiled, not kept
+                    self.codes = array("i")
+                    self.index = {}
+                    return
+                code = self.index[key] = len(self.index)
+            self.codes.append(code)
+
+    def profile(self, bins=DEFAULT_BINS, freq_limit=FREQ_LIMIT):
+        counts = self.counts
+        p = TextBuilder.profile(self, bins, freq_limit)
+        self.counts = counts                 # profile() lets it go; kept still needs it
         return p
 
 
