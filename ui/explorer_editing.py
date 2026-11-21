@@ -238,7 +238,7 @@ class EditingMixin:
 
     def _selection_counts(self):
         sel = self.model.selected
-        shown = sum(1 for f in sel if self.model.row_of(f) is not None) if sel else 0
+        shown = self.model.count_shown(sel) if sel else 0
         return len(sel), len(sel) - shown
 
     def _update_selection_commands(self):

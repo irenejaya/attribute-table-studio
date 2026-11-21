@@ -90,6 +90,34 @@ when there is one.
 - The existing test suites on QGIS 4.2 and 3.44.
 - Timings and memory at 1 and 10 million records, before and after.
 
+### Round 1 built (branch dev-v4): Steps 1 and 2
+
+Measured in QGIS 4.2 on the same made-up 10 million record table (5 fields):
+
+| Step | Before | Round 1 |
+| --- | --- | --- |
+| Records shown | 14.9 s | 12.1 s |
+| All statistics ready | 185 s | **68 s** |
+| Peak memory (QGIS itself 304 MB) | 3,061 MB | **732 MB** |
+| Memory once open | 1,398 MB | **435 MB** |
+| A filter (6 million left) | 125 s | **47 s** |
+| Sort by a number column | 27 s | 25 s (Step 4) |
+
+At 1 million records: statistics 14.6 s -> 6.9 s, peak 818 -> 384 MB, a
+filter 8.3 -> 4.5 s.  The statistics were compared with today's on both
+layers in QGIS 4.2 and 3.44 (no difference) and on random data in the unit
+tests, with and without numpy.
+
+Besides the plan, two things made the read faster: all the values of a
+record are read in one call when most fields are wanted (half the time of
+one call per value), and QGIS dates take a short path (twice as fast).
+
+Not yet: the statistics target (40 - 50 s) is not reached; what is left is
+reading the values from QGIS (about 35 s of the 56 s) and Python handling
+each value.  Sorting still holds QGIS's screen for about 5 s at 10 million
+records (Python's sort keeps the interpreter); Step 4 sorts with numpy,
+which lets the screen run.
+
 ### Later (not in this plan)
 
 For GeoPackage and PostGIS layers without unsaved edits, the database

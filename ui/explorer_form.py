@@ -71,7 +71,7 @@ class FeatureListModel(QAbstractListModel):
 
     def set_fids(self, fids):
         self.beginResetModel()
-        self.fids = list(fids)
+        self.fids = fids          # the table's compact list (shared, never changed)
         self._labels = {}
         self.endResetModel()
 

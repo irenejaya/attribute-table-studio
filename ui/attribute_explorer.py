@@ -22,9 +22,12 @@ outside the visible screen; sorting and hiding columns never change it.
 Filtering never touches the map selection.
 
 Work runs in background tasks: one scan finds the scope (and computes the
-visible columns' profiles in the same pass when it fits the memory
-budget), then the remaining profiles follow in chunks, visible columns
-first.  Every edit, filter or selection change starts a new generation, so
+visible columns' profiles in the same pass for a small scope), then the
+profiles follow, visible columns first.  The shown columns share one read:
+numbers and dates are kept as 8-byte values within a memory budget (about
+6 columns at 10 million records) and text is counted as it is read
+(:mod:`..core.stats` builders), so a big layer is read once, not once per
+column.  The record list itself is compact (8 bytes a record).  Every edit, filter or selection change starts a new generation, so
 a stale result can never overwrite a newer one; an accepted edit marks the
 statistics as updating at once and rescans after a short pause.
 
@@ -77,9 +80,22 @@ from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
 LAYOUT_PROPERTY = "attribute_table_studio/explorer_layout"
-VALUE_BUDGET = 4000000          # raw values held in memory per scan
 VALUE_LIST_LIMIT = 5000         # entries offered by the "is one of" picker
 QUICK_ROWS_LIMIT = 50000        # above this, records show before profiles
+
+
+def _finish_profiles(job, logicals, builders):
+    """({logical: profile}, [logicals to read again on their own]) from the
+    builders of one read (in a background job, one column at a time so its
+    values are freed before the next)."""
+    profs, retry = {}, []
+    for logical, b in zip(logicals, builders or ()):
+        if b.dropped:
+            retry.append(logical)
+            continue
+        job.check()
+        profs[logical] = b.profile()
+    return profs, retry
 
 
 class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
@@ -113,7 +129,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.chart_host = None           # Visualize Statistics window
         self.profiles = {}
         self._profile_queue = []
-        self._per_scan = 1
+        self._alone = set()              # columns read on their own (big text)
         self.scope_version = 0           # bumps when the scope result changes
         self.external = None             # {"fids": set, "label": str}
         self.view_scope = "all"          # see explorer_browse.SCOPES
@@ -515,7 +531,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         previous = self.model.selected
         self.model.selected = set(self.layer.selectedFeatureIds())
         if self.selected_top and not self.selected_only:
-            self.model.set_fids(self._ordered(list(self.model.fids)))
+            self.model.set_fids(self._ordered(self.model.fids))
         if not self._table_selecting and not self.selected_only:
             # selected on the map (or elsewhere): bring the row into view
             self._scroll_to_features(self.model.selected - previous)
@@ -733,13 +749,13 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._spec = spec
         order = self._profile_order() if self.header.profiles_visible else []
         order = [i for i in order if i not in self.profiles]
-        self._per_scan = max(1, VALUE_BUDGET // max(spec.estimate, 1))
+        self._alone = set()
         if spec.estimate > QUICK_ROWS_LIMIT:
             # large scope: show the records first, profiles follow
             first, self._profile_queue = [], order
         else:
-            first = order[:self._per_scan]
-            self._profile_queue = order[self._per_scan:]
+            first, self._profile_queue = S.take_read(order, self.model.kinds,
+                                                     max(spec.estimate, 1))
         for logical in order:
             self.header.cards[logical].set_state("pending", message="Calculating…")
         kinds = list(self.model.kinds)
@@ -753,13 +769,11 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                 failing = CON.failing(fail_spec, spec.source, job)
                 ids = set(failing)
                 spec.restrict = ids if spec.restrict is None else spec.restrict & ids
-            fids, cols = scan(spec, job, first, True, sort, sort_expr)
-            profs = {}
-            for idx, col in zip(first, cols):
-                job.check()
-                profs[idx] = S.compute_profile(kinds[idx], col)
+            builders = [S.builder(kinds[i]) for i in first] if first else None
+            fids, _cols = scan(spec, job, first, True, sort, sort_expr, builders=builders)
+            profs, retry = _finish_profiles(job, first, builders)
             map_fids = scan(map_spec, job)[0] if map_spec is not None else None
-            return fids, profs, map_fids, failing
+            return fids, profs, map_fids, failing, retry
 
         self.status.set_status(
             "Sorting…" if sort_only else f"Filtering {self.layer.name()}…", "busy")
@@ -790,7 +804,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             # a cell is being edited: apply when its editor closes
             self._pending_scan = job
             return
-        fids, profs, map_fids, failing = job.result
+        fids, profs, map_fids, failing, retry = job.result
+        if retry:                        # too big to share the read: on their own
+            self._alone |= set(retry)
+            self._profile_queue = retry + self._profile_queue
         if failing is not None:
             hard = sum(1 for v in failing.values() if v == "hard")
             self._failing_counts = (hard, len(failing) - hard)
@@ -861,19 +878,19 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             return
         on_screen = set(self.header.logicals_in_view())
         queue.sort(key=lambda i: 0 if i in on_screen else 1)
-        chunk, self._profile_queue = queue[:self._per_scan], queue[self._per_scan:]
         spec = self._spec
+        # the shown columns share one read, numbers and dates within the
+        # memory budget (8 bytes a value), text counted as it is read
+        chunk, self._profile_queue = S.take_read(queue, self.model.kinds,
+                                                 max(spec.estimate, 1), self._alone)
         kinds = list(self.model.kinds)
         done = len(self.profiles)
         total = done + len(queue)
 
         def work(job, spec=spec, chunk=chunk, kinds=kinds):
-            _fids, cols = scan(spec, job, chunk, False)
-            out = {}
-            for idx, col in zip(chunk, cols):
-                job.check()
-                out[idx] = S.compute_profile(kinds[idx], col)
-            return out
+            builders = [S.builder(kinds[i]) for i in chunk]
+            scan(spec, job, chunk, False, builders=builders)
+            return _finish_profiles(job, chunk, builders)
 
         self.status.set_status(
             f"Calculating column summaries… {done:,} of {total:,} columns", "busy")
@@ -894,9 +911,13 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                                    message="Not calculated — click to calculate")
             self._finish_busy("Column summaries cancelled", "warning")
             return
-        self.profiles.update(job.result)
-        for logical, prof in job.result.items():
+        profs, retry = job.result
+        self.profiles.update(profs)
+        for logical, prof in profs.items():
             self.header.cards[logical].set_state("ready", prof)
+        if retry:                        # too big to share the read: on their own
+            self._alone |= set(retry)
+            self._profile_queue = retry + self._profile_queue
         self._next_profile_chunk()
 
     def _compute_missing_profiles(self):
@@ -1465,7 +1486,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _scroll_to_features(self, fids):
         """Scroll (vertically only) so the first of *fids* in table order is
         in the middle of the view; False when none of them is shown."""
-        rows = [r for r in map(self.model.row_of, fids) if r is not None]
+        rows = self.model.rows_of(fids)
         if not rows:
             return False
         bar = self.view.horizontalScrollBar()
@@ -1796,7 +1817,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if not sel:
             self.status.set_status("Nothing selected to copy", "warning")
             return
-        rows = [r for r, fid in enumerate(self.model.fids) if fid in sel]
+        rows = sorted(self.model.rows_of(sel))
         if not rows:
             self.status.set_status(
                 "The selected features are not among the shown records", "warning")
@@ -1846,7 +1867,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             path += ext
         cols = self._shown_columns()
         header = [self.model.fields[c].name() for c in cols]
-        fids = list(self.model.fids)
+        fids = self.model.fids           # compact; replaced, never changed in place
         with self._unfiltered():
             source = QgsVectorLayerFeatureSource(layer)
         meta = {
@@ -1863,7 +1884,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             for start in range(0, len(fids), step):
                 job.check()
                 job.report(100.0 * start / len(fids))
-                chunk = fids[start:start + step]
+                chunk = list(fids[start:start + step])
                 req = QgsFeatureRequest().setFilterFids(chunk)
                 req.setFlags(NO_GEOMETRY)
                 req.setSubsetOfAttributes(cols)
@@ -2076,7 +2097,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def current_scope(self):
         """Scope hand-over for the Pivot Table (a snapshot of the ids)."""
         n = len(self.model.fids)
-        return {"kind": "explorer", "fids": list(self.model.fids),
+        return {"kind": "explorer", "fids": self.model.fids,
                 "label": f"Explorer filtered records ({n:,})",
                 "description": self.scope_description(),
                 "explorer": self, "version": self.scope_version}

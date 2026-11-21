@@ -29,6 +29,7 @@ from qgis.core import (
 )
 from qgis.gui import QgsExpressionSelectionDialog
 
+from ..core import compact as CP
 from ..core.compat import NO_GEOMETRY, QActionGroup
 from . import explorer_dialogs as D
 from . import icons
@@ -230,7 +231,7 @@ class BrowseMixin:
     # ------------------------------------------------------------------
     def set_selected_top(self, on):
         self.selected_top = bool(on)
-        self.model.set_fids(self._ordered(list(self.model.fids)))
+        self.model.set_fids(self._ordered(self.model.fids))
         self._layout_timer.start()
 
     def _ordered(self, fids):
@@ -238,6 +239,11 @@ class BrowseMixin:
         if not self.selected_top or not self.model.selected:
             return fids
         sel = self.model.selected
+        a = CP.view(CP.ids(fids))
+        if a is not None:                    # a big table: no Python list
+            import numpy as np
+            picked = np.isin(a, np.fromiter(sel, dtype=np.int64, count=len(sel)))
+            return CP.ids(np.concatenate([a[picked], a[~picked]]))
         return [f for f in fids if f in sel] + [f for f in fids if f not in sel]
 
     def edit_sort_expression(self):

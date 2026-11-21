@@ -271,7 +271,7 @@ class EditingTests(unittest.TestCase):
                                                            "RESIDENTIAL"))
         p.refresh()
         settle(p)
-        shown = p.model.fids[:2]
+        shown = list(p.model.fids[:2])
         hidden = [f for f in self.layer.allFeatureIds() if f not in set(p.model.fids)][:1]
         self.layer.selectByIds(shown + hidden)
         ASK.answers = ["delete"]
@@ -283,7 +283,7 @@ class EditingTests(unittest.TestCase):
 
     def test_07_feature_clipboard(self):
         p = self.panel
-        self.layer.selectByIds(p.model.fids[:2])
+        self.layer.selectByIds(list(p.model.fids[:2]))
         H.settle(0.1)
         self.assertTrue(p.edit_bar.copy_btn.isEnabled())      # browsing too
         self.assertFalse(p.edit_bar.paste_btn.isEnabled())
@@ -292,7 +292,7 @@ class EditingTests(unittest.TestCase):
         n = self.layer.featureCount()
         p.paste_features()
         self.assertEqual(self.layer.featureCount(), n + 2)
-        self.layer.selectByIds(p.model.fids[:1])
+        self.layer.selectByIds(list(p.model.fids[:1]))
         H.settle(0.1)
         p.cut_features()
         self.assertEqual(self.layer.featureCount(), n + 1)
@@ -528,7 +528,7 @@ class EditingTests(unittest.TestCase):
     def test_11_multi_edit(self):
         p = self.panel
         self.start()
-        ids = p.model.fids[:3]
+        ids = list(p.model.fids[:3])
         self.layer.selectByIds(ids)
         dlg = D.MultiEditDialog(p, ids)
         dlg.form.changeAttribute("LAND_USE", "MIXED")
@@ -556,7 +556,7 @@ class EditingTests(unittest.TestCase):
         p = self.panel
         layer = self.layer
         # selected scope and the Selected only button are one setting
-        layer.selectByIds(p.model.fids[:5])
+        layer.selectByIds(list(p.model.fids[:5]))
         p.selected_btn.click()
         settle(p)
         self.assertEqual(p.view_scope, "selected")
@@ -774,7 +774,7 @@ class EditingTests(unittest.TestCase):
         p.select_layer_all()
         self.assertEqual(layer.selectedFeatureCount(), layer.featureCount())
         p.deselect_all()
-        layer.selectByIds(p.model.fids[:2])
+        layer.selectByIds(list(p.model.fids[:2]))
         p.invert_layer_selection()
         self.assertEqual(layer.selectedFeatureCount(), layer.featureCount() - 2)
         p.deselect_all()

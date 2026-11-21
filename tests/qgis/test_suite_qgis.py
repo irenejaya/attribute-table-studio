@@ -155,7 +155,7 @@ class SuiteTests(unittest.TestCase):
         panel.header.cells[fl].edit.setText("abc")
         panel.refresh()
         H.settle(0.2)
-        self.assertEqual(panel.model.fids, before)
+        self.assertEqual(list(panel.model.fids), before)
         self.assertEqual(panel.header.cells[fl].property("state"), "error")
         panel.clear_filters()
         self.assertTrue(H.wait_for(lambda: idle(panel)))
@@ -260,7 +260,7 @@ class SuiteTests(unittest.TestCase):
         panel._on_row_pressed(2, Qt.KeyboardModifier.ControlModifier)
         self.assertEqual(len(self.layer.selectedFeatureIds()), 4)
         # map selection -> table
-        self.layer.selectByIds(panel.model.fids[10:13])
+        self.layer.selectByIds(list(panel.model.fids[10:13]))
         H.settle(0.1)
         self.assertEqual(panel.model.selected, set(panel.model.fids[10:13]))
         panel.selected_btn.setChecked(True)
@@ -288,7 +288,7 @@ class SuiteTests(unittest.TestCase):
         panel._on_sort_clicked(sd)
         panel._on_sort_clicked(sd)            # third click: back to id order
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        self.assertEqual(panel.model.fids, sorted(panel.model.fids))
+        self.assertEqual(list(panel.model.fids), sorted(panel.model.fids))
 
     def test_06_dock_round_trip_keeps_state(self):
         panel = self.plugin.open_explorer(self.layer)
@@ -2093,7 +2093,7 @@ class SuiteTests(unittest.TestCase):
         other = H.demo_layer(n=50, seed=3, name="Other parcels")
         panel = self.plugin.open_explorer(self.layer)
         self.assertTrue(H.wait_for(lambda: idle(panel)))
-        self.layer.selectByIds(panel.model.fids[:3])
+        self.layer.selectByIds(list(panel.model.fids[:3]))
         other.selectByIds(list(other.allFeatureIds())[:2])
         H.settle(0.1)
         self.assertTrue(panel.deselect_btn.isEnabled())
@@ -2102,7 +2102,7 @@ class SuiteTests(unittest.TestCase):
         self.assertEqual(self.layer.selectedFeatureCount(), 0)
         self.assertEqual(other.selectedFeatureCount(), 2)       # only this layer
         self.assertFalse(panel.deselect_btn.isEnabled())
-        self.layer.selectByIds(panel.model.fids[:3])
+        self.layer.selectByIds(list(panel.model.fids[:3]))
         panel.select_menu.aboutToShow.emit()
         act = next(a for a in panel.select_menu.actions()
                    if a.text() == "Deselect Features from All Layers")
