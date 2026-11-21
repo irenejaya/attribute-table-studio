@@ -44,6 +44,7 @@ from qgis.core import (
 )
 from qgis.gui import QgsGui
 
+from ..core import compact as CP
 from ..core import fields as F
 from ..core.compat import NO_GEOMETRY, enum_int
 
@@ -71,8 +72,8 @@ class FeatureTableModel(QAbstractTableModel):
         self.layer = None
         self.fields = []
         self.kinds = []
-        self.fids = []
-        self._rows = None                   # fid -> row, built when needed
+        self.fids = CP.ids()                # compact: 8 bytes a record
+        self._index = None                  # fid -> row, built when needed
         self.selected = set()
         self._cache = OrderedDict()
         self._null_text = QgsApplication.nullRepresentation() or F.NULL_TEXT
@@ -113,25 +114,39 @@ class FeatureTableModel(QAbstractTableModel):
             else:
                 c = t.data_text
             self._colours[col] = QColor(c)
-        self.fids = []
-        self._rows = None
+        self.fids = CP.ids()
+        self._index = None
         self._cache.clear()
         self.editable_cols = set()
         self.dirty, self.added = {}, set()
         self.load_styles()
         self.endResetModel()
 
-    def set_fids(self, fids):
+    def set_fids(self, fids, index=None):
+        """*index*: a RowIndex of these ids built beforehand (in the
+        background job), so finding a row never sorts on the screen."""
         self.beginResetModel()
-        self.fids = fids
-        self._rows = None
+        self.fids = CP.ids(fids)
+        self._index = index if index is not None and index.values is self.fids else None
         self.endResetModel()
+
+    def _row_index(self):
+        if self._index is None:
+            self._index = CP.RowIndex(self.fids)
+        return self._index
 
     def row_of(self, fid):
         """Row of a feature in the current order, or None when not shown."""
-        if self._rows is None:
-            self._rows = {f: i for i, f in enumerate(self.fids)}
-        return self._rows.get(fid)
+        return self._row_index().row(fid)
+
+    def rows_of(self, fids):
+        """Rows of those of *fids* that are shown (any order); fast for a
+        big selection."""
+        return self._row_index().rows(fids)
+
+    def count_shown(self, fids):
+        """How many of *fids* are shown."""
+        return self._row_index().count(fids)
 
     def invalidate(self, fids=None):
         """Forget cached attributes (all, or of *fids*) and repaint."""

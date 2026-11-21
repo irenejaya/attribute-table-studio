@@ -10,6 +10,14 @@ One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
 Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
+**Version 1.3** makes Attribute Explorer much lighter and faster on big
+layers: all column statistics come from one read, filters reuse the values
+already read and sorting never freezes QGIS. With 10 million records the
+statistics are ready in 78 s instead of 185 s, a filter takes 14 s instead
+of 125 s and memory peaks at 1.0 GB instead of 3.1 GB (see
+[Big layers](#attribute-explorer); the full list of changes is in the
+changelog of `metadata.txt`).
+
 Inspired by Microsoft's [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
 
@@ -17,7 +25,7 @@ extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
 
 ## Install
 
-1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.0.zip`
+1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.3.zip`
 2. QGIS → *Plugins › Manage and Install Plugins › Install from ZIP*.
 3. If the standalone *Geometry and Table Compare* plugin is installed, disable
    it — Attribute Table Studio includes it (the plugin warns when both are enabled).
@@ -62,6 +70,18 @@ by the records shown in the table when that is different: **9,434 (484)**.
 - **Scope rules**: profiles describe exactly the filtered records (not just
   the visible screen). NULL is missing; zero and empty text are values.
   Sorting and hiding columns never change the population.
+- **Big layers**: the records show first, then all the shown columns'
+  statistics come from one read of the layer, numbers and dates kept as
+  8-byte values and text counted as it is read (the same exact statistics).
+  Those values are **kept**, within a memory budget (Settings › *Memory for
+  fast filters*: automatic, about 10 % of the computer's memory), so a
+  filter, a View scope or a drill-through works out its statistics without
+  reading the layer again, and a sort by a kept column is a numpy sort that
+  never freezes QGIS. Any edit or field change lets the kept values go (the
+  next read keeps them again); closing the explorer gives the memory back.
+  In tests with 10 million records (5 fields): statistics ready after 78 s
+  instead of 185 s, a filter 14 s instead of 125 s (a second one 6 s), a sort
+  3.5 s instead of 27 s, peak memory 1.0 GB instead of 3.1 GB.
 - **Selection** stays in sync with the map: select features with the row tick
   boxes / numbers (a click selects only that row, Ctrl adds or removes, Shift
   or a drag extends, also while editing). A click on a cell only frames it,

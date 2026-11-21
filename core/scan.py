@@ -25,6 +25,7 @@ from qgis.core import (
     QgsFeatureRequest, QgsVectorLayerFeatureSource,
 )
 
+from . import compact as CP
 from . import fields as F
 from .compat import NO_GEOMETRY
 
@@ -57,14 +58,22 @@ class ScanSpec:
         return {i for i in exp.referencedAttributeIndexes(self.fields) if i >= 0}
 
 
-def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None):
+def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None,
+         builders=None, raw_order=False):
     """Read the scope.
 
     Returns (fids, columns) where columns[i] holds the raw values of
     attr_idxs[i] in the same record order as fids.  *sort* = (field index,
     descending) orders the records by that field, *sort_expr* =
     (expression, descending) by an expression (NULL always last);
-    otherwise records are ordered by feature id.
+    otherwise records are ordered by feature id.  The fids are a compact
+    list (``array('q')``), or None when not wanted (then none are kept).
+
+    *builders* (one per attr_idxs entry, see :mod:`.stats`) take each value
+    as it is read instead of keeping it: then *columns* is the builders, and
+    a column costs what its builder keeps (8 bytes a number or date, the
+    distinct texts), not a Python object per value.  *raw_order* keeps the
+    ids in the order they were read (the builders' order: kept columns).
     """
     attr_idxs = list(attr_idxs)
     sort_idx, desc = sort if sort else (None, False)
@@ -93,17 +102,31 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None):
         if sort_exp is not None:
             sort_exp.prepare(ctx)
 
-    fids = []
-    keys = []
-    cols = [[] for _ in attr_idxs]
-    pairs = list(zip(cols, attr_idxs))
+    sorting = sort_idx is not None or sort_exp is not None
+    collect = builders is None
+    fids = CP.ids() if (want_fids or sorting or (collect and attr_idxs)) else None
+    fids_append = fids.append if fids is not None else None
+    keys = CP.SortKeys() if sorting else None    # compact, sorted by numpy
+    if collect:
+        cols = [[] for _ in attr_idxs]
+        pairs = [(c.append, idx) for c, idx in zip(cols, attr_idxs)]
+    else:
+        from .stats import shed           # text too big to share the read
+        cols = builders
+        pairs = [(b.add, idx) for b, idx in zip(builders, attr_idxs)]
     total = float(spec.estimate or 1)
+    # most fields wanted: one call per record for all its values (twice as
+    # fast as one call per value); a few of many: one call per value
+    whole = len(pairs) > 1 and len(pairs) * 4 >= spec.fields.count()
     n = 0
     for feat in spec.source.getFeatures(req):
         n += 1
         if n % 2000 == 0:
             job.check()
             job.report(min(99.0, 100.0 * n / total))
+            if not collect and n % 50000 == 0 and shed(builders):
+                pairs = [(b.add, idx) for b, idx in zip(builders, attr_idxs)
+                         if not b.dropped]
         fid = feat.id()
         if restrict is not None and fid not in restrict:
             continue
@@ -113,24 +136,34 @@ def scan(spec, job, attr_idxs=(), want_fids=True, sort=None, sort_expr=None):
             ok = local_expr.evaluate(ctx)
             if F.is_null(ok) or not ok:
                 continue
-        fids.append(fid)
+        if fids_append is not None:
+            fids_append(fid)
         if sort_exp is not None:
-            keys.append(sort_exp.evaluate(ctx))
+            keys.add(sort_exp.evaluate(ctx))
         elif sort_idx is not None:
-            keys.append(feat.attribute(sort_idx))
-        for col, idx in pairs:
-            col.append(feat.attribute(idx))
+            keys.add(feat.attribute(sort_idx))
+        if whole:
+            attrs = feat.attributes()
+            for add, idx in pairs:
+                add(attrs[idx])
+        else:
+            for add, idx in pairs:
+                add(feat.attribute(idx))
     job.check()
 
-    if sort_idx is not None or sort_exp is not None:
-        order = _sort_order(keys, desc)
-    elif any(fids[i] > fids[i + 1] for i in range(len(fids) - 1)):
-        order = sorted(range(len(fids)), key=fids.__getitem__)
-    else:
-        order = None
+    order = None
+    if sorting:
+        order = keys.order(desc)
+        keys = None
+    elif fids is not None and not raw_order and not CP.ascending(fids):
+        if collect and attr_idxs:
+            order = sorted(range(len(fids)), key=fids.__getitem__)
+        else:
+            fids = CP.sort_ids(fids)            # feature id order
     if order is not None:
-        fids = [fids[i] for i in order]
-        cols = [[c[i] for i in order] for c in cols]
+        fids = CP.take(fids, order)
+        if collect:
+            cols = [[c[i] for i in order] for c in cols]
     return (fids if want_fids else None), cols
 
 

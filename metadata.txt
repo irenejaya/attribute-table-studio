@@ -11,7 +11,7 @@ about=Attribute Table Studio is an advanced version of QGIS Attribute Table and 
     <b>Geometry and Table Compare</b> - visual OLD -> NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level old -> new values, exact geometry comparison with review points for multipart features, validation, accept / reject review and Excel / CSV export.
     Every tool opens in its own window and can be docked into QGIS like the native attribute table; the look follows the QGIS light or dark theme.
 
-version=1.2
+version=1.3
 author=Irene Jaya
 email=irenejaya1@gmail.com
 
@@ -30,6 +30,11 @@ hasProcessingProvider=no
 server=False
 
 changelog=
+    1.3 - Attribute Explorer on big layers: faster statistics, filters and sorting with far less memory
+        * Attribute Explorer - all shown columns' statistics come from one read of the layer instead of one read per column: numbers and dates are kept as 8-byte values, text and yes / no values are counted as they are read, and the record list takes 8 bytes a record; the statistics are exactly the same
+        * New: Attribute Explorer - fast filters on big layers: the values read are kept, so a filter, a View scope or a drill-through works out its statistics without reading the layer again; Settings > Memory for fast filters sets how much memory they may take (automatic: about 10 % of the computer's memory); an edit or a field change lets them go and the next read keeps them again
+        * Attribute Explorer - sorting uses numpy, so QGIS's screen keeps running while a big table sorts (it held for about 5 s at 10 million records); a sort by a kept column needs no read at all
+        * With 10 million records (5 fields): statistics ready in 78 s instead of 185 s, a filter in 14 s instead of 125 s (another one in 6 s), a sort in 3.5 s instead of 27 s, memory at most 1.0 GB instead of 3.1 GB
     1.2 - Visualize Statistics, Pivot chart, Compare feature export and changed fields, "not" filters, expression filter bar, Rename Field, Pivot List distinct
         * New: Geometry and Table Compare - Export > GeoPackage (.gpkg) - features: the features of the rows shown, one layer per kind (added, deleted, modified, unchanged) with the table's columns plus CHANGE, DECISION and CHANGED_FIELDS; each column holds the reviewed value (NEW, or OLD where the change was rejected) and a changed column also gets <name>_OLD; the layers are added to the map as a group
         * New: Attribute Explorer - "not" quick filters: is not, does not contain, is not one of (NULL records are kept)

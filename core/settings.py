@@ -19,6 +19,8 @@ DEFAULTS = {
     "explorer/replaceTableKeys": False,
     # starting editing opens the Quick update row (as QGIS's attribute table)
     "explorer/quickUpdateOnEdit": True,
+    # memory for kept columns (fast filters on big layers); 0 = automatic
+    "explorer/keepMemoryMB": 0,
     "pivot/cellLimit": 100000,
     "pivot/decimals": 2,
 }

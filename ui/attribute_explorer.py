@@ -22,9 +22,12 @@ outside the visible screen; sorting and hiding columns never change it.
 Filtering never touches the map selection.
 
 Work runs in background tasks: one scan finds the scope (and computes the
-visible columns' profiles in the same pass when it fits the memory
-budget), then the remaining profiles follow in chunks, visible columns
-first.  Every edit, filter or selection change starts a new generation, so
+visible columns' profiles in the same pass for a small scope), then the
+profiles follow, visible columns first.  The shown columns share one read:
+numbers and dates are kept as 8-byte values within a memory budget (about
+6 columns at 10 million records) and text is counted as it is read
+(:mod:`..core.stats` builders), so a big layer is read once, not once per
+column.  The record list itself is compact (8 bytes a record).  Every edit, filter or selection change starts a new generation, so
 a stale result can never overwrite a newer one; an accepted edit marks the
 statistics as updating at once and rescans after a short pause.
 
@@ -52,6 +55,9 @@ from ..core import fields as F
 from ..core import filters as FL
 from ..core import settings
 from ..core import constraints as CON
+from ..core import compact as CP
+from ..core import keep as K
+from ..core import settings as SETTINGS
 from ..core import stats as S
 from ..core import stats_tables as ST
 from ..core import subset as SUB
@@ -77,9 +83,35 @@ from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
 LAYOUT_PROPERTY = "attribute_table_studio/explorer_layout"
-VALUE_BUDGET = 4000000          # raw values held in memory per scan
 VALUE_LIST_LIMIT = 5000         # entries offered by the "is one of" picker
 QUICK_ROWS_LIMIT = 50000        # above this, records show before profiles
+
+
+def _fetcher(source, logical):
+    """fid -> the value of field *logical* (the earliest / latest date of a
+    part of the kept records), read in the background job."""
+    def fetch(fid):
+        req = QgsFeatureRequest(int(fid))
+        req.setFlags(NO_GEOMETRY)
+        req.setSubsetOfAttributes([logical])
+        for feat in source.getFeatures(req):
+            return feat.attribute(logical)
+        return None
+    return fetch
+
+
+def _finish_profiles(job, logicals, builders):
+    """({logical: profile}, [logicals to read again on their own]) from the
+    builders of one read (in a background job, one column at a time so its
+    values are freed before the next)."""
+    profs, retry = {}, []
+    for logical, b in zip(logicals, builders or ()):
+        if b.dropped:
+            retry.append(logical)
+            continue
+        job.check()
+        profs[logical] = b.profile()
+    return profs, retry
 
 
 class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
@@ -113,7 +145,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.chart_host = None           # Visualize Statistics window
         self.profiles = {}
         self._profile_queue = []
-        self._per_scan = 1
+        self._alone = set()              # columns read on their own (big text)
+        self._kept = None                # kept columns of the last read of all records
         self.scope_version = 0           # bumps when the scope result changes
         self.external = None             # {"fids": set, "label": str}
         self.view_scope = "all"          # see explorer_browse.SCOPES
@@ -367,6 +400,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._disconnect_layer()
         self.runner.new_generation()
         self._pending_scan = None
+        self._kept = None
         self.layer = layer
         self.external = None
         self.external_chip.setVisible(False)
@@ -515,7 +549,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         previous = self.model.selected
         self.model.selected = set(self.layer.selectedFeatureIds())
         if self.selected_top and not self.selected_only:
-            self.model.set_fids(self._ordered(list(self.model.fids)))
+            self.model.set_fids(self._ordered(self.model.fids))
         if not self._table_selecting and not self.selected_only:
             # selected on the map (or elsewhere): bring the row into view
             self._scroll_to_features(self.model.selected - previous)
@@ -580,6 +614,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is None or self._closing:
             return
         self._revision += 1
+        self._kept = None                # stale: the layer changed
         self.model.invalidate()
         self.refresh(keep_place=True)
 
@@ -611,6 +646,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self._rename_in_layout(renamed)
         self.runner.new_generation()
         self._revision += 1
+        self._kept = None
         self.model.set_layer(layer)
         self.header.rebuild(self.model.fields, self.model.kinds)
         self._restore_layout()
@@ -720,6 +756,9 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             self.profiles = {}
         self.runner.new_generation()
         self._profile_queue = []
+        if sort_only and not new_scope and self._sort_from_kept(
+                restrict is not None or rect is not None or scope == "failing", keep_place):
+            return
         with self._unfiltered():
             spec = ScanSpec(self.layer, expr, restrict, rect)
             self._available = max(self.layer.featureCount(), 0)
@@ -733,13 +772,13 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self._spec = spec
         order = self._profile_order() if self.header.profiles_visible else []
         order = [i for i in order if i not in self.profiles]
-        self._per_scan = max(1, VALUE_BUDGET // max(spec.estimate, 1))
+        self._alone = set()
         if spec.estimate > QUICK_ROWS_LIMIT:
             # large scope: show the records first, profiles follow
             first, self._profile_queue = [], order
         else:
-            first = order[:self._per_scan]
-            self._profile_queue = order[self._per_scan:]
+            first, self._profile_queue = S.take_read(order, self.model.kinds,
+                                                     max(spec.estimate, 1))
         for logical in order:
             self.header.cards[logical].set_state("pending", message="Calculating…")
         kinds = list(self.model.kinds)
@@ -753,13 +792,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                 failing = CON.failing(fail_spec, spec.source, job)
                 ids = set(failing)
                 spec.restrict = ids if spec.restrict is None else spec.restrict & ids
-            fids, cols = scan(spec, job, first, True, sort, sort_expr)
-            profs = {}
-            for idx, col in zip(first, cols):
-                job.check()
-                profs[idx] = S.compute_profile(kinds[idx], col)
+            builders = [S.builder(kinds[i]) for i in first] if first else None
+            fids, _cols = scan(spec, job, first, True, sort, sort_expr, builders=builders)
+            index = CP.RowIndex(fids).build()    # a sorted table: rows found without sorting
+            profs, retry = _finish_profiles(job, first, builders)
             map_fids = scan(map_spec, job)[0] if map_spec is not None else None
-            return fids, profs, map_fids, failing
+            return fids, profs, map_fids, failing, retry, index
 
         self.status.set_status(
             "Sorting…" if sort_only else f"Filtering {self.layer.name()}…", "busy")
@@ -790,7 +828,10 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             # a cell is being edited: apply when its editor closes
             self._pending_scan = job
             return
-        fids, profs, map_fids, failing = job.result
+        fids, profs, map_fids, failing, retry, index = job.result
+        if retry:                        # too big to share the read: on their own
+            self._alone |= set(retry)
+            self._profile_queue = retry + self._profile_queue
         if failing is not None:
             hard = sum(1 for v in failing.values() if v == "hard")
             self._failing_counts = (hard, len(failing) - hard)
@@ -815,7 +856,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         h_before, v_before = hbar.value(), vbar.value()
         port = self.view.viewport().rect()
         framed_shown = current.isValid() and port.intersects(self.view.visualRect(current))
-        self.model.set_fids(self._ordered(fids))
+        ordered = self._ordered(fids)
+        self.model.set_fids(ordered, index if ordered is fids else None)
         target = None
         if focus_fid is not None:
             row = self.model.row_of(focus_fid)
@@ -861,25 +903,119 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             return
         on_screen = set(self.header.logicals_in_view())
         queue.sort(key=lambda i: 0 if i in on_screen else 1)
-        chunk, self._profile_queue = queue[:self._per_scan], queue[self._per_scan:]
         spec = self._spec
         kinds = list(self.model.kinds)
         done = len(self.profiles)
         total = done + len(queue)
+        store = self._usable_store()
+        from_store = [i for i in queue if store is not None and i in store.columns]
+        if from_store:
+            # kept columns: this scope's statistics without reading the layer
+            self._profile_queue = [i for i in queue if i not in store.columns]
+            scope = self.model.fids
+            source = spec.source
 
-        def work(job, spec=spec, chunk=chunk, kinds=kinds):
-            _fids, cols = scan(spec, job, chunk, False)
-            out = {}
-            for idx, col in zip(chunk, cols):
-                job.check()
-                out[idx] = S.compute_profile(kinds[idx], col)
-            return out
+            def work(job, store=store, cols=from_store, scope=scope, source=source):
+                out = {}
+                for logical in cols:
+                    job.check()
+                    out[logical] = store.profile(logical, scope, _fetcher(source, logical))
+                return out, [], None
+
+            self.status.set_status(
+                f"Calculating column summaries… {done:,} of {total:,} columns", "busy")
+            self.status.set_busy(True)
+            self.runner.start(f"Attribute Explorer: summaries of {self.layer.name()}",
+                              work, self._on_profiles_done, tag="profile")
+            return
+        records = max(spec.estimate, 1)
+        # the shown columns share one read, numbers and dates within the
+        # memory budget (8 bytes a value), text counted as it is read
+        chunk, self._profile_queue = S.take_read(queue, kinds, records, self._alone)
+        keep = self._columns_to_keep(spec, chunk, kinds, records, store)
+        key = self._kept_key()
+
+        def work(job, spec=spec, chunk=chunk, kinds=kinds, keep=keep, key=key):
+            builders = [S.builder(kinds[i], keep=i in keep) for i in chunk]
+            fids, _cols = scan(spec, job, chunk, bool(keep), builders=builders,
+                               raw_order=True)
+            kept = {i: b.kept() for i, b in zip(chunk, builders)
+                    if i in keep and not b.dropped}
+            profs, retry = _finish_profiles(job, chunk, builders)
+            return profs, retry, ((key, fids, kept) if keep else None)
 
         self.status.set_status(
             f"Calculating column summaries… {done:,} of {total:,} columns", "busy")
         self.status.set_busy(True)
         self.runner.start(f"Attribute Explorer: summaries of {self.layer.name()}",
                           work, self._on_profiles_done, tag="profile")
+
+    def _sort_from_kept(self, restricted, keep_place):
+        """Sort the same records by a kept column, without reading the layer
+        (False when it cannot: then the layer is read sorted)."""
+        store = self._usable_store()
+        if (store is None or not self._has_result or self.sort is None
+                or self.sort_expr is not None or self.sort[0] not in store.columns
+                or self._spec is None or (self._map_filter and restricted)):
+            return False
+        logical, desc = self.sort
+        scope_fids = self.model.fids
+        spec = self._spec
+
+        def work(job, store=store, scope_fids=scope_fids, logical=logical, desc=desc,
+                 spec=spec):
+            fids = store.sorted_ids(logical, scope_fids, desc)
+            if fids is None:                     # NaN and the like: read it sorted
+                fids, _cols = scan(spec, job, [], True, (logical, desc))
+            return fids, {}, None, None, [], CP.RowIndex(fids).build()
+
+        self.status.set_status("Sorting…", "busy")
+        self.status.set_busy(True)
+        if not keep_place:
+            self._place = "start"
+        elif self._place is None:
+            self._place = "keep"
+        self.runner.start(f"Attribute Explorer: {self.layer.name()}", work,
+                          self._on_scan_done, tag="scan")
+        return True
+
+    # ---- kept columns (filters on big layers without reading again) -------
+    def _kept_key(self):
+        """The layer state kept columns belong to: any edit or field change
+        makes them stale."""
+        return (self.layer.id() if self.layer is not None else None, self._revision,
+                tuple(f.name() for f in self.model.fields))
+
+    def _usable_store(self):
+        store = self._kept
+        if store is not None and store.key != self._kept_key():
+            self._kept = store = None         # the layer changed: read again
+        return store
+
+    def _columns_to_keep(self, spec, chunk, kinds, records, store):
+        """Columns of a read of all records to keep, within the memory
+        budget (Settings; automatic: about 10 % of the computer's memory)."""
+        base = spec.expression is None and spec.restrict is None and spec.rect is None
+        if not base or not K.available() or records <= QUICK_ROWS_LIMIT:
+            return set()
+        budget = K.budget(SETTINGS.value("explorer/keepMemoryMB"))
+        used = store.nbytes if store is not None else 8 * records
+        keep = set()
+        for logical in chunk:
+            cost = S.kept_bytes(kinds[logical], records)
+            if used + cost <= budget:
+                keep.add(logical)
+                used += cost
+        return keep
+
+    def _store_kept(self, key, fids, kept):
+        if key != self._kept_key() or not kept:
+            return
+        store = self._usable_store()
+        if store is None or not store.same_records(fids):
+            store = self._kept = K.Store(key, fids)
+        for logical, column in kept.items():
+            store.add(logical, column)
 
     def _on_profiles_done(self, job):
         if self._closing or not self.runner.is_current(job):
@@ -894,9 +1030,15 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
                                    message="Not calculated — click to calculate")
             self._finish_busy("Column summaries cancelled", "warning")
             return
-        self.profiles.update(job.result)
-        for logical, prof in job.result.items():
+        profs, retry, kept = job.result
+        if kept is not None:
+            self._store_kept(*kept)
+        self.profiles.update(profs)
+        for logical, prof in profs.items():
             self.header.cards[logical].set_state("ready", prof)
+        if retry:                        # too big to share the read: on their own
+            self._alone |= set(retry)
+            self._profile_queue = retry + self._profile_queue
         self._next_profile_chunk()
 
     def _compute_missing_profiles(self):
@@ -1465,7 +1607,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def _scroll_to_features(self, fids):
         """Scroll (vertically only) so the first of *fids* in table order is
         in the middle of the view; False when none of them is shown."""
-        rows = [r for r in map(self.model.row_of, fids) if r is not None]
+        rows = self.model.rows_of(fids)
         if not rows:
             return False
         bar = self.view.horizontalScrollBar()
@@ -1796,7 +1938,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if not sel:
             self.status.set_status("Nothing selected to copy", "warning")
             return
-        rows = [r for r, fid in enumerate(self.model.fids) if fid in sel]
+        rows = sorted(self.model.rows_of(sel))
         if not rows:
             self.status.set_status(
                 "The selected features are not among the shown records", "warning")
@@ -1846,7 +1988,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             path += ext
         cols = self._shown_columns()
         header = [self.model.fields[c].name() for c in cols]
-        fids = list(self.model.fids)
+        fids = self.model.fids           # compact; replaced, never changed in place
         with self._unfiltered():
             source = QgsVectorLayerFeatureSource(layer)
         meta = {
@@ -1863,7 +2005,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
             for start in range(0, len(fids), step):
                 job.check()
                 job.report(100.0 * start / len(fids))
-                chunk = fids[start:start + step]
+                chunk = list(fids[start:start + step])
                 req = QgsFeatureRequest().setFilterFids(chunk)
                 req.setFlags(NO_GEOMETRY)
                 req.setSubsetOfAttributes(cols)
@@ -2076,7 +2218,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     def current_scope(self):
         """Scope hand-over for the Pivot Table (a snapshot of the ids)."""
         n = len(self.model.fids)
-        return {"kind": "explorer", "fids": list(self.model.fids),
+        return {"kind": "explorer", "fids": self.model.fids,
                 "label": f"Explorer filtered records ({n:,})",
                 "description": self.scope_description(),
                 "explorer": self, "version": self.scope_version}
