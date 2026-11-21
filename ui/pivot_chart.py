@@ -156,9 +156,9 @@ class PivotChartPanel(QWidget):
         self.export_btn = W.menu_square(m, icons.native(icons.EXPORT), "Export the chart",
                                         menu)
         top.addWidget(self.export_btn)
-        help_btn = W.square_button(m, icons.native(icons.HELP), "Help")
-        help_btn.clicked.connect(self.show_help)
-        top.addWidget(help_btn)
+        self.help_btn = W.square_button(m, icons.native(icons.HELP), "Help")
+        self.help_btn.clicked.connect(self.show_help)
+        top.addWidget(self.help_btn)
         self.dock_btn = W.dock_button(m)
         top.addWidget(self.dock_btn)
         lay.addLayout(top)
@@ -824,7 +824,7 @@ class PivotChartPanel(QWidget):
         from .help_dialog import HelpDialog
         dlg = getattr(self, "_help_dialog", None)
         if dlg is None:
-            dlg = self._help_dialog = HelpDialog(self, topic="pivot")
+            dlg = self._help_dialog = HelpDialog(self, topic="pivot", tab="pivot_chart")
         dlg.show()
         dlg.raise_()
         dlg.activateWindow()

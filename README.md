@@ -41,6 +41,17 @@ into the QGIS main window — and undocks it again — keeping filters, results
 and selections. *Plugins › Attribute Table Studio › Settings* can open each tool
 docked by default, like *Open attribute table as docked window* in QGIS.
 
+## Help
+
+Every tool has its own **Help**: the ? button at the top right (in Attribute
+Explorer, *☰ › Help*). It has a tab for each part of the tool — Attribute
+Explorer: Overview, Statistics & filters, Selection, Editing, Quick update &
+Find; Visualize Statistics: Chart, Settings; Pivot Table: Overview, Build your
+table, Result, Chart; Compare: Setup, Results, Review. Each tab shows a picture
+of that part with red numbered badges and, beside it, what every number does.
+Drag the divider (or make the window bigger) to enlarge the picture. The last
+tab, **More details**, keeps the full written help.
+
 ## Attribute Explorer
 
 Open it from the toolbar, the plugin menu, a vector layer's right-click menu
@@ -419,8 +430,10 @@ ui/
                        calculator, field and form dialogs, form view
   pivot_table.py       Pivot Table window; pivot_chart.py its chart window
   geotable_compare.py
-  settings_dialog.py, help_dialog.py
+  settings_dialog.py
+  help_dialog.py       Help window of each tool; help_pages.py its tabs and numbered items
 icons/                 toolbar icons
+help/                  pictures of the Help tabs (made by tests/qgis/make_help_images.py)
 tests/                 unit tests + headless QGIS tests
 ```
 
@@ -435,6 +448,7 @@ python tests/qgis/test_compare_regression.py  # Compare exports == v1.1
 python tests/qgis/test_editing_qgis.py        # Explorer editing, forms, scopes, menus
 python tests/qgis/make_screenshots.py docs/screenshots dark   # README images (made-up data)
 python tests/qgis/make_screenshots.py docs/screenshots light
+python tests/qgis/make_help_images.py         # Help pictures in help/ (made-up data)
 ```
 
 All suites pass on QGIS 4.2 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).

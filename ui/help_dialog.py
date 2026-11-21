@@ -2,15 +2,30 @@
 # Attribute Table Studio - https://github.com/irenejaya/attribute-table-studio
 # Copyright (C) 2026 Irene Jaya. Licensed under the GNU GPL v3 with an
 # attribution term (section 7(b)): see LICENSE and ADDITIONAL_TERMS.md.
-"""Attribute Table Studio help (Plugins > Attribute Table Studio > Help)."""
+"""Help of each tool: a window with a tab per part of the tool.
 
-from qgis.PyQt.QtCore import QSize, Qt
+The picture tabs (:mod:`.help_pages`) show a picture of that part with red
+numbered badges and the numbered explanations beside it; the last tab,
+More details, keeps the full written help below.
+"""
+
+import html
+import os
+
+from qgis.PyQt.QtCore import QRectF, QSize, Qt, QUrl
+from qgis.PyQt.QtGui import QColor, QFont, QPainter, QPixmap, QTextDocument
 from qgis.PyQt.QtWidgets import (
-    QDialog, QDialogButtonBox, QTabWidget, QTextBrowser, QVBoxLayout,
+    QDialog, QDialogButtonBox, QLabel, QSizePolicy, QSplitter, QTabWidget, QTextBrowser,
+    QVBoxLayout, QWidget,
 )
 
 from . import icons
+from .help_pages import PAGES
 from .theme import Metrics, Theme, stylesheet
+
+HELP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "help")
+PICTURE_SCALE = 2                # the pictures are saved at twice their size
+BADGE = "#d32f2f"
 
 EXPLORER_HELP = """
 <h3>Attribute Explorer</h3>
@@ -536,7 +551,6 @@ and terms: https://github.com/irenejaya/attribute-table-studio</p>
 
 
 TOPICS = {
-    "general": ("Attribute Table Studio", icons.HELP, GENERAL_HELP),
     "explorer": ("Attribute Explorer", icons.EXPLORER, EXPLORER_HELP),
     "chart": ("Visualize Statistics", icons.CHART, CHART_HELP),
     "pivot": ("Pivot Table", icons.PIVOT, PIVOT_HELP),
@@ -548,38 +562,181 @@ def _topic_icon(name):
     return icons.native(name) if name.startswith("/") else icons.tool(name)
 
 
-class HelpDialog(QDialog):
-    """Every tool in tabs, or one tool alone (*topic*, e.g. Compare's help
-    button)."""
+def picture_path(key):
+    return os.path.join(HELP_DIR, f"{key}.png")
 
-    def __init__(self, parent=None, tab=0, topic=None):
+
+class _Picture(QWidget):
+    """A help picture at its size, or smaller to fit its place (never
+    larger)."""
+
+    def __init__(self, path, parent=None):
         super().__init__(parent)
+        self.pixmap = QPixmap(path)
+        self.missing = self.pixmap.isNull()
+        if not self.missing:
+            self.pixmap.setDevicePixelRatio(PICTURE_SCALE)
+        self.setMinimumSize(120, 60)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+
+    def logical_size(self):
+        if self.missing:
+            return QSize(320, 60)
+        return QSize(int(self.pixmap.width() / PICTURE_SCALE),
+                     int(self.pixmap.height() / PICTURE_SCALE))
+
+    def sizeHint(self):
+        return self.logical_size()
+
+    def shown_size(self):
+        size = self.logical_size()
+        scale = min(1.0, self.width() / max(size.width(), 1),
+                    self.height() / max(size.height(), 1))
+        return QSize(int(size.width() * scale), int(size.height() * scale))
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        if self.missing:
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Picture not found")
+            return
+        p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        size = self.shown_size()
+        p.drawPixmap(0, 0, size.width(), size.height(), self.pixmap)
+
+
+def badge_pixmap(n, size=20):
+    """A red numbered badge, as on the pictures."""
+    scale = PICTURE_SCALE
+    pix = QPixmap(size * scale, size * scale)
+    pix.setDevicePixelRatio(scale)
+    pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    p.setPen(Qt.PenStyle.NoPen)
+    p.setBrush(QColor(BADGE))
+    p.drawEllipse(QRectF(0.5, 0.5, size - 1, size - 1))
+    font = QFont()
+    font.setBold(True)
+    font.setPixelSize(11)
+    p.setFont(font)
+    p.setPen(QColor("#ffffff"))
+    p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, str(n))
+    p.end()
+    return pix
+
+
+def tab_html(tab):
+    """The numbered explanations of a picture tab."""
+    rows = []
+    for n, item in enumerate(tab.items, 1):
+        icon = (f'<img src="icon:{n}" width="16" height="16">&nbsp;'
+                if item.icon else "")
+        rows.append(
+            '<tr><td width="28" valign="top">'
+            f'<img src="badge:{n}" width="20" height="20"></td>'
+            f'<td valign="top">{icon}<b>{html.escape(item.title)}</b><br>'
+            f'{html.escape(item.text)}</td></tr>')
+    notes = ""
+    if tab.notes:
+        notes = ("<p><b>Good to know</b></p><ul>"
+                 + "".join(f"<li>{html.escape(n)}</li>" for n in tab.notes) + "</ul>")
+    return (f"<p>{html.escape(tab.intro)}</p>"
+            '<table cellspacing="0" cellpadding="3" width="100%">'
+            + "".join(rows) + "</table>" + notes)
+
+
+# the picture's share of a tab when it has to be made smaller
+ABOVE_SHARE = 0.6               # of the height, picture above the text
+BESIDE_SHARE = 0.62             # of the width, picture beside the text
+
+
+def picture_layout(picture, room):
+    """("above" or "beside", the picture's size there) for a picture of
+    *picture* size in *room*: the place that shrinks it least."""
+    w, h = max(picture.width(), 1), max(picture.height(), 1)
+    above = min(1.0, room.width() / w, room.height() * ABOVE_SHARE / h)
+    beside = min(1.0, room.width() * BESIDE_SHARE / w, room.height() / h)
+    if above >= beside:
+        return "above", QSize(int(w * above), int(h * above))
+    return "beside", QSize(int(w * beside), int(h * beside))
+
+
+class _PicturePage(QWidget):
+    """A picture and its numbered explanations, above or beside each other
+    (whichever shows the picture bigger), with a divider to drag."""
+
+    def __init__(self, tab, metrics, room, parent=None):
+        super().__init__(parent)
+        self.tab = tab
+        self.picture = _Picture(picture_path(tab.key))
+        self.text = QTextBrowser()
+        self.text.setOpenExternalLinks(True)
+        doc = self.text.document()
+        for n, item in enumerate(tab.items, 1):
+            doc.addResource(QTextDocument.ResourceType.ImageResource,
+                            QUrl(f"badge:{n}"), badge_pixmap(n))
+            if item.icon:
+                pix = _topic_icon(item.icon).pixmap(QSize(32, 32))
+                doc.addResource(QTextDocument.ResourceType.ImageResource,
+                                QUrl(f"icon:{n}"), pix)
+        self.text.setHtml(tab_html(tab))
+        self.place, shown = picture_layout(self.picture.logical_size(), room)
+        vertical = self.place == "above"
+        self.splitter = QSplitter(Qt.Orientation.Vertical if vertical
+                                  else Qt.Orientation.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.addWidget(self.picture)
+        self.splitter.addWidget(self.text)
+        self.splitter.setStretchFactor(0, 1)        # a bigger window: both grow
+        self.splitter.setStretchFactor(1, 1)
+        if vertical:
+            first, total = shown.height() + 4, room.height()
+        else:
+            first, total = shown.width() + 8, room.width()
+        self.splitter.setSizes([first, max(total - first, 200)])
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(metrics.margin, metrics.margin, metrics.margin, metrics.margin)
+        lay.addWidget(self.splitter, 1)
+        if self.picture.missing:
+            note = QLabel("(The picture of this tab is missing from the plugin.)")
+            note.setObjectName("gtsDim")
+            lay.addWidget(note)
+
+
+class HelpDialog(QDialog):
+    """The Help of one tool (*topic*: explorer, chart, pivot, compare): a
+    tab per part of the tool, then More details.  *tab* is the tab shown
+    first: its number, or the key of a picture tab."""
+
+    def __init__(self, parent=None, tab=0, topic="explorer"):
+        super().__init__(parent)
+        topic = topic if topic in TOPICS else "explorer"
+        self.topic = topic
         theme, metrics = Theme(), Metrics(self.font())
         lay = QVBoxLayout(self)
         lay.setContentsMargins(metrics.margin, metrics.margin,
                                metrics.margin, metrics.margin)
-        if topic is not None:
-            title, icon, html = TOPICS[topic]
-            self.setWindowTitle(f"{title} — Help")
-            self.setWindowIcon(_topic_icon(icon))
-            self.resize(640, 620)
-            view = QTextBrowser()
-            view.setOpenExternalLinks(True)
-            view.setHtml(html)
-            lay.addWidget(view, 1)
-        else:
-            self.setWindowTitle("Attribute Table Studio — Help")
-            self.setWindowIcon(icons.native(icons.HELP))
-            self.resize(720, 640)
-            tabs = QTabWidget()
-            tabs.setIconSize(QSize(metrics.icon, metrics.icon))
-            for title, icon, html in TOPICS.values():
-                view = QTextBrowser()
-                view.setOpenExternalLinks(True)
-                view.setHtml(html)
-                tabs.addTab(view, _topic_icon(icon), title)
-            tabs.setCurrentIndex(tab)
-            lay.addWidget(tabs, 1)
+        title, icon, text = TOPICS[topic]
+        self.setWindowTitle(f"{title} — Help")
+        self.setWindowIcon(_topic_icon(icon))
+        self.resize(1180, 820)
+        self.tabs = QTabWidget()
+        self.pages = []
+        room = QSize(1180 - 6 * metrics.margin, 820 - 110)      # a tab's inside
+        for page in PAGES.get(topic, []):
+            widget = _PicturePage(page, metrics, room)
+            self.pages.append(widget)
+            self.tabs.addTab(widget, page.title.replace("&", "&&"))
+        details = QTextBrowser()
+        details.setOpenExternalLinks(True)
+        details.setHtml(text + GENERAL_HELP)
+        self.details = details
+        self.tabs.addTab(details, "More details")
+        if isinstance(tab, str):
+            keys = [page.key for page in PAGES.get(topic, [])]
+            tab = keys.index(tab) if tab in keys else 0
+        self.tabs.setCurrentIndex(min(tab, self.tabs.count() - 1))
+        lay.addWidget(self.tabs, 1)
         box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         box.rejected.connect(self.reject)
         box.accepted.connect(self.accept)

@@ -24,8 +24,7 @@ PKG = H.plugin_package()
 
 from qgis.PyQt.QtCore import QPoint, Qt  # noqa: E402
 from qgis.PyQt.QtGui import QColor  # noqa: E402
-from qgis.PyQt.QtWidgets import (QFileDialog, QLabel, QMenu, QMessageBox,  # noqa: E402
-                                 QTextBrowser)
+from qgis.PyQt.QtWidgets import QFileDialog, QLabel, QMenu, QMessageBox  # noqa: E402
 from qgis.core import (QgsFeatureRequest, QgsProject,  # noqa: E402
                        QgsVectorLayer)
 from qgis.gui import QgsDockWidget  # noqa: E402
@@ -101,7 +100,7 @@ class SuiteTests(unittest.TestCase):
                                  "Geometry and Table Compare"])
         menu = [a.text() for _n, a in self.iface.menu_actions if not a.isSeparator()]
         self.assertEqual(menu, ["Attribute Explorer", "Pivot Table",
-                                "Geometry and Table Compare", "Settings…", "Help"])
+                                "Geometry and Table Compare", "Settings…"])
         shortcuts = {a.text(): s for a, s in self.iface.registered}
         self.assertEqual(shortcuts["Attribute Explorer"], "Ctrl+Alt+T")
         self.assertEqual(shortcuts["Pivot Table"], "")
@@ -1042,8 +1041,7 @@ class SuiteTests(unittest.TestCase):
         self.assertFalse(panel.clear_validation_btn.isEnabled())
         panel.show_help()
         self.assertTrue(panel._help_dialog.isVisible())
-        self.assertIn("tracking what changed",
-                      panel._help_dialog.findChild(QTextBrowser).toPlainText())
+        self.assertIn("tracking what changed", panel._help_dialog.details.toPlainText())
         panel._help_dialog.close()
 
         panel.compare_tables()
@@ -2259,6 +2257,60 @@ class SuiteTests(unittest.TestCase):
         self.assertTrue(dlg.isVisible())
         self.assertIn("Pivot Table", dlg.windowTitle())
         dlg.close()
+
+    def test_13g2_help_windows(self):
+        """Every tool's Help: a tab per part with its numbered picture, then
+        More details."""
+        from qgis.PyQt.QtGui import QPixmap
+        from attribute_table_studio.core import pivot as P
+        from attribute_table_studio.ui.help_dialog import HelpDialog, picture_path
+        from attribute_table_studio.ui.help_pages import PAGES
+        self.assertEqual(set(PAGES), {"explorer", "chart", "pivot", "compare"})
+        for topic, tabs in PAGES.items():
+            for tab in tabs:
+                self.assertFalse(QPixmap(picture_path(tab.key)).isNull(), tab.key)
+                self.assertTrue(tab.items, tab.key)
+
+        def check(dlg, topic, current=0):
+            self.assertIsInstance(dlg, HelpDialog)
+            self.assertTrue(dlg.isVisible())
+            self.assertEqual(dlg.topic, topic)
+            n = len(PAGES[topic])
+            self.assertEqual(dlg.tabs.count(), n + 1)
+            self.assertEqual(dlg.tabs.tabText(n), "More details")
+            self.assertEqual(dlg.tabs.currentIndex(), current)
+            self.assertIn("License", dlg.details.toPlainText())
+            for i, tab in enumerate(PAGES[topic]):
+                page = dlg.pages[i]
+                self.assertEqual(dlg.tabs.tabText(i).replace("&&", "&"), tab.title)
+                self.assertFalse(page.picture.missing, tab.key)
+                text = page.text.toPlainText()
+                for item in tab.items:
+                    self.assertIn(item.title, text)
+            dlg.close()
+
+        panel = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: idle(panel)))
+        panel.show_help()
+        check(panel._help_dialog, "explorer")
+        chart = panel.visualize_statistics(self.layer.fields().indexOf("AREA_M2"))
+        chart.help_btn.click()
+        check(chart._help_dialog, "chart")
+        panel.chart_host.close()
+        pivot = self.plugin.open_pivot(self.layer)
+        pivot.help_btn.click()
+        check(pivot._help_dialog, "pivot")
+        pivot.set_spec(P.PivotSpec(["LAND_USE"], [], [P.Measure("AREA_M2", "sum")]))
+        pivot.build()
+        self.assertTrue(H.wait_for(lambda: not pivot.runner.busy, 60))
+        pchart = pivot.open_chart()
+        pchart.help_btn.click()                    # opens on the Chart tab
+        check(pchart._help_dialog, "pivot",
+              [t.key for t in PAGES["pivot"]].index("pivot_chart"))
+        pivot.chart_host.close()
+        compare = self.plugin.open_compare()
+        compare.help_btn.click()
+        check(compare._help_dialog, "compare")
 
     def test_13h_view_menu_like_qgis_and_form_size(self):
         from qgis.PyQt.QtWidgets import QScrollArea

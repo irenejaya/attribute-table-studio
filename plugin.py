@@ -7,7 +7,7 @@ Attribute Table Studio - plugin shell.
 
 Owns the single "Attribute Table Studio" toolbar with exactly three actions
 (Attribute Explorer, Pivot Table, Geometry and Table Compare), the plugin
-menu (the three tools, Settings, Help), the keyboard-shortcut registration,
+menu (the three tools and Settings; each tool has its own Help), the keyboard-shortcut registration,
 the layer context-menu entry and the open tool windows.  The tools
 themselves live in ``ui/``; each is shown by a ``ToolHost`` as a window or
 a dock.
@@ -82,10 +82,8 @@ class AttributeTableStudioPlugin:
         settings_action = QAction(icons.native(icons.SETTINGS), "Settings…", main)
         settings_action.setObjectName("mActionAttributeTableStudio_settings")
         settings_action.triggered.connect(self.show_settings)
-        help_action = QAction(icons.native(icons.HELP), "Help", main)
-        help_action.setObjectName("mActionAttributeTableStudio_help")
-        help_action.triggered.connect(self.show_help)
-        for action in (separator, settings_action, help_action):
+        # each tool has its own Help (its ? button), so the menu has none
+        for action in (separator, settings_action):
             self.iface.addPluginToMenu(MENU, action)
             self.menu_actions.append(action)
 
@@ -431,8 +429,3 @@ class AttributeTableStudioPlugin:
         if SettingsDialog(self.iface.mainWindow()).exec():
             self.apply_table_keys()
 
-    def show_help(self):
-        from .ui.help_dialog import HelpDialog
-        dlg = HelpDialog(self.iface.mainWindow())
-        dlg.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        dlg.show()
