@@ -10,13 +10,16 @@ One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
 Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
-**Version 1.3** makes Attribute Explorer much lighter and faster on big
-layers: all column statistics come from one read, filters reuse the values
-already read and sorting never freezes QGIS. With 10 million records the
-statistics are ready in 78 s instead of 185 s, a filter takes 14 s instead
-of 125 s and memory peaks at 1.0 GB instead of 3.1 GB (see
-[Big layers](#attribute-explorer); the full list of changes is in the
-changelog of `metadata.txt`).
+**New in version 1.3**: **Freeze Column** in Attribute Explorer (frozen
+columns stay at the left while the others scroll), a **chart of the Pivot
+Table** (one bar per row, the pivot's columns as colours), Compare's
+**changed fields** (which fields changed, and only their changes at a
+click), and an Attribute Explorer much lighter and faster on big layers:
+all column statistics come from one read, filters reuse the values already
+read and sorting never freezes QGIS. With 10 million records the statistics
+are ready in 78 s instead of 185 s, a filter takes 14 s instead of 125 s and
+memory peaks at 1.0 GB instead of 3.1 GB. The full list of changes is in
+the changelog of `metadata.txt`.
 
 Inspired by Microsoft's [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
