@@ -10,13 +10,16 @@ One QGIS plugin, one toolbar, three tools for working with attribute tables:
 
 Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
-**Version 1.3** makes Attribute Explorer much lighter and faster on big
-layers: all column statistics come from one read, filters reuse the values
-already read and sorting never freezes QGIS. With 10 million records the
-statistics are ready in 78 s instead of 185 s, a filter takes 14 s instead
-of 125 s and memory peaks at 1.0 GB instead of 3.1 GB (see
-[Big layers](#attribute-explorer); the full list of changes is in the
-changelog of `metadata.txt`).
+**New in version 1.3**: **Freeze Column** in Attribute Explorer (frozen
+columns stay at the left while the others scroll), a **chart of the Pivot
+Table** (one bar per row, the pivot's columns as colours), Compare's
+**changed fields** (which fields changed, and only their changes at a
+click), and an Attribute Explorer much lighter and faster on big layers:
+all column statistics come from one read, filters reuse the values already
+read and sorting never freezes QGIS. With 10 million records the statistics
+are ready in 78 s instead of 185 s, a filter takes 14 s instead of 125 s and
+memory peaks at 1.0 GB instead of 3.1 GB. The full list of changes is in
+the changelog of `metadata.txt`.
 
 Inspired by Microsoft's [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
@@ -37,6 +40,17 @@ size and position. The **Dock** button at the top right of each tool docks it
 into the QGIS main window — and undocks it again — keeping filters, results
 and selections. *Plugins › Attribute Table Studio › Settings* can open each tool
 docked by default, like *Open attribute table as docked window* in QGIS.
+
+## Help
+
+Every tool has its own **Help**: the ? button at the top right (in Attribute
+Explorer, *☰ › Help*). It has a tab for each part of the tool — Attribute
+Explorer: Overview, Statistics & filters, Selection, Editing, Quick update &
+Find; Visualize Statistics: Chart, Settings; Pivot Table: Overview, Build your
+table, Result, Chart; Compare: Setup, Results, Review. Each tab shows a picture
+of that part with red numbered badges and, beside it, what every number does.
+Drag the divider (or make the window bigger) to enlarge the picture. The last
+tab, **More details**, keeps the full written help.
 
 ## Attribute Explorer
 
@@ -416,8 +430,10 @@ ui/
                        calculator, field and form dialogs, form view
   pivot_table.py       Pivot Table window; pivot_chart.py its chart window
   geotable_compare.py
-  settings_dialog.py, help_dialog.py
+  settings_dialog.py
+  help_dialog.py       Help window of each tool; help_pages.py its tabs and numbered items
 icons/                 toolbar icons
+help/                  pictures of the Help tabs (made by tests/qgis/make_help_images.py)
 tests/                 unit tests + headless QGIS tests
 ```
 
@@ -432,6 +448,7 @@ python tests/qgis/test_compare_regression.py  # Compare exports == v1.1
 python tests/qgis/test_editing_qgis.py        # Explorer editing, forms, scopes, menus
 python tests/qgis/make_screenshots.py docs/screenshots dark   # README images (made-up data)
 python tests/qgis/make_screenshots.py docs/screenshots light
+python tests/qgis/make_help_images.py         # Help pictures in help/ (made-up data)
 ```
 
 All suites pass on QGIS 4.2 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).

@@ -16,7 +16,7 @@ import zipfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGE = "attribute_table_studio"
 INCLUDE = ("__init__.py", "plugin.py", "metadata.txt", "icon.svg", "LICENSE",
-           "ADDITIONAL_TERMS.md", "README.md", "core", "ui", "icons")
+           "ADDITIONAL_TERMS.md", "README.md", "core", "ui", "icons", "help")
 
 
 def version():
