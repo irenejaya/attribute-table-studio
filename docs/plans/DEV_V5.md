@@ -12,7 +12,7 @@ stay as they are.
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Planned |
 | 4 | Help, README, screenshots, 1.4 changelog | Planned |
 
-Each round is tested on QGIS 4 and then QGIS 3, committed and pushed to
+Each round is tested on QGIS 4.2 and 4.4, then QGIS 3.44, committed and pushed to
 dev-v5, and shown with screenshots before the next round starts. The version
 becomes 1.4 when the four rounds are done.
 
@@ -22,12 +22,13 @@ becomes 1.4 when the four rounds are done.
 | --- | --- |
 | Name | Data Plot (toolbar, plugin menu, window) |
 | Drawing | Qt's own painter, like the current charts: no extra package, the QGIS light or dark look, hover cards, selecting records |
-| Opened from | A new toolbar button and a plugin menu entry, with its own layer box |
+| Opened from | A new toolbar button after Pivot Table and a plugin menu entry, with its own layer box |
+| Fields | Fields only, as in ArcGIS Pro (no expressions); a virtual field covers a calculated value |
 | Records | Live: All records, the Attribute Explorer's filtered records, Selected records or Visible map extent; the plot redraws by itself when those records or their values change |
 | Plot types | All 12, in rounds 1 to 3 |
 | Kept | A list of plots per layer, saved in the QGIS project; a plot can also be saved to or loaded from a file |
 | Selection | Two-way: selecting on the plot selects the records on the layer, and records selected anywhere are highlighted in the plot |
-| Options | As in ArcGIS Pro, listed per type below |
+| Options | As in ArcGIS Pro, listed per type below; options not confirmed on Esri's pages are left out |
 | Many points | Every point drawn while it stays readable; past a limit measured in round 1, each spot is shaded by how many records fall on it, with every record counted |
 | Window | Plot list on the left, the plot in the middle, its properties on the right; Open in new window shows another plot beside it; dockable |
 | Help | Overview, one tab per plot type (12), More details |
@@ -113,9 +114,9 @@ becomes 1.4 when the four rounds are done.
 From ArcGIS Pro's Chart Properties tabs.
 
 - **Axes**: minimum and maximum of each axis (the data's range by default,
-  with Reset), **Log axis** for number axes, number format, axis titles.
+  with Reset), **Log axis** for number axes, axis titles.
 - **Guides**: add a horizontal or vertical guide at a value; a **to** value
-  makes it a range; an optional label and colour.
+  makes it a range; an optional label.
 - **Format**: series colours (the colour-blind checked colours of the current
   charts by default, each one changeable), grid lines on or off, axis lines.
   The background and text follow the QGIS light or dark look.
@@ -124,8 +125,8 @@ From ArcGIS Pro's Chart Properties tabs.
 
 ## The 12 plot types
 
-Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Items marked
-*(my proposal)* were not confirmed on those pages and need your yes or no.
+Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Options I could
+not confirm on those pages are left out.
 
 ### Round 1
 
@@ -134,7 +135,7 @@ Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Items marked
 - **Size by**: an optional third number field sizes each point (a bubble
   plot), with smallest and largest point sizes.
 - **Colour**: the layer's own symbology colours (default, as in ArcGIS Pro,
-  read from the layer's QGIS style), one colour, or by a field.
+  read from the layer's QGIS style), or one colour.
 - **Trend line**: on or off; Linear, or the non-linear Exponential,
   Logarithmic, Power and Polynomial; shows R² and the equation, with a note
   that R² assumes a straight line for the non-linear fits.
@@ -149,7 +150,6 @@ Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Items marked
   span), alignment to the first or last record or a reference time, **Trim
   incomplete interval**.
 - **Empty bins**: Treat as zero, Connect line or Break line.
-- Point markers on or off *(my proposal)*.
 
 **Bar Chart**: a value per category.
 - Category: a text, number or date field (dates binned as in Line Chart).
@@ -158,8 +158,6 @@ Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Items marked
 - **Display multiple series as**: Side by side (default), Stacked, 100%
   Stacked.
 - **Sort**: by category or by value, ascending or descending.
-- Vertical columns or horizontal bars *(my proposal)*; value labels on bars
-  *(my proposal)*.
 
 ### Round 2
 
@@ -178,7 +176,6 @@ Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Items marked
 - **Grouping threshold**: slices under this percentage are put together as
   **Other** (default 0%, every slice shown).
 - **Donut**: the hole as a percentage of the pie (0 is a full pie).
-- Slice labels with percentage or value, slice order *(my proposal)*.
 
 **Histogram**: the distribution of one number field.
 - **Number of bins**: the square root of the record count by default,
@@ -197,12 +194,11 @@ Options are from Esri's ArcGIS Pro help and ArcPy chart pages. Items marked
 - **Split by**: a category field, one box per category for each field.
 - **Show outliers**: points beyond 1.5 × the interquartile range from the box,
   or whiskers to the extremes when off.
-- Mean marker *(my proposal)*.
 
 ### Round 3
 
 **Scatter Plot Matrix**: every pair of several number fields.
-- Number fields: 2 to 10 *(the limit of 10 is my proposal)*.
+- Number fields: two or more.
 - **Lower left**: R² values with a colour gradient, scatter plots, or empty.
 - **Upper right**: scatter plots, a **Preview plot** (a larger view of the
   cell clicked), or empty.
@@ -223,7 +219,6 @@ distribution?
   field, which colours the cells.
 - **Classification**: Equal interval, Geometric interval, Natural breaks,
   Quantile; number of classes; colour ramp (QGIS's colour ramps).
-- Values written in the cells *(my proposal)*.
 
 **Calendar Heat Chart**: values on a calendar.
 - Date: a date field.
@@ -264,7 +259,7 @@ distribution?
   classifications, clock and calendar binning, density shading.
 - QGIS tests: the window, each type on memory and GeoPackage layers, live
   records, two-way selection, saving in the project and to a file, export,
-  docking, and QGIS 4 then QGIS 3.
+  docking, on QGIS 4.2 and 4.4, then QGIS 3.44.
 - A big-layer test (made-up layer of millions of records) for read time,
   redraw time and memory, with the measured numbers written here.
 
