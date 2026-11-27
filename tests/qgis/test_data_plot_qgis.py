@@ -289,6 +289,13 @@ class DataPlotTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: ready(panel) and panel.model.sel_count ==
                                    len(of(labels[0]) | of(labels[2]))))
         self.assertEqual(panel.model.sel_per[0], len(of(labels[0])))
+        # the legend's Selected swatch is filled with the selection colour
+        img = view.render_image(1.0)
+        centre_pt = view._geo["sel_swatch"].center().toPoint()
+        want = QgsProject.instance().selectionColor()
+        got = QColor(img.pixel(centre_pt))
+        self.assertEqual((got.red(), got.green(), got.blue()),
+                         (want.red(), want.green(), want.blue()))
         self.assertEqual(panel.model.sel_part[0][2], len(of(labels[2])))
         # a drag across bars selects the range
         QTest.mousePress(view, Qt.MouseButton.LeftButton, no, centre(1))

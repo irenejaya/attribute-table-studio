@@ -1110,10 +1110,12 @@ class PlotView(QWidget):
             sw = QRectF(rect.left() + 8, rect.center().y() - 5, 12, 10)
             if kind == "box":
                 p.fillRect(sw, colour)
-            elif kind == "sel":
+            elif kind == "sel":                 # as the Pivot Table chart's swatch
+                self._geo["sel_swatch"] = QRectF(sw)
                 p.fillRect(sw, colour)
                 p.setPen(QPen(colour.darker(170), 1))
-                p.drawRect(sw)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRect(sw.adjusted(0.5, 0.5, -0.5, -0.5))
             elif kind == "line":
                 p.setPen(QPen(colour, 2))
                 p.drawLine(QPointF(sw.left() - 2, sw.center().y()),
