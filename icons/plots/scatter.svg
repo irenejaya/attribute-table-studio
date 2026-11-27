@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Scatter Plot</title>
+  <path d="M5 4v23h24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="10" cy="21" r="2.4" fill="#2A78D6"/>
+  <circle cx="14" cy="15" r="2.4" fill="#2A78D6"/>
+  <circle cx="17" cy="19" r="2.4" fill="#2A78D6"/>
+  <circle cx="21" cy="11" r="2.4" fill="#2A78D6"/>
+  <circle cx="25" cy="8" r="2.4" fill="#2A78D6"/>
+  <circle cx="24" cy="15" r="2.4" fill="#2A78D6"/>
+</svg>

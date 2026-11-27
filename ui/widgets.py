@@ -301,7 +301,8 @@ class FieldCombo(QComboBox):
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumContentsLength(10)
 
-    def set_fields(self, fields, numeric_only=False, keep=True):
+    def set_fields(self, fields, numeric_only=False, keep=True, accept=None):
+        """*accept* (optional) takes a field kind and says whether to list it."""
         previous = self.current_name() if keep else None
         self.blockSignals(True)
         self.clear()
@@ -312,6 +313,8 @@ class FieldCombo(QComboBox):
             fld = fields.at(i)
             kind = F.field_kind(fld)
             if numeric_only and kind not in F.NUMERIC:
+                continue
+            if accept is not None and not accept(kind):
                 continue
             self._kinds[fld.name()] = kind
             self.addItem(icons.field(kind, self._theme), fld.name(), fld.name())

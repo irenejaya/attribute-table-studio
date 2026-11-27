@@ -7,7 +7,7 @@ stay as they are.
 
 | Round | Content | Status |
 | --- | --- | --- |
-| 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Planned |
+| 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Built |
 | 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Planned |
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Planned |
 | 4 | Help, README, screenshots, 1.4 changelog | Planned |
@@ -30,7 +30,7 @@ becomes 1.4 when the four rounds are done.
 | Selection | Two-way: selecting on the plot selects the records on the layer, and records selected anywhere are highlighted in the plot |
 | Options | As in ArcGIS Pro, listed per type below; options not confirmed on Esri's pages are left out |
 | Many points | Every point drawn while it stays readable; past a limit measured in round 1, each spot is shaded by how many records fall on it, with every record counted |
-| Window | Plot list on the left, the plot in the middle, its properties on the right; Open in new window shows another plot beside it; dockable |
+| Window | Plot list on the left, the plot in the middle, its properties on the right; Open in new window shows another plot beside it; dockable; the same look as Visualize Statistics and the Pivot Table (properties in one card with section headers, no tabs) |
 | Help | Overview, one tab per plot type (12), More details |
 | Version | 1.4 |
 
@@ -38,17 +38,18 @@ becomes 1.4 when the four rounds are done.
 
 ```
  ┌───────────────────────────────────────────────────────────────────────────┐
- │ Layer [Parcels ▾]  Records: All records ▾   + New plot ▾  ⧉  🗑  ⤓ Export ? ▣ │
+ │ Layer [Parcels ▾]  Records: All records (3,000)   [Change scope ▾] ◩ ⤓ ? ▣ │
  ├──────────────┬──────────────────────────────────────┬─────────────────────┤
- │ Plots        │                                      │ Data  Axes  Guides  │
- │ ▸ Value vs   │            (the plot)                │ Format  General     │
- │   area       │                                      │                     │
- │   Sales per  │                                      │ X  [AREA_M2    ▾]   │
- │   month      │                                      │ Y  [LAND_VALUE ▾]   │
- │   Land use   │                                      │ Size by [ ... ▾]    │
- │              │                                      │ ☑ Trend line        │
+ │ Plots        │                                      │ Data ────────────── │
+ │ ▸ Value vs   │            (the plot)                │ X-axis [AREA_M2  ▾] │
+ │   area       │                                      │ Y-axis [VALUE    ▾] │
+ │   Sales per  │                                      │ [+ Add Y field]     │
+ │   month      │                                      │ Aggregation [Sum ▾] │
+ │              │                                      │ Axes ────────────── │
+ │ [+ New plot] │                                      │ Summary ─────────── │
+ │ ⧉ ✕ ↑ ↓ ▣ ☰  │                                      │ Appearance ──────── │
  ├──────────────┴──────────────────────────────────────┴─────────────────────┤
- │ 12,480 records · 3 selected                                               │
+ │ Bar Chart  •  5 bars  •  699 of 3,000 records selected                    │
  └───────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -60,14 +61,17 @@ becomes 1.4 when the four rounds are done.
   status bar; QGIS stays usable.
 - **New plot**: a list of the 12 types, each with its own icon (drawn for
   this plugin, in the style of its other icons). The new plot is added to the
-  layer's list and opens with sensible first fields.
+  layer's list; its fields are chosen in Data, as in ArcGIS Pro.
 - **Plot list**: the plots made for this layer. Click to show one; rename,
   duplicate, delete, move up or down; **Open in new window** shows it in a
   second Data Plot window, so two plots can sit side by side.
-- **Properties**: tabs as in ArcGIS Pro's Chart Properties: **Data** (the
-  type's own options, below), **Axes**, **Guides**, **Format**, **General**.
-  Every change redraws at once; only a new field or a new set of records
-  reads the layer again.
+- **Properties**: one card, as the Visualize Statistics and Pivot Table
+  chart cards, with a section for each part of ArcGIS Pro's Chart
+  Properties: **Data** (the type's own options, below; an **X-axis** box and
+  a **Y-axis** box wherever the type has both), **Time binning** (a date
+  along X), **Statistics on the chart**, **Axes**, **Guides**, **Summary**
+  and **Appearance** (ArcGIS Pro's Format and General). Every change redraws
+  at once; only a new field or a new set of records reads the layer again.
 - **Export**: PNG, SVG, copy the image, or the plotted numbers as CSV with
   the layer and records noted.
 - **Saving**: every plot (type, fields, options, title) is saved in the QGIS
@@ -111,17 +115,19 @@ becomes 1.4 when the four rounds are done.
 
 ## Options common to every plot
 
-From ArcGIS Pro's Chart Properties tabs.
+From ArcGIS Pro's Chart Properties tabs, shown as sections of the card.
 
-- **Axes**: minimum and maximum of each axis (the data's range by default,
-  with Reset), **Log axis** for number axes, axis titles.
+- **Axes**: minimum and maximum of each axis (the data's range by default),
+  **Log axis** for number axes.
 - **Guides**: add a horizontal or vertical guide at a value; a **to** value
   makes it a range; an optional label.
 - **Format**: series colours (the colour-blind checked colours of the current
   charts by default, each one changeable), grid lines on or off, axis lines.
   The background and text follow the QGIS light or dark look.
-- **General**: title, a description shown under the plot, axis titles (named
-  from the fields and type until changed), legend on or off and its place.
+- **General** (in Appearance, with Format): title, a description shown under
+  the plot, axis titles (named from the fields and type until changed),
+  legend on or off and its place (Automatic places it as Visualize
+  Statistics does: inside the plot, or beside it when it lists series).
 
 ## The 12 plot types
 
@@ -131,7 +137,7 @@ not confirm on those pages are left out.
 ### Round 1
 
 **Scatter Plot**: the relationship between two number fields.
-- X and Y: number fields.
+- **X-axis** and **Y-axis**: number fields.
 - **Size by**: an optional third number field sizes each point (a bubble
   plot), with smallest and largest point sizes.
 - **Colour**: the layer's own symbology colours (default, as in ArcGIS Pro,
@@ -142,22 +148,25 @@ not confirm on those pages are left out.
 - Many points: density shading as above.
 
 **Line Chart**: values over time or along a number.
-- X: a date or number field.
-- **Aggregation**: Count, Sum, Mean, Median, Minimum, Maximum, of one or more
-  number fields (one line each), or **Split by** a category field (one line
-  per category).
+- **X-axis**: a date or number field.
+- **Y-axis**: Count of records, or a numeric field; **Add Y field** adds more
+  (one line each). **Aggregation** of the Y fields: Sum, Mean, Median,
+  Minimum, Maximum. Or **Split by** a category field (one line per category,
+  with one Y field).
 - **Time binning**: interval size and unit (default from the data's time
   span), alignment to the first or last record or a reference time, **Trim
   incomplete interval**.
 - **Empty bins**: Treat as zero, Connect line or Break line.
 
 **Bar Chart**: a value per category.
-- Category: a text, number or date field (dates binned as in Line Chart).
-- **Aggregation**: Count, Sum, Mean, Median, Minimum, Maximum, of one or more
-  number fields, or **Split by** a category field.
-- **Display multiple series as**: Side by side (default), Stacked, 100%
-  Stacked.
-- **Sort**: by category or by value, ascending or descending.
+- **X-axis**: a text, whole number or date field (dates binned as in Line
+  Chart).
+- **Y-axis**, **Add Y field**, **Aggregation** and **Split by** as in Line
+  Chart.
+- **Bars** (ArcGIS Pro's Display multiple series as): Side by side (default),
+  Stacked, 100% stacked.
+- **Sort**: A → Z, Z → A, Smallest value first, Largest value first (worded
+  and drawn as in Visualize Statistics).
 
 ### Round 2
 
@@ -262,6 +271,54 @@ distribution?
   docking, on QGIS 4.4.0 and then QGIS 3.44.14.
 - A big-layer test (made-up layer of millions of records) for read time,
   redraw time and memory, with the measured numbers written here.
+
+## Round 1 built
+
+The Data Plot window with Scatter Plot, Line Chart and Bar Chart, as planned,
+with these choices made while building:
+
+- The window takes the look of the other tools: the properties are one card
+  with section headers (Data, Time binning, Statistics on the chart, Axes,
+  Guides, Summary, Appearance) and "Label [box]" rows, as the Visualize
+  Statistics and Pivot Table chart cards, rather than ArcGIS Pro's tabs; the
+  top row is the Pivot Table's (Layer, the records, Change scope, then the
+  square buttons); the plot list sits in a card like Build your table, with
+  New plot under it.
+- Line and Bar Chart have an **X-axis** box and a **Y-axis** box; the first
+  Y-axis box also offers Count of records, and **Add Y field** adds a series,
+  each with a remove button, as the Pivot Table's values.
+- A new plot starts with its fields empty and asks for them (as ArcGIS Pro
+  does), so it never opens on an ID field with thousands of categories.
+- Bars with a Mean, Median, Minimum or Maximum have no selected part; a strip
+  in the selection colour at the bar's base marks a bar that holds selected
+  records. Count and Sum bars show their selected part.
+- A Bar Chart draws at most 1,000 bars (in the chosen order); the status bar
+  says how many records the others hold.
+- Split by keeps the rule of Visualize Statistics: the 8 categories with the
+  most records get their own colour, the rest form an exact Other.
+
+Measured on this container (headless QGIS 4.4.0, a 1,000 x 700 plot):
+
+| Scatter points | Drawn one by one | Shaded |
+| --- | --- | --- |
+| 10,000 | 18 ms | 13 ms |
+| 50,000 | 61 ms | 15 ms |
+| 100,000 | 113 ms | 15 ms |
+| 200,000 | 228 ms | 16 ms |
+| 500,000 | 514 ms | 29 ms |
+| 1,000,000 | | 55 ms |
+| 5,000,000 | | 288 ms |
+
+So a scatter plot draws every point up to 100,000 points (about 0.1 s) and
+shades above that. Drawing each point from a ready-made image, rather than
+painting each circle, took 100,000 points from 2.9 s to 0.11 s. Hovering
+never redraws the plot: it is kept as an image.
+
+On a made-up GeoPackage table of 1,000,000 records (5 fields), each plot was
+ready in 2.8 to 4.7 s (Scatter Plot with a trend line 3.1 s, Line Chart of a
+monthly mean 4.7 s, Bar Chart of medians split by a 51-value field 2.8 s);
+QGIS never paused for more than 68 ms meanwhile. Changing the trend type took
+0.2 s with no new read, and showing a selection of 100,000 records 0.3 s.
 
 ## Not in this plan
 

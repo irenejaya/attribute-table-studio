@@ -30,6 +30,7 @@ ICON_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icons")
 EXPLORER = "attribute_explorer"
 PIVOT = "pivot_table"
 COMPARE = "geometry_compare"
+PLOT = "data_plot"
 
 # native QGIS icon names, by purpose
 COLUMNS = "/mActionFilterTableFields.svg"
@@ -124,11 +125,20 @@ _cache = {}
 
 
 def tool(name):
-    """One of the three tool icons."""
+    """One of the tool icons."""
     key = ("tool", name)
     if key not in _cache:
         _cache[key] = QIcon(os.path.join(ICON_DIR, name + ".svg"))
     return _cache[key]
+
+
+def plot_type(key):
+    """Icon of a Data Plot type (icons/plots/<key>.svg), or the tool icon."""
+    k = ("plot_type", key)
+    if k not in _cache:
+        path = os.path.join(ICON_DIR, "plots", key + ".svg")
+        _cache[k] = QIcon(path) if os.path.exists(path) else tool(PLOT)
+    return _cache[k]
 
 
 def native(name, fallback=None):

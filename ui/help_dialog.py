@@ -524,10 +524,79 @@ for deleted features and where a shape value (such as <i>_geom_area</i>) was
 rejected, in the NEW layer's CRS.</p>
 """
 
+PLOT_HELP = """
+<h3>Data Plot</h3>
+<p>Plots made from a layer's records, with the options ArcGIS Pro gives its
+charts. Open it from the <b>Data Plot</b> button of the Attribute Table
+Studio toolbar or the plugin menu. Data Plot is separate from Visualize
+Statistics (one column of an Attribute Explorer) and from the Pivot Table
+chart.</p>
+<h4>The window</h4>
+<ul>
+<li><b>Layer</b>: any vector layer, with or without geometry.</li>
+<li><b>Records</b>: All records, the Attribute Explorer's filtered records
+(open the layer in Attribute Explorer first), Selected records or the
+Visible map extent. The plot follows them: a new filter, selection, map
+extent or edit draws it again. Big layers are read in the background
+(progress and Cancel in the status bar).</li>
+<li><b>New plot</b> adds a plot to the layer's list on the left. Click a
+plot to show it; rename it (double-click), duplicate, delete or move it
+with the buttons under the list. <b>Open in new window</b> shows a plot in
+a second window, beside the first.</li>
+<li>The plots of every layer are saved in the QGIS project and come back
+when it opens. <b>Save plot to file</b> and <b>Load plot from file</b>
+move a plot to another project or layer with the same field names.</li>
+<li><b>Export</b>: PNG or SVG image, copy the image, or the plotted values
+as CSV.</li>
+</ul>
+<h4>Selecting</h4>
+<p>Click a point, bar or line point to select its records on the layer
+(the map and Attribute Explorer follow); <b>Ctrl+click</b> adds; drag a box
+around points, or across bars or line points for a range. A click on a
+legend entry selects that category or legend class. Records selected
+anywhere show in the plot in the project's selection colour (for a Count or
+Sum bar, the selected part of the bar). Right-click for <b>Inspect in
+Attribute Explorer</b>.</p>
+<h4>Properties</h4>
+<p><b>Data</b> holds the plot type's own options; <b>Axes</b> the bounds
+(empty for the data's range) and log axes (values of 0 or less cannot be
+shown on a log axis); <b>Guides</b> horizontal or vertical lines at a value,
+or ranges with a second value, with an optional label; <b>Format</b> the
+series colours, grid and axis lines; <b>General</b> the title, axis titles,
+a description under the plot and the legend.</p>
+<h4>Scatter Plot</h4>
+<p>The relationship between two number fields. <b>Size by</b> a third number
+field makes a bubble plot (NULL draws the smallest point). The points take
+the colours of the layer's symbology (each in the colour of its legend
+class), or one colour. <b>Show trend line</b>: Linear, Exponential,
+Logarithmic, Power or Polynomial (order 2 to 6), with its equation and R².
+The exponential, logarithmic and power trends are fitted on the logarithms,
+and leave out values of 0 or less. Records with no X or Y value are left
+out (counted in the status bar). With many points the plot shades each spot
+by the records on it; every record still counts and can be selected.</p>
+<h4>Line Chart</h4>
+<p>Values along a date or number field. <b>Aggregation</b>: Count (records),
+or the Sum, Mean, Median, Minimum or Maximum of one or more numeric fields
+(one line each), or <b>Split by</b> a category field (one line per category,
+with one numeric field). Dates are grouped by <b>Time binning</b>: an
+interval size and unit (Auto from the data's time span), intervals aligned
+to the first record, the last record or a reference time, and <b>Trim
+incomplete interval</b>. <b>Empty bins</b>: Treat as zero, Connect line or
+Break line.</p>
+<h4>Bar Chart</h4>
+<p>A value per category (text, yes / no or whole numbers; dates are grouped
+by Time binning). Aggregation and Split by as for the Line Chart; several
+series side by side, stacked or 100% stacked; sorted by category or by
+value. Split by gives the 8 categories with the most records their own
+colour; the rest form an exact <b>Other</b> (a mean of Other is the mean of
+its records).</p>
+"""
+
+
 GENERAL_HELP = """
 <h3>Attribute Table Studio</h3>
-<p>Three tools in one toolbar: <b>Attribute Explorer</b>, <b>Pivot Table</b>
-and <b>Geometry and Table Compare</b>.</p>
+<p>Four tools in one toolbar: <b>Attribute Explorer</b>, <b>Pivot Table</b>,
+<b>Data Plot</b> and <b>Geometry and Table Compare</b>.</p>
 <h4>Windows and docking</h4>
 <p>Each tool opens in its own window (with its own taskbar entry) and
 remembers its size and position. Press the <b>Dock</b> button at the top
@@ -535,7 +604,7 @@ right of a tool to dock it into the QGIS main window, and again to undock.
 To open a tool docked every time, tick it in <b>Plugins › Attribute Table Studio
 › Settings</b>.</p>
 <h4>Shortcuts</h4>
-<p>All three tools are listed in <b>Settings › Keyboard Shortcuts</b> under
+<p>All four tools are listed in <b>Settings › Keyboard Shortcuts</b> under
 their names. Attribute Explorer proposes <b>Ctrl+Alt+T</b> when no other
 command uses it; the normal attribute table shortcut (F6) is not
 changed.</p>
@@ -554,6 +623,7 @@ TOPICS = {
     "explorer": ("Attribute Explorer", icons.EXPLORER, EXPLORER_HELP),
     "chart": ("Visualize Statistics", icons.CHART, CHART_HELP),
     "pivot": ("Pivot Table", icons.PIVOT, PIVOT_HELP),
+    "plot": ("Data Plot", icons.PLOT, PLOT_HELP),
     "compare": ("Geometry and Table Compare", icons.COMPARE, COMPARE_HELP),
 }
 
@@ -704,7 +774,7 @@ class _PicturePage(QWidget):
 
 
 class HelpDialog(QDialog):
-    """The Help of one tool (*topic*: explorer, chart, pivot, compare): a
+    """The Help of one tool (*topic*: explorer, chart, pivot, plot, compare): a
     tab per part of the tool, then More details.  *tab* is the tab shown
     first: its number, or the key of a picture tab."""
 

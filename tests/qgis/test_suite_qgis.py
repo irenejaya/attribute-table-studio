@@ -96,10 +96,10 @@ class SuiteTests(unittest.TestCase):
     def test_01_toolbar_menu_shortcuts(self):
         tb = self.plugin.toolbar
         texts = [a.text() for a in tb.actions()]
-        self.assertEqual(texts, ["Attribute Explorer", "Pivot Table",
+        self.assertEqual(texts, ["Attribute Explorer", "Pivot Table", "Data Plot",
                                  "Geometry and Table Compare"])
         menu = [a.text() for _n, a in self.iface.menu_actions if not a.isSeparator()]
-        self.assertEqual(menu, ["Attribute Explorer", "Pivot Table",
+        self.assertEqual(menu, ["Attribute Explorer", "Pivot Table", "Data Plot",
                                 "Geometry and Table Compare", "Settings…"])
         shortcuts = {a.text(): s for a, s in self.iface.registered}
         self.assertEqual(shortcuts["Attribute Explorer"], "Ctrl+Alt+T")
@@ -3013,7 +3013,7 @@ class SuiteTests(unittest.TestCase):
         QgsProject.instance().removeMapLayer(other_id)
         H.settle(0.2)
         self.assertNotIn(other_id, self.plugin.explorers)
-        # unload / reload leaves exactly one toolbar with three actions
+        # unload / reload leaves exactly one toolbar with four actions
         self.plugin.unload()
         H.settle(0.2)
         self.assertEqual(self.iface.registered, [])
@@ -3022,7 +3022,7 @@ class SuiteTests(unittest.TestCase):
         bars = [tb for tb in self.iface.mainWindow().findChildren(
             type(self.plugin.toolbar)) if tb.objectName() == "AttributeTableStudioToolbar"]
         self.assertEqual(len(bars), 1)
-        self.assertEqual(len(bars[0].actions()), 3)
+        self.assertEqual(len(bars[0].actions()), 4)
 
 
 if __name__ == "__main__":

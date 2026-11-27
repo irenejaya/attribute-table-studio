@@ -41,6 +41,7 @@ class SettingsDialog(QDialog):
         for key, text, icon in (
                 ("explorer", "Open Attribute Explorer docked", icons.EXPLORER),
                 ("pivot", "Open Pivot Table docked", icons.PIVOT),
+                ("plot", "Open Data Plot docked", icons.PLOT),
                 ("compare", "Open Geometry and Table Compare docked",
                  icons.COMPARE)):
             row = QHBoxLayout()

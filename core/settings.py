@@ -11,6 +11,7 @@ PREFIX = "AttributeTableStudio"
 DEFAULTS = {
     "explorer/openDocked": False,
     "pivot/openDocked": False,
+    "plot/openDocked": False,
     "compare/openDocked": False,
     "chart/openDocked": False,
     "explorer/summaryVisible": True,
