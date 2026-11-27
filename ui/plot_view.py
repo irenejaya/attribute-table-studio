@@ -41,6 +41,7 @@ CELL = 3                         # density: size of a spot (px)
 PICK_RADIUS = 6                  # px around the mouse that picks a point
 TREND_COLOUR = {False: "#37474F", True: "#ECEFF1"}
 STD_COLOUR = "#8E24AA"
+_MONTH_DAYS = (31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
 
 
 def fill_type_menu(menu, slot):
@@ -303,6 +304,8 @@ class PlotModel:
         self.sel_part = None         # bar: selected part [series][position] (Count / Sum)
         self.sel_count = 0
         self.sel_colour = QColor("#ffff00")
+        self.breaks = []             # heat charts: the classes' upper bounds ...
+        self.class_colours = []      # ... and their colours
 
 
 # ============================================================================
@@ -483,6 +486,17 @@ class PlotView(QWidget):
             self._paint_histogram(p, area, fm)
         elif m.kind == "box":
             self._paint_box(p, area, fm, ratio, vector)
+        elif m.kind == "qq":
+            self._paint_scatter(p, area, fm, ratio, vector)
+            self._paint_qq_reference(p)
+        elif m.kind == "heat":
+            self._paint_heat(p, area, fm)
+        elif m.kind == "calendar":
+            self._paint_calendar(p, area, fm)
+        elif m.kind == "clock":
+            self._paint_clock(p, area, fm)
+        elif m.kind == "matrix":
+            self._paint_matrix(p, area, fm, ratio)
         if show_legend:
             plot = self._geo["plot"] or area
             if place == "bottom":
@@ -496,7 +510,7 @@ class PlotView(QWidget):
 
     # ---- frame: axes, grid, guides --------------------------------------
     def _frame(self, p, area, fm, xa, ya, x_title, y_title, rotate_x=False, ya2=None,
-               y2_title=""):
+               y2_title="", grid=None):
         """Lay out *area* around the axes (*ya2*: a second value axis on the
         right) and draw the grid, the axes and their labels; returns the
         plot rectangle."""
@@ -530,7 +544,8 @@ class PlotView(QWidget):
         self._geo["plot"] = plot
         self._geo["x"], self._geo["y"] = xa, ya
         fmt = m.plot.get("format", {})
-        grid = fmt.get("grid", True)
+        if grid is None:
+            grid = fmt.get("grid", True)
         p.setPen(QPen(QColor(t.border_soft), 1))
         if grid:
             for v, _s in yt:
@@ -1433,13 +1448,406 @@ class PlotView(QWidget):
                     self._geo["items"].append((QRectF(cx - 5, y - 5, 10, 10), k, j))
         p.restore()
 
+    # ---- QQ plot: a scatter plot with a reference line -------------------
+    def _paint_qq_reference(self, p):
+        m, d = self.model, self.model.data
+        if not m.plot.get("data", {}).get("reference", True) or d.ref is None:
+            return
+        xa, ya, plot = self._geo["x"], self._geo["y"], self._geo["plot"]
+        slope, icpt = d.ref
+        x0, x1 = xa.lo, xa.hi
+        p.save()
+        p.setClipRect(plot)
+        pen = QPen(QColor(self.theme.danger), 1.8)
+        p.setPen(pen)
+        p.drawLine(QPointF(xa.map(x0), ya.map(slope * x0 + icpt)),
+                   QPointF(xa.map(x1), ya.map(slope * x1 + icpt)))
+        p.restore()
+
+    # ---- cell colours (heat charts) -------------------------------------
+    def _cell_colour(self, v):
+        m = self.model
+        if v != v or not m.breaks:
+            return None
+        c = P.class_of(v, m.breaks)
+        return m.class_colours[c] if 0 <= c < len(m.class_colours) else None
+
+    def _cell_card(self, k):
+        """Hover card of cell *k* of a heat chart."""
+        m, d = self.model, self.model.data
+        v = float(d.values[k])
+        rec = int(d.records[k])
+        what = "Records" if d.agg == "count" else P.AGG_LABELS.get(d.agg, "")
+        sel = int(m.sel_per[k]) if m.sel_per is not None and k < len(m.sel_per) else 0
+        lines = [(self._cell_colour(v), f"{what}: {value_text(v) if rec else 'none'}")]
+        if d.agg != "count":
+            lines.append((None, f"{rec:,} records"))
+        return lines + self._sel_line(sel)
+
+    # ---- matrix heat chart ---------------------------------------------
+    def _paint_heat(self, p, area, fm):
+        m, d = self.model, self.model.data
+        nr, nc = len(d.rows), len(d.columns)
+        xa = Axis.category(d.columns)
+        ya = Axis.category(list(reversed(d.rows)))          # the first row on top
+        plot = self._frame(p, area, fm, xa, ya, m.x_title, m.y_title, grid=False)
+        if not nr or not nc:
+            return
+        cw, ch = plot.width() / nc, plot.height() / nr
+        for r in range(nr):
+            for c in range(nc):
+                k = r * nc + c
+                colour = self._cell_colour(float(d.values[k]))
+                rect = QRectF(plot.left() + c * cw, plot.top() + r * ch, cw, ch)
+                if colour is None:
+                    continue
+                p.fillRect(rect.adjusted(0.5, 0.5, -0.5, -0.5), colour)
+                self._geo["items"].append((rect, k, None))
+                if m.sel_per is not None and m.sel_per[k]:
+                    p.setPen(QPen(QColor(m.sel_colour), 2.2))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawRect(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+
+    # ---- calendar heat chart -------------------------------------------
+    def _paint_calendar(self, p, area, fm):
+        t, m, d = self.theme, self.model, self.model.data
+        self._geo["plot"] = area
+        n = len(d.panels)
+        cols = 1 if n <= 4 else (2 if n <= 12 else 3)
+        rows_n = int(math.ceil(n / cols))
+        pw = area.width() / cols
+        ph = area.height() / max(1, rows_n)
+        nr, nc = len(d.rows), len(d.columns)
+        year = m.plot["data"].get("calendar", "year") == "year"
+        label_w = max(fm.horizontalAdvance(s) for s in d.rows) + 8
+        for k in range(n):
+            gr, gc = divmod(k, cols)
+            box = QRectF(area.left() + gc * pw, area.top() + gr * ph, pw - 10, ph - 6)
+            top = box.top()
+            if d.panels[k]:
+                bold = QFont(self.font())
+                bold.setBold(True)
+                p.setFont(bold)
+                p.setPen(QColor(t.text_strong))
+                p.drawText(QRectF(box.left(), top, box.width(), fm.height() + 2),
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+                           d.panels[k])
+                p.setFont(self.font())
+                top += fm.height() + 4
+            grid = QRectF(box.left() + label_w, top, box.width() - label_w,
+                          box.bottom() - top - fm.height() - 4)
+            cw, ch = grid.width() / nc, grid.height() / nr
+            p.setPen(QColor(t.text_dim))
+            if ch >= fm.height() * 0.7:
+                for r, name in enumerate(d.rows):
+                    p.drawText(QRectF(box.left(), grid.top() + r * ch, label_w - 6, ch),
+                               Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, name)
+            step = 1 if cw >= fm.horizontalAdvance("00") + 4 else (
+                5 if year else 3)
+            for c, name in enumerate(d.columns):
+                if c % step and not (year and c == nc - 1):
+                    continue
+                p.drawText(QRectF(grid.left() + c * cw - 10, grid.bottom() + 2, cw + 20,
+                                  fm.height()), Qt.AlignmentFlag.AlignCenter, name)
+            base = k * nr * nc
+            for r in range(nr):
+                for c in range(nc):
+                    rect = QRectF(grid.left() + c * cw, grid.top() + r * ch, cw, ch)
+                    if year and c >= _MONTH_DAYS[r]:
+                        continue                       # no 30 February
+                    cell = base + r * nc + c
+                    colour = self._cell_colour(float(d.values[cell]))
+                    p.setPen(QPen(QColor(t.border_soft), 0.6))
+                    p.setBrush(colour if colour is not None else QColor(t.base))
+                    p.drawRect(rect.adjusted(0.5, 0.5, -0.5, -0.5))
+                    if colour is not None:
+                        self._geo["items"].append((rect, cell, None))
+                    if m.sel_per is not None and m.sel_per[cell]:
+                        p.setPen(QPen(QColor(m.sel_colour), 2))
+                        p.setBrush(Qt.BrushStyle.NoBrush)
+                        p.drawRect(rect.adjusted(1.5, 1.5, -1.5, -1.5))
+
+    # ---- data clock ----------------------------------------------------
+    def _paint_clock(self, p, area, fm):
+        t, m, d = self.theme, self.model, self.model.data
+        self._geo["plot"] = area
+        nr, nc = len(d.rows), len(d.columns)
+        if not nr:
+            return
+        label_room = fm.height() * 2 + 6
+        side = min(area.width(), area.height()) - label_room
+        centre = area.center()
+        outer = side / 2.0
+        inner = outer * 0.18
+        width = (outer - inner) / nr
+        span = -360.0 / nc
+        for r in range(nr):
+            r0, r1 = inner + r * width, inner + (r + 1) * width
+            rect_o = QRectF(centre.x() - r1, centre.y() - r1, 2 * r1, 2 * r1)
+            rect_i = QRectF(centre.x() - r0, centre.y() - r0, 2 * r0, 2 * r0)
+            for c in range(nc):
+                k = r * nc + c
+                colour = self._cell_colour(float(d.values[k]))
+                start = 90.0 + c * span
+                path = QPainterPath()
+                path.arcMoveTo(rect_o, start)
+                path.arcTo(rect_o, start, span)
+                path.arcTo(rect_i, start + span, -span)
+                path.closeSubpath()
+                p.setPen(QPen(QColor(t.border_soft), 0.5) if nc * nr < 4000
+                         else Qt.PenStyle.NoPen)
+                p.setBrush(colour if colour is not None else QColor(t.base))
+                p.drawPath(path)
+                if colour is not None:
+                    self._geo["wedges"].append((path, k, start, span))
+                if m.sel_per is not None and m.sel_per[k]:
+                    p.setPen(QPen(QColor(m.sel_colour), 2))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawPath(path)
+        # the wedges' names around the clock (every few when there are many)
+        p.setPen(QColor(t.text_dim))
+        step = max(1, int(math.ceil(nc / 24.0)))
+        for c in range(0, nc, step):
+            angle = math.radians(90.0 + (c + 0.5) * span)
+            rr = outer + fm.height() * 0.9
+            x = centre.x() + rr * math.cos(angle)
+            y = centre.y() - rr * math.sin(angle)
+            p.drawText(QRectF(x - 30, y - fm.height() / 2, 60, fm.height()),
+                       Qt.AlignmentFlag.AlignCenter, d.columns[c])
+        # the first and last ring's names at 12 o'clock, on a small card
+        for r in sorted({0, nr - 1}):
+            rr = inner + (r + 0.5) * width
+            text = d.rows[r]
+            w = fm.horizontalAdvance(text) + 8
+            box = QRectF(centre.x() - w / 2, centre.y() - rr - fm.height() / 2 - 1, w,
+                         fm.height() + 2)
+            p.setPen(QPen(QColor(t.border), 1))
+            p.setBrush(QColor(t.card))
+            p.drawRoundedRect(box, 3, 3)
+            p.setPen(QColor(t.text_strong))
+            p.drawText(box, Qt.AlignmentFlag.AlignCenter, text)
+
+    # ---- scatter plot matrix -------------------------------------------
+    def _paint_matrix(self, p, area, fm, ratio):
+        t, m, d = self.theme, self.model, self.model.data
+        data = m.plot.get("data", {})
+        k = len(d.fields)
+        self._geo["plot"] = area
+        self._geo["cells"] = []
+        if k < 2:
+            return
+        lower, upper = data.get("lower", "r2"), data.get("upper", "scatter")
+        diag = data.get("diagonal", "histogram")
+        label = fm.height() + 6
+        side = min(area.width() - label, area.height() - label)
+        size = side / k
+        left = area.left() + label
+        top = area.top()
+        pair = data.get("preview_pair") or [1, 0]
+        try:
+            pi, pj = int(pair[0]), int(pair[1])
+        except (TypeError, ValueError, IndexError):
+            pi, pj = 1, 0
+        if not (0 <= pi < k and 0 <= pj < k and pi != pj):
+            pi, pj = 1, 0
+        colour = QColor(m.colours[0]) if m.colours else QColor(t.bar)
+        for i in range(k):
+            # field names: left of each row, under each column
+            p.setPen(QColor(t.text))
+            p.save()
+            p.translate(area.left() + fm.height() / 2 + 2, top + (i + 0.5) * size)
+            p.rotate(-90)
+            p.drawText(QRectF(-size / 2, -fm.height() / 2, size, fm.height() + 2),
+                       Qt.AlignmentFlag.AlignCenter,
+                       fm.elidedText(d.fields[i], Qt.TextElideMode.ElideRight, int(size)))
+            p.restore()
+            p.drawText(QRectF(left + i * size, top + k * size + 2, size, fm.height() + 2),
+                       Qt.AlignmentFlag.AlignCenter,
+                       fm.elidedText(d.fields[i], Qt.TextElideMode.ElideRight, int(size)))
+            for j in range(k):
+                cell = QRectF(left + j * size, top + i * size, size, size).adjusted(2, 2, -2, -2)
+                p.setPen(QPen(QColor(t.border_soft), 1))
+                p.setBrush(QColor(t.base))
+                if i == j:
+                    p.drawRect(cell)
+                    if diag == "histogram":
+                        self._mini_hist(p, cell, d.hists[i], colour)
+                    else:
+                        p.setPen(QColor(t.text_strong))
+                        p.drawText(cell, Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                                   d.fields[i])
+                    continue
+                show = lower if i > j else upper
+                if show == "none" or (show == "preview"):
+                    continue
+                p.drawRect(cell)
+                if show == "r2":
+                    r2 = d.r2[i, j]
+                    if r2 == r2:
+                        fill = QColor(t.accent)
+                        fill.setAlphaF(0.12 + 0.75 * float(r2))
+                        p.fillRect(cell.adjusted(1, 1, -1, -1), fill)
+                    p.setPen(QColor(t.text_strong))
+                    p.drawText(cell, Qt.AlignmentFlag.AlignCenter,
+                               "—" if r2 != r2 else f"{r2:.2f}")
+                    self._geo["cells"].append((cell, i, j, "r2", None))
+                else:
+                    axes = self._mini_scatter(p, cell, j, i, colour, ratio, small=True)
+                    self._geo["cells"].append((cell, i, j, "scatter", axes))
+        if upper == "preview":
+            # the upper right triangle holds one larger plot of the chosen pair
+            box = QRectF(left + size * (k // 2 + (k % 2)) + 6, top + 4,
+                         size * (k - (k // 2 + (k % 2))) - 8, size * (k // 2) - 8) \
+                if k >= 2 else QRectF()
+            if k == 2:
+                box = QRectF(left + size + 6, top + 4, size - 8, size - 8)
+            if box.width() > 40 and box.height() > 40:
+                bold = QFont(self.font())
+                bold.setBold(True)
+                p.setFont(bold)
+                p.setPen(QColor(t.text_strong))
+                title = f"{d.fields[pi]} and {d.fields[pj]}"
+                p.drawText(QRectF(box.left(), box.top(), box.width(), fm.height() + 2),
+                           Qt.AlignmentFlag.AlignCenter,
+                           QFontMetrics(bold).elidedText(title, Qt.TextElideMode.ElideRight,
+                                                         int(box.width())))
+                p.setFont(self.font())
+                inner = box.adjusted(0, fm.height() + 4, 0, 0)
+                p.setPen(QPen(QColor(t.border_soft), 1))
+                p.setBrush(QColor(t.base))
+                p.drawRect(inner)
+                axes = self._mini_scatter(p, inner, pj, pi, colour, ratio, small=False)
+                self._geo["cells"].append((inner, pi, pj, "preview", axes))
+
+    def _mini_hist(self, p, cell, hist, colour):
+        edges, counts = hist
+        top = max(counts) if counts else 0
+        if not top:
+            return
+        inner = cell.adjusted(4, 6, -4, -4)
+        n = len(counts)
+        w = inner.width() / max(1, n)
+        for b, c in enumerate(counts):
+            h = inner.height() * c / top
+            p.fillRect(QRectF(inner.left() + b * w + 0.5, inner.bottom() - h,
+                              max(w - 1, 0.8), h), colour)
+
+    def _mini_scatter(self, p, cell, xi, yi, colour, ratio, small=True):
+        """Points of field *xi* (along) against field *yi* (up) in *cell*;
+        returns (x axis, y axis) for picking."""
+        m, d = self.model, self.model.data
+        table = m.table
+        xv, yv = table.np(d.fields[xi]), table.np(d.fields[yi])
+        ok = ~np.isnan(xv) & ~np.isnan(yv)
+        rows = np.nonzero(ok)[0]
+        lo_x, hi_x = padded(*d.ranges[xi], 0.06)
+        lo_y, hi_y = padded(*d.ranges[yi], 0.06)
+        pad = 4 if small else 30
+        inner = cell.adjusted(pad if not small else 3, 3, -3, -(3 if small else 18))
+        xa = Axis(P.NUMBER, lo_x, hi_x, False, d.kinds[xi])
+        ya = Axis(P.NUMBER, lo_y, hi_y, False, d.kinds[yi])
+        xa.place(inner.left(), inner.right())
+        ya.place(inner.bottom(), inner.top())
+        if not small:
+            fm = QFontMetrics(self.font())
+            p.setPen(QColor(self.theme.text_dim))
+            for v, s in ya.ticks(max(2, int(inner.height() / 40))):
+                y = ya.map(v)
+                if inner.top() <= y <= inner.bottom():
+                    p.drawText(QRectF(cell.left(), y - 8, pad - 4, 16),
+                               Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, s)
+            last = -1e9
+            for v, s in xa.ticks(max(2, int(inner.width() / 80))):
+                x = xa.map(v)
+                w = fm.horizontalAdvance(s)
+                if inner.left() <= x <= inner.right() and x - w / 2 > last + 6:
+                    p.drawText(QRectF(x - w / 2, inner.bottom() + 2, w + 2, 16),
+                               Qt.AlignmentFlag.AlignCenter, s)
+                    last = x + w / 2
+        sx = xa.map_np(xv[rows])
+        sy = ya.map_np(yv[rows])
+        sel = m.sel_mask[rows] if m.sel_mask is not None and len(m.sel_mask) else None
+        p.save()
+        p.setClipRect(inner)
+        limit = 4000 if small else 20000
+        if len(rows) <= limit:
+            dia = 3.0 if small else 5.0
+            pm, half = self._sprite(colour, dia, ratio)
+            plain = np.ones(len(rows), dtype=bool) if sel is None else ~sel
+            for a, b in zip((sx[plain] - half).tolist(), (sy[plain] - half).tolist()):
+                p.drawPixmap(QPointF(a, b), pm)
+            if sel is not None and sel.any():
+                pm, half = self._sprite(QColor(m.sel_colour), dia, ratio)
+                for a, b in zip((sx[sel] - half).tolist(), (sy[sel] - half).tolist()):
+                    p.drawPixmap(QPointF(a, b), pm)
+        else:                                          # shaded, as a big scatter plot
+            w = max(1, int(inner.width() / 2))
+            h = max(1, int(inner.height() / 2))
+            cx = np.clip(((sx - inner.left()) / 2).astype(np.int64), 0, w - 1)
+            cy = np.clip(((sy - inner.top()) / 2).astype(np.int64), 0, h - 1)
+            counts, _dom = P.density(cx, cy, w, h)
+            top = max(1, int(counts.max()))
+            alpha = np.where(counts > 0, 0.28 + 0.72 * np.log1p(counts) / math.log1p(top), 0)
+            argb = (np.clip(alpha * 255, 0, 255).astype(np.uint32) << 24) | \
+                np.uint32((colour.red() << 16) | (colour.green() << 8) | colour.blue())
+            if sel is not None and sel.any():
+                sc = np.bincount(cy[sel] * w + cx[sel], minlength=w * h)[:w * h].reshape(h, w)
+                s_col = QColor(m.sel_colour)
+                argb = np.where(sc > 0, np.uint32(0xFF000000 | (s_col.red() << 16)
+                                                  | (s_col.green() << 8) | s_col.blue()), argb)
+            buf = np.ascontiguousarray(argb.astype(np.uint32))
+            img = QImage(buf.data, w, h, w * 4, QImage.Format.Format_ARGB32).copy()
+            p.drawImage(QRectF(inner.left(), inner.top(), w * 2, h * 2), img)
+        trend = d.trends.get((xi, yi))
+        if trend is not None and trend.ok:
+            xs = np.linspace(xa.lo, xa.hi, 60)
+            ys = trend.at(xs)
+            p.setPen(QPen(QColor(TREND_COLOUR[self.theme.dark]), 1.4))
+            path = QPainterPath()
+            for n_, (a, b) in enumerate(zip(xa.map_np(xs), ya.map_np(ys))):
+                if n_:
+                    path.lineTo(a, b)
+                else:
+                    path.moveTo(a, b)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(path)
+        p.restore()
+        return xa, ya
+
+    def _matrix_cell(self, pos):
+        for rect, i, j, kind, axes in (self._geo or {}).get("cells", []):
+            if rect.contains(QPointF(pos)):
+                return rect, i, j, kind, axes
+        return None
+
     # ---- legend --------------------------------------------------------
     def _legend_entries(self):
         """(kind, colour, text, pick) per legend row; *pick* is a series or
         class number to select, or None."""
         t, m, d = self.theme, self.model, self.model.data
         out = []
-        if m.kind == "scatter":
+        if m.kind in ("heat", "calendar", "clock"):
+            lo = None
+            vals = d.values[~np.isnan(d.values)] if d.values is not None else []
+            if len(vals):
+                lo = float(vals.min())
+            for c, b in enumerate(m.breaks):        # each class: from - to
+                colour = m.class_colours[c] if c < len(m.class_colours) else QColor(t.bar)
+                start = m.breaks[c - 1] if c else lo
+                text = value_text(b) if start is None else \
+                    f"{value_text(start)} – {value_text(b)}"
+                out.append(("box", colour, text, None))
+        elif m.kind == "qq":
+            if d.ref is not None and m.plot.get("data", {}).get("reference", True):
+                out.append(("line", QColor(t.danger), "Reference line", None))
+            if d.lam is not None:
+                out.append(("none", None, f"Box-Cox λ = {d.lam:.2f}", None))
+            if len(d) > DENSITY_LIMIT:
+                out.append(("density", QColor(m.single or t.bar),
+                            "Shade: records per spot", None))
+        elif m.kind == "matrix":
+            pass
+        elif m.kind == "scatter":
             if d.classes is not None and m.single is None and len(m.colours) > 1:
                 for c, colour in enumerate(m.colours):
                     label = m.table.class_labels[c] if c < len(m.table.class_labels) else ""
@@ -1651,10 +2059,18 @@ class PlotView(QWidget):
                 hit = self._scatter_hit(pos)
                 if hit is not None:
                     hover = ("points", hit[0], hit[1])
-            elif self.model.kind == "pie":
+            elif self.model.kind in ("pie", "clock"):
                 i = self._wedge_at(pos)
                 if i is not None:
                     hover = ("wedge", i, None)
+            elif self.model.kind == "matrix":
+                cell = self._matrix_cell(pos)
+                if cell is not None:
+                    hover = ("cell", cell[1], cell[2], cell[0])
+            elif self.model.kind == "qq":
+                hit = self._scatter_hit(pos)
+                if hit is not None:
+                    hover = ("points", hit[0], hit[1])
             else:
                 hit = self._series_hit(pos)
                 if hit is not None:
@@ -1693,6 +2109,11 @@ class PlotView(QWidget):
             return
         moved = drag is not None and (abs(drag.x() - press.x()) > 4
                                       or abs(drag.y() - press.y()) > 4)
+        if not moved and m.kind == "matrix":
+            cell = self._matrix_cell(press)
+            if cell is not None and cell[3] in ("scatter", "r2"):
+                self.previewPicked.emit(f"{cell[1]},{cell[2]}")
+            return
         if not moved:
             for rect, k in (self._geo or {}).get("minis", []):
                 if rect.contains(press) and m.kind == "histogram" and k is not None:
@@ -1726,10 +2147,20 @@ class PlotView(QWidget):
         if m.kind == "pie":
             i = self._wedge_at(pos)
             return P.pie_rows(d, m.table, [i]) if i is not None else None
+        if m.kind == "qq":
+            hit = self._scatter_hit(pos)
+            return d.rows[hit[0]] if hit is not None else None
+        if m.kind == "clock":
+            k = self._wedge_at(pos)
+            return P.cell_rows(d, [k]) if k is not None else None
+        if m.kind == "matrix":
+            return None                                # a click picks the preview pair
         hit = self._series_hit(pos)
         if hit is None:
             return None
         i, s = hit
+        if m.kind in ("heat", "calendar"):
+            return P.cell_rows(d, [i])
         if m.kind == "histogram":
             return P.hist_rows(d, [i], s)
         if m.kind == "box":
@@ -1745,6 +2176,28 @@ class PlotView(QWidget):
         if not geo or geo.get("plot") is None:
             return None
         xa, ya = geo["x"], geo["y"]
+        if m.kind == "matrix":
+            cell = self._matrix_cell(a)
+            if cell is None or cell[4] is None:
+                return None
+            _rect, i, j, _kind, (mxa, mya) = cell
+            x0, x1 = sorted((mxa.value_at(a.x()), mxa.value_at(b.x())))
+            y0, y1 = sorted((mya.value_at(a.y()), mya.value_at(b.y())))
+            xv, yv = m.table.np(m.data.fields[j]), m.table.np(m.data.fields[i])
+            mask = (xv >= x0) & (xv <= x1) & (yv >= y0) & (yv <= y1)
+            return np.nonzero(mask)[0]
+        if m.kind in ("heat", "calendar"):
+            box = QRectF(a, b).normalized()
+            cells = [k for rect, k, _s in geo["items"] if rect.intersects(box)]
+            return P.cell_rows(m.data, cells) if cells else None
+        if m.kind == "clock":
+            return None
+        if m.kind in ("scatter", "qq"):
+            d = m.data
+            x0, x1 = sorted((xa.value_at(a.x()), xa.value_at(b.x())))
+            y0, y1 = sorted((ya.value_at(a.y()), ya.value_at(b.y())))
+            mask = (d.x >= x0) & (d.x <= x1) & (d.y >= y0) & (d.y <= y1)
+            return d.rows[mask]
         if m.kind == "scatter":
             d = m.data
             x0, x1 = sorted((xa.value_at(a.x()), xa.value_at(b.x())))
@@ -1806,15 +2259,17 @@ class PlotView(QWidget):
     def card_lines(self):
         """(title, [(colour or None, text)], footer) of the hover card."""
         m, d = self.model, self.model.data
-        kind, a, b = self._hover
+        kind, a, b = self._hover[:3]
         if kind == "points":
             points = a
             rows = d.rows[points]
             n = len(points)
             data = m.plot.get("data", {})
             first = int(points[0]) if n else 0
-            lines = [(None, f"{data.get('x')}: {value_text(float(d.x[first]), d.x_kind)}"),
-                     (None, f"{data.get('y')}: {value_text(float(d.y[first]), d.y_kind)}")]
+            x_name = getattr(d, "x_name", "") or data.get("x")
+            y_name = getattr(d, "y_name", "") or data.get("y")
+            lines = [(None, f"{x_name}: {value_text(float(d.x[first]), d.x_kind)}"),
+                     (None, f"{y_name}: {value_text(float(d.y[first]), d.y_kind)}")]
             if d.size is not None and data.get("size"):
                 lines.append((None, f"{data['size']}: {value_text(float(d.size[first]))}"))
             if d.classes is not None and m.single is None and len(m.colours) > 1:
@@ -1832,6 +2287,17 @@ class PlotView(QWidget):
                 if n_sel:
                     lines.append((None, f"{n_sel:,} selected"))
             return title, lines, "Click to select · Ctrl+click to add · drag a box"
+        if kind == "cell" and m.kind == "matrix":
+            i, j = a, b
+            r2 = d.r2[i, j]
+            lines = [(None, f"R² = {r2:.4f}" if r2 == r2 else "R²: no value"),
+                     (None, f"r = {d.r[i, j]:.4f}" if d.r[i, j] == d.r[i, j] else ""),
+                     (None, f"{int(d.n[i, j]):,} records with both values")]
+            lines = [x for x in lines if x[1]]
+            return (f"{d.fields[i]} and {d.fields[j]}", lines,
+                    "Click to show it in the preview · drag in a plot to select")
+        if m.kind in ("heat", "calendar", "clock"):
+            return self._card_cell(a)
         if m.kind in ("pie", "histogram", "box", "combo"):
             return getattr(self, f"_card_{m.kind}")(a, b)
         i = a
@@ -1860,6 +2326,23 @@ class PlotView(QWidget):
 
     def _sel_line(self, n):
         return [(None, f"{n:,} selected")] if n else []
+
+    def _card_cell(self, k):
+        d = self.model.data
+        nc = len(d.columns)
+        if d.kind == "calendar":
+            nr = len(d.rows)
+            panel, rest = divmod(k, nr * nc)
+            r, c = divmod(rest, nc)
+            name = d.panels[panel] if d.panels and d.panels[panel] else ""
+            if self.model.plot["data"].get("calendar", "year") == "year":
+                title = f"{c + 1} {d.rows[r]}" + (f" {name}" if name else "")
+            else:
+                title = f"{d.rows[r]} {d.columns[c]}:00" + (f" · {name}" if name else "")
+        else:
+            r, c = divmod(k, nc)
+            title = f"{d.columns[c]} · {d.rows[r]}"
+        return title, self._cell_card(k), "Click to select · Ctrl+click to add"
 
     def _card_combo(self, i, s):
         m, d = self.model, self.model.data
@@ -1950,6 +2433,12 @@ class PlotView(QWidget):
             p.setPen(QPen(QColor(t.text_strong), 1.6))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QPointF(ax, ay), 7, 7)
+        elif kind == "cell":
+            rect = self._hover[3]
+            ax, ay = rect.right() - 4, rect.top() + rect.height() / 2
+            p.setPen(QPen(QColor(t.text_strong), 1.6))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(rect)
         elif kind == "wedge":
             path = next((w[0] for w in self._geo.get("wedges", []) if w[1] == self._hover[1]),
                         None)

@@ -28,7 +28,7 @@ import harness as H  # noqa: E402
 APP = H.start_qgis()
 PKG = H.plugin_package()
 
-from qgis.PyQt.QtCore import QPoint, Qt  # noqa: E402
+from qgis.PyQt.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from qgis.PyQt.QtWidgets import QMessageBox  # noqa: E402
 from qgis.core import (  # noqa: E402
     QgsCategorizedSymbolRenderer, QgsProject, QgsRectangle, QgsRendererCategory,
@@ -592,6 +592,84 @@ class DataPlotTests(unittest.TestCase):
         header = next(r for r in rows if r and r[0] == "Category")
         self.assertIn("Median", header)
         self.assertEqual(len(rows) - rows.index(header) - 1, len(data.boxes))
+
+    def test_16_matrix_and_qq(self):
+        panel = self.panel()
+        self.make(panel, "matrix", fields=["SCORE_MAX", "SCORE_MIN", "SCORE_5Y"],
+                  upper="preview")
+        data = panel.data
+        a = [ft["SCORE_MAX"] for ft in self.feats]
+        b = [ft["SCORE_5Y"] for ft in self.feats]
+        r = statistics.correlation(a, b)
+        self.assertAlmostEqual(data.r2[0, 2], r * r, places=9)
+        view = panel.view
+        view.repaint()
+        cell = next(c for c in view._geo["cells"] if c[3] == "r2" and (c[1], c[2]) == (2, 0))
+        self.click(view, cell[0].center().toPoint())          # shows the pair in the preview
+        self.assertEqual(panel.current_plot()["data"]["preview_pair"], [2, 0])
+        # QQ against the normal distribution: every record a point, sorted
+        self.make(panel, "qq", x="SCORE_MAX")
+        self.assertEqual(panel.data.y.tolist(), sorted(a))
+        self.assertIsNotNone(panel.data.ref)
+        lowest = min(self.feats, key=lambda ft: ft["SCORE_MAX"])
+        self.assertIn(int(panel.table.fids[panel.data.rows[0]]),
+                      {ft.id() for ft in self.feats if ft["SCORE_MAX"] == lowest["SCORE_MAX"]})
+
+    def test_17_matrix_heat(self):
+        panel = self.panel()
+        self.make(panel, "heat", x="ZONE_CODE", y="LAND_USE", field="SCORE_MAX", agg="mean",
+                  classify="quantile", classes=4)
+        data = panel.data
+        cells = defaultdict(list)
+        for ft in self.feats:
+            cells[(ft["LAND_USE"], str(ft["ZONE_CODE"]))].append(ft["SCORE_MAX"])
+        self.assertEqual(data.rows, sorted({k[0] for k in cells}))
+        self.assertEqual(data.columns, sorted({k[1] for k in cells}, key=int))
+        nc = len(data.columns)
+        for (lu, zone), vals in cells.items():
+            k = data.rows.index(lu) * nc + data.columns.index(zone)
+            self.assertAlmostEqual(float(data.values[k]), statistics.fmean(vals), places=9)
+        self.assertEqual(len(panel.model.breaks), len(panel.model.class_colours))
+        view = panel.view
+        view.repaint()
+        rect, k, _s = view._geo["items"][0]
+        self.click(view, rect.center().toPoint())
+        r, c = divmod(k, nc)
+        self.assertEqual(set(self.layer.selectedFeatureIds()),
+                         {ft.id() for ft in self.feats if ft["LAND_USE"] == data.rows[r]
+                          and str(ft["ZONE_CODE"]) == data.columns[c]})
+        self.layer.removeSelection()
+
+    def test_18_calendar_and_clock(self):
+        panel = self.panel()
+        self.make(panel, "calendar", x="SURVEY_DATE", calendar="year")
+        data = panel.data
+        days = Counter((ft["SURVEY_DATE"].month(), ft["SURVEY_DATE"].day())
+                       for ft in self.feats if not F.is_null(ft["SURVEY_DATE"]))
+        for (month, dom), n in days.items():
+            self.assertEqual(int(data.records[(month - 1) * 31 + dom - 1]), n)
+        self.make(panel, "clock", x="SURVEY_DATE", rings="years_months")
+        data = panel.data
+        months = Counter((ft["SURVEY_DATE"].year(), ft["SURVEY_DATE"].month())
+                         for ft in self.feats if not F.is_null(ft["SURVEY_DATE"]))
+        years = sorted({y for y, _m in months})
+        self.assertEqual(data.rows, [str(y) for y in years])
+        for (y, mo), n in months.items():
+            self.assertEqual(int(data.records[years.index(y) * 12 + mo - 1]), n)
+        view = panel.view
+        view.repaint()
+        path, k, _a, _s = view._geo["wedges"][0]
+        point = path.pointAtPercent(0.25)
+        centre = path.boundingRect().center()
+        inside = next((QPointF(point.x() + (centre.x() - point.x()) * f,
+                               point.y() + (centre.y() - point.y()) * f)
+                       for f in (0.1, 0.2, 0.3, 0.4, 0.5)
+                       if path.contains(QPointF(point.x() + (centre.x() - point.x()) * f,
+                                                point.y() + (centre.y() - point.y()) * f))),
+                      centre)
+        self.click(view, inside.toPoint())
+        self.assertEqual(len(self.layer.selectedFeatureIds()), int(data.records[k]))
+        self.layer.removeSelection()
 
 
 if __name__ == "__main__":

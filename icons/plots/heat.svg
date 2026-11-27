@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Matrix Heat Chart</title>
+  <rect x="5" y="5" width="7" height="7" fill="#DEEBF7"/><rect x="12.5" y="5" width="7" height="7" fill="#6BAED6"/><rect x="20" y="5" width="7" height="7" fill="#2171B5"/>
+  <rect x="5" y="12.5" width="7" height="7" fill="#9ECAE1"/><rect x="12.5" y="12.5" width="7" height="7" fill="#08519C"/><rect x="20" y="12.5" width="7" height="7" fill="#C6DBEF"/>
+  <rect x="5" y="20" width="7" height="7" fill="#4292C6"/><rect x="12.5" y="20" width="7" height="7" fill="#DEEBF7"/><rect x="20" y="20" width="7" height="7" fill="#6BAED6"/>
+</svg>

@@ -56,9 +56,9 @@ TYPES = (
     ("heat", "Matrix Heat Chart"), ("qq", "QQ Plot"),
 )
 TYPE_LABELS = dict(TYPES)
-BUILT = ("bar", "line", "combo", "pie", "histogram", "box", "scatter")
+BUILT = tuple(key for key, _label in TYPES)
 # the round of dev-v5 that builds each type not built yet (shown in the menu)
-COMING = {"matrix": 3, "qq": 3, "heat": 3, "calendar": 3, "clock": 3}
+COMING = {}
 
 AGGREGATIONS = (("count", "Count"), ("sum", "Sum"), ("mean", "Mean"),
                 ("median", "Median"), ("min", "Minimum"), ("max", "Maximum"))
@@ -1464,6 +1464,557 @@ def box(table, opts):
 
 
 # ============================================================================
+# CLASSIFICATION (heat colours)
+# ============================================================================
+
+CLASSIFICATIONS = (("equal", "Equal interval"), ("geometric", "Geometric interval"),
+                   ("natural", "Natural breaks"), ("quantile", "Quantile"))
+CLASS_LABELS = dict(CLASSIFICATIONS)
+JENKS_SAMPLE = 1000              # natural breaks work on at most this many values
+
+
+def _jenks(values, k):
+    """Upper bounds of *k* natural-break classes (Jenks, by dynamic
+    programming) of sorted *values*."""
+    n = len(values)
+    k = max(1, min(k, n))
+    lower = [[0] * (k + 1) for _ in range(n + 1)]
+    var = [[float("inf")] * (k + 1) for _ in range(n + 1)]
+    for j in range(1, k + 1):
+        lower[1][j] = 1
+        var[1][j] = 0.0
+    for l_ in range(2, n + 1):
+        s1 = s2 = w = 0.0
+        for m in range(1, l_ + 1):
+            i3 = l_ - m + 1
+            val = values[i3 - 1]
+            s2 += val * val
+            s1 += val
+            w += 1
+            v = s2 - (s1 * s1) / w
+            i4 = i3 - 1
+            if i4:
+                for j in range(2, k + 1):
+                    if var[l_][j] >= v + var[i4][j - 1]:
+                        lower[l_][j] = i3
+                        var[l_][j] = v + var[i4][j - 1]
+        lower[l_][1] = 1
+        var[l_][1] = v
+    breaks = [0.0] * k
+    breaks[k - 1] = values[-1]
+    count = n
+    for j in range(k, 1, -1):
+        idx = lower[count][j] - 2
+        breaks[j - 2] = values[idx]
+        count = lower[count][j] - 1
+    return breaks
+
+
+def class_breaks(values, method="natural", k=5):
+    """Upper bounds of the classes of *values* (finite numbers): Equal
+    interval, Geometric interval, Natural breaks (Jenks, on a sample of at
+    most JENKS_SAMPLE values) or Quantile.  The last bound is the maximum."""
+    v = np.asarray([x for x in values if x == x and math.isfinite(x)], dtype=np.float64)
+    if not len(v):
+        return []
+    lo, hi = float(v.min()), float(v.max())
+    k = max(1, int(k))
+    if lo == hi:
+        return [hi]
+    if method == "equal":
+        return [lo + (hi - lo) * (i + 1) / k for i in range(k)]
+    if method == "quantile":
+        qs = np.quantile(v, [(i + 1) / k for i in range(k)])
+        return sorted(set(float(q) for q in qs))
+    if method == "geometric":
+        # class widths that grow by a constant ratio from the minimum
+        shift = 1.0 - lo if lo <= 0 else 0.0
+        a, b = lo + shift, hi + shift
+        r = (b / a) ** (1.0 / k)
+        return [a * r ** (i + 1) - shift for i in range(k - 1)] + [hi]
+    s = np.unique(v)
+    if len(s) > JENKS_SAMPLE:
+        s = np.unique(np.quantile(v, np.linspace(0, 1, JENKS_SAMPLE)))
+    if len(s) <= k:
+        return [float(x) for x in s]
+    return [float(x) for x in _jenks(s.tolist(), k)]
+
+
+def class_of(value, breaks):
+    """The class (0 ..) a value falls in, -1 for none."""
+    if value != value or not breaks:
+        return -1
+    for i, b in enumerate(breaks):
+        if value <= b + 1e-12 * max(1.0, abs(b)):
+            return i
+    return len(breaks) - 1
+
+
+# ============================================================================
+# CELLS: MATRIX HEAT, CALENDAR HEAT, DATA CLOCK
+# ============================================================================
+
+class CellPlot:
+    """A grid of cells (Matrix Heat Chart, Calendar Heat Chart, Data
+    Clock): the *columns* and *rows* (labels), the value and records of
+    every cell (row-major, NaN where a cell has none), the cell of every
+    record (*cell_of*, -1 for none) and, for the calendar and the clock,
+    the panels (one grid each, for Sequential calendars) or rings."""
+
+    def __init__(self, kind):
+        self.kind = kind
+        self.columns = []
+        self.rows = []
+        self.values = None           # numpy float, len(rows) * len(columns) per panel
+        self.records = None
+        self.cell_of = None
+        self.panels = [""]           # sequential calendars: one grid per year / week
+        self.agg = "count"
+        self.excluded = 0
+        self.notes = []
+        self.breaks = []
+
+    def __len__(self):
+        return 0 if self.values is None else int(len(self.values))
+
+
+def _axis_codes(table, name, opts, prefix):
+    """(labels, code per record) of one axis of a matrix heat chart: the
+    categories of a text, yes / no or whole number field (A → Z), or the
+    time bins of a date field."""
+    col = table.column(name)
+    if col.role == DATE:
+        bins = time_bins(table.np(name), opts.get(prefix + "unit"),
+                         opts.get(prefix + "interval", 1), opts.get(prefix + "align", "start"),
+                         opts.get(prefix + "reference"), opts.get(prefix + "trim", False),
+                         date_only=col.kind == F.DATE)
+        labels = [bin_label(s, e, bins.unit, col.kind) for s, e in zip(bins.starts, bins.ends)]
+        return labels, bins.index.astype(np.int64), bins.note
+    if col.role == CATEGORY:
+        codes = table.np(name, "codes").astype(np.int64)
+        rank = _codes_order(col)
+        order = sorted(range(len(col.labels)), key=rank.__getitem__)
+        remap = np.full(len(col.labels) + 1, -1, dtype=np.int64)
+        remap[np.asarray(order, dtype=np.int64)] = np.arange(len(order))
+        codes = np.where(codes >= 0, remap[np.clip(codes, 0, len(col.labels))], -1)
+        return [str(col.labels[i]) for i in order], codes, ""
+    vals = table.np(name)
+    ok = ~np.isnan(vals)
+    uniq, inv = np.unique(vals[ok], return_inverse=True)
+    codes = np.full(len(vals), -1, dtype=np.int64)
+    codes[ok] = inv
+    return [F.plain_number(u) for u in uniq.tolist()], codes, ""
+
+
+MAX_CELLS_SIDE = 400
+
+
+def matrix_heat(table, opts):
+    """A matrix heat chart: "x" (columns) and "y" (rows) fields, each a
+    category or binned dates ("x_unit", "x_interval", ... "y_unit", ...),
+    and the cell value: Count, or "agg" of "field"."""
+    out = CellPlot("heat")
+    cols, cx, note_x = _axis_codes(table, opts["x"], opts, "x_")
+    rows, cy, note_y = _axis_codes(table, opts["y"], opts, "y_")
+    for note in (note_x, note_y):
+        if note:
+            out.notes.append(note)
+    if len(cols) > MAX_CELLS_SIDE or len(rows) > MAX_CELLS_SIDE:
+        out.notes.append(f"More than {MAX_CELLS_SIDE:,} columns or rows: the first "
+                         f"{MAX_CELLS_SIDE:,} are shown")
+        cols, rows = cols[:MAX_CELLS_SIDE], rows[:MAX_CELLS_SIDE]
+        cx = np.where(cx < MAX_CELLS_SIDE, cx, -1)
+        cy = np.where(cy < MAX_CELLS_SIDE, cy, -1)
+    out.columns, out.rows = cols, rows
+    nc, nr = len(cols), len(rows)
+    cell = np.where((cx >= 0) & (cy >= 0), cy * nc + cx, -1)
+    out.cell_of = cell
+    out.excluded = int((cell < 0).sum())
+    field = opts.get("field")
+    out.agg = opts.get("agg", "count") if field else "count"
+    vals, rec = aggregate(cell, nr * nc, table.np(field) if field else None, out.agg)
+    if out.agg == "count":
+        vals = np.where(rec > 0, vals, np.nan)
+    out.values, out.records = vals, rec
+    return out
+
+
+CALENDAR_TYPES = (("year", "Year by month and day of month"),
+                  ("week", "Week by day of week and hour of day"))
+CALENDAR_VIEWS = (("single", "Single"), ("sequential", "Sequential"))
+MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov",
+          "Dec")
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+MAX_PANELS = 60
+
+
+def _date_parts(days):
+    """year, month (1-12), day of month, day of week (0 = Monday), hour and
+    proleptic day of each value of *days* (numpy; NaN rows give -1)."""
+    ok = ~np.isnan(days)
+    d = np.where(ok, np.floor(days), _EPOCH).astype(np.int64)
+    dt = (d - _EPOCH).astype("datetime64[D]")
+    year = dt.astype("datetime64[Y]").astype(np.int64) + 1970
+    month = dt.astype("datetime64[M]").astype(np.int64) % 12 + 1
+    dom = (dt - dt.astype("datetime64[M]")).astype(np.int64) + 1
+    dow = (d - 1) % 7                              # ordinal 1 is a Monday
+    hour = np.floor((np.where(ok, days, 0.0) - d) * 24 + 1e-9).astype(np.int64)
+    hour = np.clip(hour, 0, 23)
+    return ok, year, month, dom, dow, hour, d
+
+
+def calendar_heat(table, opts):
+    """A calendar heat chart of the date field "x": "calendar" "year"
+    (rows the months, columns the days of the month) or "week" (rows the
+    days of the week, columns the hours); "view" "single" (every year /
+    week pooled into one grid) or "sequential" (one grid per year / week);
+    "leap" keeps 29 February (off: its records are left out); the cell
+    value is Count, or "agg" of "field"."""
+    out = CellPlot("calendar")
+    ok, year, month, dom, dow, hour, day = _date_parts(table.np(opts["x"]))
+    kind = opts.get("calendar", "year")
+    if kind == "week":
+        out.rows, out.columns = list(WEEKDAYS), [f"{h:02d}" for h in range(24)]
+        r_code, c_code = dow, hour
+        week = (day - 1) // 7
+        panel = week
+    else:
+        out.rows, out.columns = list(MONTHS), [str(i) for i in range(1, 32)]
+        r_code, c_code = month - 1, dom - 1
+        panel = year
+    good = ok.copy()
+    if kind == "year" and not opts.get("leap", True):
+        left = good & (month == 2) & (dom == 29)
+        good &= ~left
+        if left.any():
+            out.notes.append(f"{int(left.sum()):,} records of 29 February left out")
+    nr, nc = len(out.rows), len(out.columns)
+    if opts.get("view", "single") == "sequential":
+        keys = np.unique(panel[good])
+        if len(keys) > MAX_PANELS:
+            out.notes.append(f"{len(keys):,} {'weeks' if kind == 'week' else 'years'}: "
+                             f"the last {MAX_PANELS} are shown")
+            keys = keys[-MAX_PANELS:]
+        if kind == "week":
+            out.panels = ["Week of " + datetime.date.fromordinal(int(k) * 7 + 1).isoformat()
+                          for k in keys]
+        else:
+            out.panels = [str(int(k)) for k in keys]
+        pos = np.searchsorted(keys, panel)
+        inside = good & (pos < len(keys)) & (keys[np.clip(pos, 0, len(keys) - 1)] == panel) \
+            if len(keys) else np.zeros(len(panel), dtype=bool)
+        cell = np.where(inside, pos * nr * nc + r_code * nc + c_code, -1)
+        n_cells = len(keys) * nr * nc
+    else:
+        cell = np.where(good, r_code * nc + c_code, -1)
+        n_cells = nr * nc
+    out.cell_of = cell
+    out.excluded = int((~ok).sum())
+    field = opts.get("field")
+    out.agg = opts.get("agg", "count") if field else "count"
+    vals, rec = aggregate(cell, n_cells, table.np(field) if field else None, out.agg)
+    if out.agg == "count":
+        vals = np.where(rec > 0, vals, np.nan)
+    out.values, out.records = vals, rec
+    return out
+
+
+CLOCK_RINGS = (("years_months", "Years and Months"), ("years_weeks", "Years and Weeks"),
+               ("years_days", "Years and Days"), ("weeks_days", "Weeks and Days"),
+               ("days_hours", "Days and Hours"))
+CLOCK_LABELS = dict(CLOCK_RINGS)
+MAX_RINGS = 200
+
+
+def data_clock(table, opts):
+    """A data clock of the date field "x": rings of a longer period, each
+    cut into wedges of a shorter one ("rings": years and months, years and
+    weeks, years and days, weeks and days, days and hours; the last week of
+    a year holds its extra day, or two in a leap year), the cell value
+    Count, or "agg" of "field".  Rings are listed oldest first (the
+    innermost)."""
+    out = CellPlot("clock")
+    ok, year, month, dom, dow, hour, day = _date_parts(table.np(opts["x"]))
+    mode = opts.get("rings", "years_months")
+    if mode in ("years_months", "years_weeks", "years_days"):
+        ring = year
+        if mode == "years_months":
+            wedge, out.columns = month - 1, list(MONTHS)
+        else:
+            jan1 = (year - 1970).astype("datetime64[Y]").astype("datetime64[D]") \
+                .astype(np.int64) + _EPOCH
+            doy = day - jan1                           # 0 = 1 January
+            if mode == "years_weeks":
+                wedge = np.minimum(doy // 7, 51)
+                out.columns = [str(w) for w in range(1, 53)]
+            else:
+                wedge = doy
+                out.columns = [str(d) for d in range(1, 367)]
+        ring_labels = lambda keys: [str(int(k)) for k in keys]     # noqa: E731
+    elif mode == "weeks_days":
+        ring = (day - 1) // 7
+        wedge, out.columns = dow, list(WEEKDAYS)
+        ring_labels = lambda keys: ["Week of " + datetime.date.fromordinal(  # noqa: E731
+            int(k) * 7 + 1).isoformat() for k in keys]
+    else:
+        ring = day
+        wedge, out.columns = hour, [f"{h:02d}" for h in range(24)]
+        ring_labels = lambda keys: [datetime.date.fromordinal(int(k)).isoformat()  # noqa: E731
+                                    for k in keys]
+    keys = np.unique(ring[ok])
+    if len(keys) > MAX_RINGS:
+        out.notes.append(f"{len(keys):,} rings: the last {MAX_RINGS} are shown")
+        keys = keys[-MAX_RINGS:]
+    out.rows = ring_labels(keys)
+    nc = len(out.columns)
+    pos = np.searchsorted(keys, ring)
+    inside = ok & (pos < len(keys)) & (keys[np.clip(pos, 0, max(len(keys) - 1, 0))] == ring) \
+        if len(keys) else np.zeros(len(ring), dtype=bool)
+    cell = np.where(inside, pos * nc + wedge, -1)
+    out.cell_of = cell
+    out.excluded = int((~ok).sum())
+    field = opts.get("field")
+    out.agg = opts.get("agg", "count") if field else "count"
+    vals, rec = aggregate(cell, len(keys) * nc, table.np(field) if field else None, out.agg)
+    if out.agg == "count":
+        vals = np.where(rec > 0, vals, np.nan)
+    out.values, out.records = vals, rec
+    return out
+
+
+def cell_rows(plot, cells):
+    """Table rows of the records of *cells*."""
+    return np.nonzero(np.isin(plot.cell_of, np.asarray(list(cells), dtype=np.int64)))[0]
+
+
+def cell_selected(plot, sel_mask):
+    """Selected records of every cell."""
+    n = len(plot)
+    c = plot.cell_of[sel_mask]
+    c = c[c >= 0]
+    return np.bincount(c, minlength=n)[:n] if n else np.zeros(0, dtype=np.int64)
+
+
+# ============================================================================
+# SCATTER PLOT MATRIX
+# ============================================================================
+
+MATRIX_LOWER = (("r2", "R² values"), ("scatter", "Scatter plots"), ("none", "Nothing"))
+MATRIX_UPPER = (("scatter", "Scatter plots"), ("preview", "Preview plot"),
+                ("none", "Nothing"))
+MATRIX_DIAGONAL = (("histogram", "Histograms"), ("names", "Field names"))
+
+
+class MatrixPlot:
+    """Every pair of several number fields: *r2* (pairwise: the records
+    with both values), the histogram of each field (*hists*: edges and
+    counts) and the linear trend of each pair (*trends*, when asked)."""
+
+    def __init__(self):
+        self.fields = []
+        self.kinds = []
+        self.r2 = None
+        self.r = None
+        self.n = None
+        self.hists = []
+        self.trends = {}
+        self.ranges = []
+
+    def __len__(self):
+        return len(self.fields)
+
+
+def scatter_matrix(table, opts):
+    """A scatter plot matrix of the number fields "fields" (two or more);
+    "trend" fits a linear trend to every pair."""
+    out = MatrixPlot()
+    names = [f for f in (opts.get("fields") or []) if table.column(f) is not None]
+    out.fields = names
+    out.kinds = [table.column(f).kind for f in names]
+    k = len(names)
+    out.r2 = np.full((k, k), np.nan)
+    out.r = np.full((k, k), np.nan)
+    out.n = np.zeros((k, k), dtype=np.int64)
+    cols = [table.np(f) for f in names]
+    for i in range(k):
+        v = cols[i][~np.isnan(cols[i])]
+        if len(v):
+            lo, hi = float(v.min()), float(v.max())
+            bins = int(max(1, min(30, math.ceil(math.sqrt(len(v))))))
+            edges = np.linspace(lo, hi, bins + 1) if hi > lo else np.array([lo - .5, hi + .5])
+            counts = np.bincount(np.clip(np.searchsorted(edges, v, side="right") - 1, 0,
+                                         len(edges) - 2), minlength=len(edges) - 1)
+            out.hists.append((edges.tolist(), counts.tolist()))
+            out.ranges.append((lo, hi))
+        else:
+            out.hists.append(([0.0, 1.0], [0]))
+            out.ranges.append((0.0, 1.0))
+        for j in range(i + 1, k):
+            ok = ~np.isnan(cols[i]) & ~np.isnan(cols[j])
+            n = int(ok.sum())
+            out.n[i, j] = out.n[j, i] = n
+            if n >= 2:
+                a, b = cols[i][ok], cols[j][ok]
+                sa, sb = a.std(), b.std()
+                if sa > 0 and sb > 0:
+                    r = float(((a - a.mean()) * (b - b.mean())).mean() / (sa * sb))
+                    out.r[i, j] = out.r[j, i] = r
+                    out.r2[i, j] = out.r2[j, i] = r * r
+                if opts.get("trend"):
+                    out.trends[(i, j)] = fit_trend(a, b, "linear")      # j on i
+                    out.trends[(j, i)] = fit_trend(b, a, "linear")
+    return out
+
+
+def matrix_rows(table, plot, i, j):
+    """Table rows of the records that have both fields of a pair."""
+    a, b = table.np(plot.fields[i]), table.np(plot.fields[j])
+    return np.nonzero(~np.isnan(a) & ~np.isnan(b))[0]
+
+
+# ============================================================================
+# QQ PLOT
+# ============================================================================
+
+QQ_TRANSFORMS = (("none", "None"), ("log", "Logarithmic"), ("sqrt", "Square root"),
+                 ("inverse", "Inverse"), ("boxcox", "Box-Cox"))
+
+
+def norm_ppf(p):
+    """Quantiles of the standard normal distribution (Acklam's rational
+    approximation, about 1e-9 relative error), for numpy *p* in (0, 1)."""
+    p = np.asarray(p, dtype=np.float64)
+    a = (-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
+         1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00)
+    b = (-5.447609879822406e+01, 1.615858368580409e+02, -1.556989798598866e+02,
+         6.680131188771972e+01, -1.328068155288572e+01)
+    c = (-7.784894002430293e-03, -3.223964580411365e-01, -2.400758277161838e+00,
+         -2.549732539343734e+00, 4.374664141464968e+00, 2.938163982698783e+00)
+    d = (7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e+00,
+         3.754408661907416e+00)
+    out = np.empty_like(p)
+    low, high = p < 0.02425, p > 1 - 0.02425
+    mid = ~(low | high)
+    q = np.sqrt(-2 * np.log(p[low]))
+    out[low] = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    q = np.sqrt(-2 * np.log(1 - p[high]))
+    out[high] = -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / \
+        ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1)
+    q = p[mid] - 0.5
+    r = q * q
+    out[mid] = (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / \
+        (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1)
+    return out
+
+
+def boxcox_lambda(v):
+    """The Box-Cox lambda (-2 .. 2) of positive *v* that makes it most
+    normal (largest log-likelihood), worked out on at most 100,000 values."""
+    if len(v) > 100000:
+        v = np.quantile(v, np.linspace(0, 1, 100000))
+    logs = np.log(v)
+    s_log = float(logs.sum())
+    n = len(v)
+    best, best_ll = 1.0, -np.inf
+    for lam in np.linspace(-2, 2, 81):
+        t = logs if abs(lam) < 1e-9 else (np.power(v, lam) - 1) / lam
+        var = float(t.var())
+        if var <= 0:
+            continue
+        ll = (lam - 1) * s_log - n / 2.0 * math.log(var)
+        if ll > best_ll:
+            best, best_ll = float(lam), ll
+    return best
+
+
+def transform(v, kind):
+    """(values, kept mask, lambda) of *v* after a transformation: None,
+    Logarithmic (natural; values above 0), Square root (0 and above),
+    Inverse (not 0) or Box-Cox (above 0, its lambda worked out)."""
+    keep = ~np.isnan(v)
+    lam = None
+    if kind == "log":
+        keep &= v > 0
+    elif kind == "sqrt":
+        keep &= v >= 0
+    elif kind == "inverse":
+        keep &= v != 0
+    elif kind == "boxcox":
+        keep &= v > 0
+    w = v[keep]
+    if kind == "log":
+        w = np.log(w)
+    elif kind == "sqrt":
+        w = np.sqrt(w)
+    elif kind == "inverse":
+        w = 1.0 / w
+    elif kind == "boxcox" and len(w):
+        lam = boxcox_lambda(w)
+        w = np.log(w) if abs(lam) < 1e-9 else (np.power(w, lam) - 1) / lam
+    return w, keep, lam
+
+
+class QQPlot(ScatterPlot):
+    """The points of a QQ plot (as a scatter plot: *x*, *y*, *rows*) and
+    its reference line (through the first and third quartiles)."""
+
+    def __init__(self):
+        super().__init__()
+        self.ref = None              # (slope, intercept)
+        self.x_name = self.y_name = ""
+        self.lam = None
+        self.left_out = 0
+
+
+def qq(table, opts):
+    """A QQ plot of the number field "x" against the normal distribution,
+    or against the second field "y" (each field's values at the same
+    proportions), after "transform".  Each point is a record: of "x"
+    against the normal distribution, else of the field with fewer values."""
+    out = QQPlot()
+    xv = table.np(opts["x"])
+    kind = opts.get("transform", "none")
+    xw, xkeep, out.lam = transform(xv, kind)
+    out.missing = int(np.isnan(xv).sum())
+    out.left_out = int((~np.isnan(xv)).sum() - xkeep.sum())
+    x_rows = np.nonzero(xkeep)[0]
+    y_name = opts.get("y")
+    if not y_name or table.column(y_name) is None:
+        order = np.argsort(xw, kind="stable")
+        n = len(order)
+        probs = (np.arange(n) + 0.5) / max(n, 1)
+        out.x = norm_ppf(probs) if n else np.zeros(0)
+        out.y = xw[order]
+        out.rows = x_rows[order]
+        out.x_name, out.y_name = "Standard normal quantile", opts["x"]
+    else:
+        yv = table.np(y_name)
+        yw, ykeep, _lam = transform(yv, kind)
+        out.missing += int(np.isnan(yv).sum())
+        out.left_out += int((~np.isnan(yv)).sum() - ykeep.sum())
+        y_rows = np.nonzero(ykeep)[0]
+        m = min(len(xw), len(yw))
+        probs = (np.arange(m) + 0.5) / max(m, 1)
+        if len(xw) <= len(yw):
+            order = np.argsort(xw, kind="stable")
+            out.x, out.rows = xw[order], x_rows[order]
+            out.y = np.quantile(yw, probs) if m else np.zeros(0)
+        else:
+            order = np.argsort(yw, kind="stable")
+            out.y, out.rows = yw[order], y_rows[order]
+            out.x = np.quantile(xw, probs) if m else np.zeros(0)
+        out.x_name, out.y_name = opts["x"], y_name
+    if len(out.x) >= 4:
+        qx = np.quantile(out.x, [0.25, 0.75])
+        qy = np.quantile(out.y, [0.25, 0.75])
+        if qx[1] > qx[0]:
+            slope = float((qy[1] - qy[0]) / (qx[1] - qx[0]))
+            out.ref = (slope, float(qy[0] - slope * qx[0]))
+    return out
+
+
+# ============================================================================
 # PLOTS: DEFAULTS AND CHECKS
 # ============================================================================
 
@@ -1498,6 +2049,24 @@ def new_plot(ptype, fields, name=None):
                 "mean": True, "median": True, "std": False, "normal": False}
     elif ptype == "box":
         data = {"fields": [], "split": None, "standardize": True, "outliers": True}
+    elif ptype == "matrix":
+        data = {"fields": [], "lower": "r2", "upper": "scatter", "diagonal": "histogram",
+                "trend": False, "preview_pair": None}
+    elif ptype == "qq":
+        data = {"x": None, "y": None, "reference": True, "transform": "none"}
+    elif ptype in ("heat", "calendar", "clock"):
+        data = {"x": None, "field": None, "agg": "sum", "classify": "natural",
+                "classes": 5, "ramp": "Viridis"}
+        if ptype == "heat":
+            data["y"] = None
+            for axis in ("x_", "y_"):
+                data.update({axis + "unit": None, axis + "interval": 1,
+                             axis + "align": "start", axis + "reference": None,
+                             axis + "trim": False})
+        elif ptype == "calendar":
+            data.update({"calendar": "year", "view": "single", "leap": True})
+        else:
+            data["rings"] = "years_months"
     return {
         "type": ptype, "name": name or TYPE_LABELS.get(ptype, "Plot"), "data": data,
         "axes": {"x_min": None, "x_max": None, "y_min": None, "y_max": None,
@@ -1520,7 +2089,9 @@ def fields_used(plot):
     for key in keys:
         if d.get(key):
             names.append(d[key])
-    if t == "box" or (t == "pie" and d.get("mode") == "fields"):
+    if t in ("heat", "calendar", "clock") and d.get("field"):
+        names.append(d["field"])
+    if t in ("box", "matrix") or (t == "pie" and d.get("mode") == "fields"):
         names.extend(d.get("fields") or [])
     elif t in ("line", "bar") and d.get("agg", "count") != "count":
         names.extend(d.get("fields") or [])
@@ -1566,6 +2137,18 @@ def ready(plot):
     elif t == "box":
         if not d.get("fields"):
             return "Choose a number field for the Y axis"
+    elif t == "matrix":
+        if len(d.get("fields") or []) < 2:
+            return "Choose two or more number fields"
+    elif t == "qq":
+        if not d.get("x"):
+            return "Choose a number field"
+    elif t == "heat":
+        if not d.get("x") or not d.get("y"):
+            return "Choose a field for the X axis (columns) and for the Y axis (rows)"
+    elif t in ("calendar", "clock"):
+        if not d.get("x"):
+            return "Choose a date field"
     else:
         return f"{TYPE_LABELS.get(t, t)} comes in a later round"
     return ""
@@ -1602,6 +2185,17 @@ def default_title(plot):
     if t == "box" and d.get("fields"):
         title = ", ".join(d["fields"])
         return title + (f" by {d['split']}" if d.get("split") else "")
+    if t == "matrix" and d.get("fields"):
+        return "Scatter plot matrix of " + ", ".join(d["fields"])
+    if t == "qq" and d.get("x"):
+        return f"{d['x']} and {d['y']}" if d.get("y") else \
+            f"{d['x']} and the normal distribution"
+    if t in ("heat", "calendar", "clock") and d.get("x"):
+        what = series_name(d.get("field"), d.get("agg", "sum") if d.get("field")
+                           else "count")
+        if t == "heat" and d.get("y"):
+            return f"{what} by {d['x']} and {d['y']}"
+        return f"{what} by {d['x']}"
     return TYPE_LABELS.get(t, "Plot")
 
 

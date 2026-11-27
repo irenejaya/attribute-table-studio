@@ -619,6 +619,42 @@ than 1.5 × the interquartile range beyond the box are points and the
 whiskers stop at the last value inside, otherwise they reach the minimum and
 maximum. With several fields, <b>Standardize values (z-score)</b> puts them
 on one scale. Click a box or an outlier to select its records.</p>
+<h4>Scatter Plot Matrix</h4>
+<p>Every pair of two or more number fields. <b>Lower left</b>: R² values,
+shaded by the strength of the relationship (each pair on the records with
+both values), scatter plots or nothing; <b>Upper right</b>: scatter plots, a
+<b>Preview plot</b> (a larger view of the cell you click) or nothing;
+<b>Diagonal</b>: each field's histogram or its name. <b>Trend line</b> adds a
+linear trend to each small plot. Drag a box in a plot to select its
+records.</p>
+<h4>QQ Plot</h4>
+<p>Whether a number field follows the normal distribution (its sorted values
+against the standard normal quantiles), or whether two fields share a
+distribution (<b>Compare with</b> a second field: each field's values at the
+same proportions). The <b>Reference line</b> runs through the first and third
+quartiles: the points follow it when the distributions agree.
+<b>Transformation</b>: Logarithmic, Square root, Inverse or Box-Cox (its lambda
+worked out to make the field most normal). Each point is a record: click or
+drag to select.</p>
+<h4>Matrix Heat Chart</h4>
+<p>A grid of two fields: the <b>X-axis</b> field gives the columns, the
+<b>Y-axis</b> field the rows (text, whole numbers, or dates grouped by their
+own Time binning); each cell is coloured by its Count of records or the
+aggregation of a number field. <b>Classification</b>: Equal interval,
+Geometric interval, Natural breaks (Jenks) or Quantile, the number of classes
+and a QGIS colour ramp. Cells without records stay empty.</p>
+<h4>Calendar Heat Chart</h4>
+<p>A date field on a calendar: <b>Year by month and day of month</b> or
+<b>Week by day of week and hour of day</b>; <b>Single</b> pools every year
+(or week) into one grid, <b>Sequential</b> draws one per year (or week).
+<b>Include leap day</b> keeps 29 February. Colours as in the Matrix Heat
+Chart.</p>
+<h4>Data Clock</h4>
+<p>A date field as a clock: each ring is a longer period (oldest inside),
+cut into wedges of a shorter one from 12 o'clock: Years and Months, Years and
+Weeks, Years and Days, Weeks and Days, or Days and Hours (the last week of a
+year holds its extra day, two in a leap year). Colours as in the Matrix Heat
+Chart.</p>
 """
 
 

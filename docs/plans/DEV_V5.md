@@ -9,7 +9,7 @@ stay as they are.
 | --- | --- | --- |
 | 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Built |
 | 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Built |
-| 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Planned |
+| 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Built |
 | 4 | Help, README, screenshots, 1.4 changelog | Planned |
 
 Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to
@@ -366,6 +366,33 @@ choices made while building:
   Y-axis boxes the number fields (**Add Y field**). Quartiles use linear
   interpolation between the closest ranks. A box with selected records gets
   an outline in the selection colour; selected outliers turn that colour.
+
+## Round 3 built
+
+Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart and Data
+Clock, as planned; all 12 types are now in New plot and in Attribute
+Explorer's Data Plot menu. Choices made while building:
+
+- **Scatter Plot Matrix**: Field rows with **Add field**; R² of each pair on
+  the records with both values, shaded by its strength. The preview plot
+  fills the upper right corner; a click on a small plot or an R² cell shows
+  that pair in it. Small plots draw up to 4,000 points one by one (the
+  preview up to 20,000) and shade above that.
+- **QQ Plot**: the field's sorted values against the standard normal
+  quantiles at the proportions (i - 0.5) / n (worked out without SciPy, which
+  QGIS does not always have), or two fields' values at the same proportions
+  (each point is then a record of the field with fewer values). The reference
+  line runs through the first and third quartiles. Box-Cox's lambda is the
+  one between -2 and 2 that makes the field most normal (largest
+  log-likelihood, on at most 100,000 values). The boxes are named **Field**
+  and **Compare with**, as the plot has no X field and Y field of its own.
+- **Matrix Heat Chart**, **Calendar Heat Chart**, **Data Clock**: the cell
+  colours come from a **Classification** section: Equal interval, Geometric
+  interval (class widths growing by a constant ratio), Natural breaks (Jenks,
+  on a sample of at most 1,000 values) or Quantile, 2 to 10 classes, and any
+  colour ramp of the QGIS default style (Viridis to start). Cells without
+  records stay empty. A sequential calendar draws at most 60 grids (the
+  latest), a data clock at most 200 rings.
 
 ## Not in this plan
 

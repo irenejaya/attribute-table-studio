@@ -461,5 +461,109 @@ class BoxTests(unittest.TestCase):
         self.assertFalse(p.standardized)                # one field: its own values
 
 
+class ClassBreakTests(unittest.TestCase):
+    def test_methods(self):
+        v = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        self.assertEqual(P.class_breaks(v, "equal", 3), [4.0, 7.0, 10.0])
+        q = P.class_breaks(v, "quantile", 2)
+        self.assertEqual(q[-1], 10.0)
+        self.assertAlmostEqual(q[0], float(np.quantile(v, 0.5)))
+        g = P.class_breaks([1, 10, 100, 1000], "geometric", 3)
+        self.assertEqual(len(g), 3)
+        self.assertAlmostEqual(g[0], 10.0)
+        self.assertAlmostEqual(g[1], 100.0)
+        self.assertEqual(g[-1], 1000)
+        n = P.class_breaks([1, 1, 2, 2, 10, 11, 12, 30, 31, 32], "natural", 3)
+        self.assertEqual(n, [2, 12, 32])
+        self.assertEqual(P.class_of(5, [4.0, 7.0, 10.0]), 1)
+        self.assertEqual(P.class_of(float("nan"), [1.0]), -1)
+
+
+class CellTests(unittest.TestCase):
+    def test_matrix_heat_counts_and_mean(self):
+        t = make_table(A=(F.TEXT, ["x", "y", "x", "x", None]),
+                       B=(F.INTEGER, [1, 1, 2, 1, 2]),
+                       V=(F.REAL, [10, 20, 30, 50, 60]))
+        p = P.matrix_heat(t, {"x": "A", "y": "B"})
+        self.assertEqual((p.columns, p.rows), (["x", "y"], ["1", "2"]))
+        self.assertEqual(p.records.tolist(), [2, 1, 1, 0])
+        self.assertTrue(math.isnan(p.values[3]))            # no records: no colour
+        p = P.matrix_heat(t, {"x": "A", "y": "B", "field": "V", "agg": "mean"})
+        self.assertEqual(p.values[0], 30.0)
+        self.assertEqual(p.excluded, 1)
+        self.assertEqual(sorted(P.cell_rows(p, [0]).tolist()), [0, 3])
+
+    def test_calendar_year_and_week(self):
+        dates = [day(2023, 1, 1, 9), day(2023, 1, 1, 18), day(2024, 2, 29, 3),
+                 day(2024, 1, 1, 9)]
+        t = make_table(D=(F.DATETIME, dates))
+        p = P.calendar_heat(t, {"x": "D", "calendar": "year"})
+        self.assertEqual(p.records[0 * 31 + 0], 3)          # 1 January, both years
+        self.assertEqual(p.records[1 * 31 + 28], 1)         # 29 February
+        p = P.calendar_heat(t, {"x": "D", "calendar": "year", "leap": False})
+        self.assertEqual(p.records[1 * 31 + 28], 0)
+        p = P.calendar_heat(t, {"x": "D", "calendar": "year", "view": "sequential"})
+        self.assertEqual(p.panels, ["2023", "2024"])
+        self.assertEqual(p.records[0], 2)                   # 2023, 1 January
+        p = P.calendar_heat(t, {"x": "D", "calendar": "week"})
+        # 1 Jan 2023 is a Sunday (row 6), 9 and 18 o'clock
+        self.assertEqual(p.records[6 * 24 + 9], 1)
+        self.assertEqual(p.records[6 * 24 + 18], 1)
+        # 1 Jan 2024 is a Monday
+        self.assertEqual(p.records[0 * 24 + 9], 1)
+
+    def test_data_clock(self):
+        dates = [day(2022, 3, 5), day(2023, 3, 9), day(2023, 12, 31), day(2024, 12, 31)]
+        t = make_table(D=(F.DATE, dates))
+        p = P.data_clock(t, {"x": "D", "rings": "years_months"})
+        self.assertEqual(p.rows, ["2022", "2023", "2024"])  # oldest first (innermost)
+        self.assertEqual(p.records[1 * 12 + 2], 1)          # 2023, March
+        p = P.data_clock(t, {"x": "D", "rings": "years_weeks"})
+        self.assertEqual(len(p.columns), 52)
+        self.assertEqual(p.records[1 * 52 + 51], 1)         # 31 Dec 2023: the last week
+        self.assertEqual(p.records[2 * 52 + 51], 1)         # 31 Dec 2024 (leap year)
+        p = P.data_clock(t, {"x": "D", "rings": "years_days"})
+        self.assertEqual(p.records[2 * 366 + 365], 1)       # day 366 of 2024
+
+
+class MatrixQQTests(unittest.TestCase):
+    def test_matrix_r2_and_hists(self):
+        rnd = random.Random(5)
+        a = [rnd.gauss(0, 1) for _ in range(300)]
+        b = [x * 2 + rnd.gauss(0, 0.5) for x in a]
+        c = [rnd.gauss(0, 1) if i % 10 else None for i in range(300)]
+        t = make_table(A=(F.REAL, a), B=(F.REAL, b), C=(F.REAL, c))
+        p = P.scatter_matrix(t, {"fields": ["A", "B", "C"], "trend": True})
+        r = statistics.correlation(a, b)
+        self.assertAlmostEqual(p.r2[0, 1], r * r, places=9)
+        self.assertEqual(p.n[0, 2], 270)
+        self.assertEqual(sum(p.hists[2][1]), 270)
+        self.assertTrue(p.trends[(0, 1)].ok)
+
+    def test_norm_ppf(self):
+        for prob, z in ((0.5, 0.0), (0.975, 1.959963985), (0.01, -2.326347874),
+                        (0.999, 3.090232306)):
+            self.assertAlmostEqual(float(P.norm_ppf(np.array([prob]))[0]), z, places=6)
+
+    def test_qq_normal_and_two_fields(self):
+        rnd = random.Random(2)
+        vals = [rnd.gauss(50, 10) for _ in range(500)]
+        t = make_table(X=(F.REAL, vals), Y=(F.REAL, [v * 3 for v in vals[:250]] +
+                                            [None] * 250))
+        p = P.qq(t, {"x": "X"})
+        self.assertEqual(len(p), 500)
+        self.assertEqual(p.y.tolist(), sorted(vals))
+        self.assertAlmostEqual(p.ref[0], 10, delta=1.5)     # slope near the std
+        self.assertEqual([vals[i] for i in p.rows[:3]], sorted(vals)[:3])
+        p = P.qq(t, {"x": "X", "y": "Y"})
+        self.assertEqual(len(p), 250)                       # the field with fewer values
+        self.assertEqual(p.missing, 250)
+        w, keep, lam = P.transform(np.array([1.0, np.e, -1.0, 0.0]), "log")
+        self.assertEqual(keep.tolist(), [True, True, False, False])
+        self.assertAlmostEqual(w[1], 1.0)
+        lognormal = np.exp(np.array([rnd.gauss(0, 1) for _ in range(2000)]))
+        self.assertAlmostEqual(P.boxcox_lambda(lognormal), 0.0, delta=0.15)
+
+
 if __name__ == "__main__":
     unittest.main()
