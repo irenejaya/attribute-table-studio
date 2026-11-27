@@ -12,7 +12,7 @@ stay as they are.
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Planned |
 | 4 | Help, README, screenshots, 1.4 changelog | Planned |
 
-Each round is tested on QGIS 4.2 and 4.4, then QGIS 3.44, committed and pushed to
+Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to
 dev-v5, and shown with screenshots before the next round starts. The version
 becomes 1.4 when the four rounds are done.
 
@@ -259,7 +259,7 @@ distribution?
   classifications, clock and calendar binning, density shading.
 - QGIS tests: the window, each type on memory and GeoPackage layers, live
   records, two-way selection, saving in the project and to a file, export,
-  docking, on QGIS 4.2 and 4.4, then QGIS 3.44.
+  docking, on QGIS 4.4.0 and then QGIS 3.44.14.
 - A big-layer test (made-up layer of millions of records) for read time,
   redraw time and memory, with the measured numbers written here.
 
