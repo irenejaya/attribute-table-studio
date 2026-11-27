@@ -57,6 +57,9 @@ TYPES = (
 )
 TYPE_LABELS = dict(TYPES)
 BUILT = ("bar", "line", "scatter")
+# the round of dev-v5 that builds each type not built yet (shown in the menu)
+COMING = {"combo": 2, "pie": 2, "histogram": 2, "box": 2, "matrix": 3, "qq": 3,
+          "heat": 3, "calendar": 3, "clock": 3}
 
 AGGREGATIONS = (("count", "Count"), ("sum", "Sum"), ("mean", "Mean"),
                 ("median", "Median"), ("min", "Minimum"), ("max", "Maximum"))

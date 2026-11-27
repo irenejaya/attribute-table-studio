@@ -42,6 +42,22 @@ PICK_RADIUS = 6                  # px around the mouse that picks a point
 TREND_COLOUR = {False: "#37474F", True: "#ECEFF1"}
 
 
+def fill_type_menu(menu, slot):
+    """The plot types, each with its icon, in the order of ArcGIS Pro's
+    Create Chart list (Data Plot's New plot and Attribute Explorer's Data
+    Plot button); *slot* takes the type.  Types not built yet are listed
+    greyed out."""
+    from . import icons
+    for key, text in P.TYPES:
+        act = menu.addAction(icons.plot_type(key), text)
+        if key in P.BUILT:
+            act.triggered.connect(lambda _c=False, k=key: slot(k))
+        else:
+            act.setText(f"{text}  (coming in round {P.COMING.get(key, '')})")
+            act.setEnabled(False)
+    return menu
+
+
 def series_colour(theme, s, name=None, n=0, override=None):
     """Colour of series *s*: the user's, else the colour-blind checked
     series colours; Other in grey."""

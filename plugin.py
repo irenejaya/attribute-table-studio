@@ -303,6 +303,9 @@ class AttributeTableStudioPlugin:
         host = ToolHost(self.iface, panel, "explorer", icons.tool(icons.EXPLORER),
                         QSize(1600, 820))
         panel.openPivotRequested.connect(self.open_pivot)
+        panel.openPlotRequested.connect(
+            lambda lyr, ptype: self.open_data_plot(lyr, scope="explorer",
+                                                   new_type=ptype or None))
         panel.layerChangeRequested.connect(self._switch_explorer_layer)
         panel.titleChanged.connect(host.refresh_title)
         host.closed.connect(self._on_explorer_closed)
@@ -377,15 +380,19 @@ class AttributeTableStudioPlugin:
     # DATA PLOT
     # ====================================================================
 
-    def open_data_plot(self, layer=None, plot_id=None, new_window=False):
+    def open_data_plot(self, layer=None, plot_id=None, new_window=False, scope=None,
+                       new_type=None):
         """Show Data Plot (the main window, or another one with
-        *new_window*) on *layer* (the active layer by default)."""
+        *new_window*) on *layer* (the active layer by default); *scope*
+        picks its records ("explorer": an Attribute Explorer's filtered
+        records) and *new_type* makes a new plot of that type."""
         if self.plot_hosts and not new_window:
             host = self.plot_hosts[0]
             host.show_and_raise()
             panel = host.panel
             if layer is not None and (layer is not panel.layer or plot_id):
                 panel.set_layer(layer, plot_id)
+            self._plot_request(panel, scope, new_type)
             return panel
         from .ui.data_plot import DataPlotPanel
         from .ui.tool_host import ToolHost
@@ -403,8 +410,18 @@ class AttributeTableStudioPlugin:
             layer = active if isinstance(active, QgsVectorLayer) else None
         if layer is not None:
             panel.set_layer(layer, plot_id)
+        self._plot_request(panel, scope, new_type)
         host.refresh_title()
         return panel
+
+    @staticmethod
+    def _plot_request(panel, scope, new_type):
+        if panel.layer is None:
+            return
+        if scope:
+            panel.set_scope(scope)
+        if new_type:
+            panel.new_plot(new_type)
 
     def _on_plot_closed(self, host):
         if host in self.plot_hosts:

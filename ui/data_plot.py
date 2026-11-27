@@ -46,7 +46,7 @@ from ..core.jobs import JobRunner
 from ..core.scan import ScanSpec
 from . import icons
 from . import widgets as W
-from .plot_view import PlotModel, PlotView, series_colour, value_text
+from .plot_view import PlotModel, PlotView, fill_type_menu, series_colour, value_text
 from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
@@ -1112,11 +1112,7 @@ class DataPlotPanel(QWidget):
         self.plot_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.plot_list.customContextMenuRequested.connect(self._list_menu)
         lay.addWidget(self.plot_list, 1)
-        self.new_menu = QMenu(self)
-        for key, text in P.TYPES:
-            if key in P.BUILT:
-                act = self.new_menu.addAction(icons.plot_type(key), text)
-                act.triggered.connect(lambda _c=False, k=key: self.new_plot(k))
+        self.new_menu = fill_type_menu(QMenu(self), self.new_plot)
         self.new_btn = W.button(m, "New plot", icons.native(icons.ADD),
                                 "Make a new plot of this layer", menu=self.new_menu)
         new_row = QHBoxLayout()

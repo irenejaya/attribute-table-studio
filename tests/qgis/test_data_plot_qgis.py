@@ -108,7 +108,9 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(panel.plot_list.count(), 1)
         self.assertEqual([t for t, _l in P.TYPES if t in P.BUILT],
                          ["bar", "line", "scatter"])
-        self.assertEqual(len(panel.new_menu.actions()), len(P.BUILT))
+        acts = panel.new_menu.actions()                 # all 12 types, as ArcGIS Pro lists them
+        self.assertEqual(len(acts), len(P.TYPES))
+        self.assertEqual(sum(a.isEnabled() for a in acts), len(P.BUILT))
 
     def test_02_scatter_numbers_trend_and_colours(self):
         panel = self.panel()
@@ -444,6 +446,29 @@ class DataPlotTests(unittest.TestCase):
         QgsProject.instance().removeMapLayer(other.id())
         H.settle(0.3)
         self.assertIsNone(panel.layer)
+
+    def test_11_from_attribute_explorer(self):
+        # the Data Plot button of Attribute Explorer's top bar, between
+        # Visualize Statistics and Pivot Table: its menu lists the plot types
+        exp = self.plugin.open_explorer(self.layer)
+        self.assertTrue(H.wait_for(lambda: exp._has_result and not exp.runner.busy))
+        items = [a for a in exp.plot_btn.menu().actions() if not a.isSeparator()]
+        self.assertEqual([a.text().split("  (")[0] for a in items[:len(P.TYPES)]],
+                         [label for _k, label in P.TYPES])
+        self.assertEqual([a.isEnabled() for a in items[:len(P.TYPES)]],
+                         [k in P.BUILT for k, _l in P.TYPES])
+        self.assertEqual(items[-1].text(), "Open Data Plot")
+        before = len(DP.PlotStore.instance().plots(self.layer.id()))
+        line = next(a for a in items if a.text() == "Line Chart")
+        line.trigger()
+        H.settle(0.3)
+        panel = self.plugin.plot_hosts[0].panel
+        self.assertIs(panel.layer, self.layer)
+        self.assertEqual(panel.scope, "explorer")
+        self.assertEqual(panel.current_plot()["type"], "line")
+        self.assertEqual(len(panel.store.plots(self.layer.id())), before + 1)
+        self.plugin.explorers[self.layer.id()].close()
+        H.settle(0.3)
 
 
 if __name__ == "__main__":

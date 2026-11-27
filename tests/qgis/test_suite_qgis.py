@@ -2698,17 +2698,20 @@ class SuiteTests(unittest.TestCase):
         def x(widget):
             return widget.mapTo(panel, QPoint(0, 0)).x()
         # top row, right aligned: View | Zoom | Selected only | Deselect |
-        # Select | Go to field | Summary | Pivot Table | Clear filters |
-        # Columns | Export | query | dock
+        # Select | Go to field | Summary | Visualize Statistics | Data Plot |
+        # Pivot Table | Clear filters | Columns | Export | query | dock
         order = [panel.view_btn, panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
-                 panel.select_btn, panel.field_box, panel.summary_btn, panel.pivot_btn,
+                 panel.select_btn, panel.field_box, panel.summary_btn, panel.chart_btn,
+                 panel.plot_btn, panel.pivot_btn,
                  panel.clear_btn, panel.columns_btn, panel.export_btn, btn, panel.dock_btn]
         xs = [x(w) for w in order]
         self.assertEqual(xs, sorted(xs))
         for icon_only in (panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
-                          panel.clear_btn, panel.columns_btn, panel.export_btn):
+                          panel.chart_btn, panel.plot_btn, panel.clear_btn,
+                          panel.columns_btn, panel.export_btn):
             self.assertEqual(icon_only.text().strip(), "")
         self.assertEqual(panel.pivot_btn.text().strip(), "Pivot Table")
+        self.assertTrue(panel.plot_btn.toolTip().startswith("Data Plot"))
         self.assertEqual([a.text() for a in panel.export_btn.menu().actions()
                           if not a.isSeparator()],
                          ["Excel (.xlsx)…", "CSV (.csv)…", "Copy Selected Rows"])

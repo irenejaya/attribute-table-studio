@@ -83,6 +83,9 @@ EXPLORER = [
             I("chart_btn", "Visualize Statistics",
               "A full chart of the selected column (histogram or bar chart) for the "
               "records in the table. It has its own Help.", icons.CHART),
+            I("plot_btn", "Data Plot",
+              "Plot the records in the table: choose a plot type and it opens in Data "
+              "Plot with these records. Data Plot has its own Help.", icons.PLOT),
             I("pivot_btn", "Pivot Table",
               "Summarise the records in the table in a Pivot Table.", icons.PIVOT),
             I("clear_btn", "Clear filters",
