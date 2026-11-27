@@ -590,6 +590,35 @@ series side by side, stacked or 100% stacked; sorted by category or by
 value. Split by gives the 8 categories with the most records their own
 colour; the rest form an exact <b>Other</b> (a mean of Other is the mean of
 its records).</p>
+<h4>Combo Chart</h4>
+<p>Bars and lines over one X axis (categories, numbers or dates grouped by Time
+binning). Each <b>series</b> is Count of records or a number field with its
+aggregation, shown as a <b>Bar</b> or a <b>Line</b> on the <b>Left y-axis</b>
+or the <b>Right y-axis</b>; each axis fits its own series, and one that holds
+a bar series starts at 0. <b>Empty bins</b>: Treat as zero or Treat as null.</p>
+<h4>Pie Chart</h4>
+<p>Shares of a whole: the slices are the categories of a field (records
+counted, or a number field summarised) or several number fields (one slice
+each), largest first from 12 o'clock. <b>Grouping threshold</b> puts the
+slices under that share together as an exact Other; <b>Donut hole</b> makes
+a donut. A slice must be above 0 to be drawn.</p>
+<h4>Histogram</h4>
+<p>The distribution of one number field. <b>Bins</b>: Auto is the square
+root of the number of records (at most 64), as in ArcGIS Pro. <b>Mean</b>,
+<b>Median</b>, <b>± 1 Std. Dev.</b> lines (each with its colour) and the
+<b>Normal Distribution Curve</b>. <b>Transformation</b>: Logarithmic (natural
+logarithm; values of 0 or less left out) or Square root. <b>Split by</b>
+draws one small histogram per category on the same bins (<b>Mini charts per
+row</b>); <b>Show preview chart</b> adds a larger one: click a small
+histogram's title to show it there.</p>
+<h4>Box Plot</h4>
+<p>The spread of one or more number fields (the Y axis), per category of the
+X-axis field when one is chosen. The box runs from the first to the third
+quartile with the median across it; with <b>Show outliers</b>, values more
+than 1.5 × the interquartile range beyond the box are points and the
+whiskers stop at the last value inside, otherwise they reach the minimum and
+maximum. With several fields, <b>Standardize values (z-score)</b> puts them
+on one scale. Click a box or an outlier to select its records.</p>
 """
 
 

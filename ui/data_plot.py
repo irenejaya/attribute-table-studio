@@ -38,6 +38,8 @@ from qgis.core import (
 )
 from qgis.gui import QgsColorButton
 
+import numpy as np
+
 from ..core import export as X
 from ..core import fields as F
 from ..core import plots as P
@@ -354,12 +356,16 @@ class PlotProperties(QScrollArea):
         self._card()                         # setWidget deletes the previous card
         self.title_edit = self.colour_lay = self.summary_grid = None
         if plot is not None:
-            if plot["type"] == "scatter":
+            t = plot["type"]
+            if t == "scatter":
                 self._scatter_data()
-            else:
+            elif t in ("line", "bar"):
                 self._series_data()
-            self._axes()
-            self._guides()
+            else:
+                getattr(self, f"_{t}_data")()
+            if t != "pie":
+                self._axes()
+                self._guides()
             self._summary()
             self._appearance()
         self.lay.addStretch(1)
@@ -653,21 +659,442 @@ class PlotProperties(QScrollArea):
         ref.editingFinished.connect(other)
         trim.toggled.connect(other)
 
+    # ---- shared rows ---------------------------------------------------
+    def _y_rows(self, names, first_none=None, tip="", add_text="Add Y field",
+                label="Y-axis"):
+        """Rows of number fields (the first with *first_none* as its empty
+        choice), each further row with a remove button, then an Add button.
+        Returns (first combo, [(index, combo, remove)], add button)."""
+        m = self.metrics
+        first = self._field_combo(names[0] if names else None, _is_number,
+                                  none_label=first_none or CHOOSE)
+        self._row(label, first, tip)
+        extra = []
+        for k, name in enumerate(names[1:], 1):
+            box = self._field_combo(name, _is_number)
+            remove = W.square_button(m, icons.native(icons.REMOVE), "Remove this field")
+            holder = QWidget()
+            hl = QHBoxLayout(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(m.gap)
+            hl.addWidget(W.label(label, "dim"))
+            hl.addWidget(box, 1)
+            hl.addWidget(remove)
+            self.lay.addWidget(holder)
+            extra.append((k, box, remove))
+        add = W.button(m, add_text, icons.native(icons.ADD),
+                       "Another number field: a series of its own")
+        holder = QWidget()
+        al = QHBoxLayout(holder)
+        al.setContentsMargins(0, 0, 0, 0)
+        al.addWidget(add)
+        al.addStretch(1)
+        self.lay.addWidget(holder)
+        return first, extra, add
+
+    def _wire_fields(self, d, key, first, extra, add, read=True, keep_first=False):
+        """Keep d[key] (a list of field names) in step with _y_rows."""
+        def changed_first(*_a):
+            names = list(d.get(key) or [])
+            name = first.current_name()
+            if name is None and not keep_first:
+                d[key] = names[1:]
+                self._changed(read)
+                self._rebuild()
+                return
+            d[key] = ([name] if name else []) + names[1:]
+            self._changed(read)
+
+        def changed_extra(k, box):
+            def changed(*_a):
+                names = list(d.get(key) or [])
+                if k < len(names):
+                    names[k] = box.current_name()
+                    d[key] = names
+                    self._changed(read)
+            return changed
+
+        def remove_extra(k):
+            def remove():
+                names = list(d.get(key) or [])
+                if k < len(names):
+                    del names[k]
+                    d[key] = names
+                    self._changed(read)
+                    self._rebuild()
+            return remove
+
+        def add_field():
+            names = list(d.get(key) or [])
+            spare = [self.fields.at(i).name() for i in range(self.fields.count())
+                     if _is_number(F.field_kind(self.fields.at(i)))
+                     and self.fields.at(i).name() not in names]
+            if not names or not spare:
+                return
+            d[key] = names + [spare[0]]
+            self._changed(read)
+            self._rebuild()
+
+        first.currentIndexChanged.connect(changed_first)
+        for k, box, remove in extra:
+            box.currentIndexChanged.connect(changed_extra(k, box))
+            remove.clicked.connect(remove_extra(k))
+        add.clicked.connect(add_field)
+
+    def _binning(self, d, empty_items):
+        """The Time binning section (shown for a date along X); returns a
+        function that shows or hides it."""
+        m = self.metrics
+        header = self._header("Time binning")
+        unit = self._combo([(None, "Auto")] + list(P.UNITS), d.get("unit"))
+        size = QSpinBox()
+        size.setRange(1, 100000)
+        size.setValue(int(d.get("interval", 1)))
+        size.setFixedHeight(m.control_h)
+        interval = QWidget()
+        il = QHBoxLayout(interval)
+        il.setContentsMargins(0, 0, 0, 0)
+        il.setSpacing(m.gap)
+        il.addWidget(size)
+        il.addWidget(unit, 1)
+        interval_row = self._row("Interval", interval,
+                                 "Auto works the interval out from the data's time span")
+        align = self._combo(P.ALIGNMENTS, d.get("align", "start"))
+        align_row = self._row("Align to", align)
+        ref = self._edit(d.get("reference"), "YYYY-MM-DD HH:MM")
+        ref_row = self._row("Reference", ref)
+        trim = self._tick("Trim incomplete interval", d.get("trim"),
+                          "Leave out an interval at either end that the data only partly "
+                          "covers (it would look like a dip)")
+        empty = self._combo(empty_items, d.get("empty", "zero"))
+        empty_row = self._row("Empty bins", empty, "Intervals without records")
+
+        def is_date():
+            name = d.get("x")
+            return bool(name) and self.fields.lookupField(name) >= 0 and P.role(
+                F.field_kind(self.fields.field(name))) == P.DATE
+
+        def follow():
+            dated = is_date()
+            for w in (header, interval_row, align_row, trim, empty_row):
+                w.setVisible(dated)
+            ref_row.setVisible(dated and align.currentData() == "reference")
+            size.setEnabled(unit.currentData() is not None)
+
+        def changed(*_a):
+            d["unit"] = unit.currentData()
+            d["interval"] = size.value()
+            d["align"] = align.currentData()
+            d["reference"] = ref.text().strip() or None
+            d["trim"] = trim.isChecked()
+            d["empty"] = empty.currentData()
+            follow()
+            self._changed(True)
+
+        for w in (unit, align, empty):
+            w.currentIndexChanged.connect(changed)
+        size.valueChanged.connect(changed)
+        ref.editingFinished.connect(changed)
+        trim.toggled.connect(changed)
+        follow()
+        return follow
+
+    # ---- Data: combo ---------------------------------------------------
+    def _combo_data(self):
+        d = self.plot["data"]
+        m = self.metrics
+        self._header("Data")
+        x = self._field_combo(d.get("x"), lambda k: k != F.OTHER, none_label=CHOOSE)
+        self._row("X-axis", x, "Categories, numbers or dates (grouped in time intervals) "
+                  "along the bottom")
+        series = d.setdefault("series", [])
+        for k, spec in enumerate(series):
+            self.lay.addWidget(W.label(f"Series {k + 1}", "strong"))
+            field = self._field_combo(spec.get("field"), _is_number,
+                                      none_label="Count of records")
+            holder = QWidget()
+            hl = QHBoxLayout(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(m.gap)
+            hl.addWidget(W.label("Y-axis", "dim"))
+            hl.addWidget(field, 1)
+            remove = W.square_button(m, icons.native(icons.REMOVE), "Remove this series")
+            remove.setEnabled(len(series) > 1)
+            hl.addWidget(remove)
+            self.lay.addWidget(holder)
+            agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
+                              spec.get("agg") if spec.get("agg") != "count" else "sum")
+            agg_row = self._row("Aggregation", agg)
+            agg_row.setVisible(bool(spec.get("field")))
+            kind = self._combo((("bar", "Bar"), ("line", "Line")), spec.get("kind", "bar"))
+            axis = self._combo((("left", "Left y-axis"), ("right", "Right y-axis")),
+                               spec.get("axis", "left"))
+            row = QWidget()
+            rl = QHBoxLayout(row)
+            rl.setContentsMargins(0, 0, 0, 0)
+            rl.setSpacing(m.gap)
+            rl.addWidget(W.label("Show as", "dim"))
+            rl.addWidget(kind, 1)
+            rl.addWidget(axis, 1)
+            self.lay.addWidget(row)
+
+            def changed(*_a, spec=spec, field=field, agg=agg, kind=kind, axis=axis,
+                        agg_row=agg_row):
+                spec["field"] = field.current_name()
+                spec["agg"] = agg.currentData() if spec["field"] else "count"
+                spec["kind"] = kind.currentData()
+                spec["axis"] = axis.currentData()
+                agg_row.setVisible(bool(spec["field"]))
+                self._changed(True)
+
+            for w in (field, agg, kind, axis):
+                w.currentIndexChanged.connect(changed)
+
+            def drop(_c=False, k=k):
+                if len(series) > 1:
+                    del series[k]
+                    self._changed(True)
+                    self._rebuild()
+
+            remove.clicked.connect(drop)
+        add = W.button(m, "Add series", icons.native(icons.ADD),
+                       "Another series: a bar or a line, on the left or the right axis")
+        holder = QWidget()
+        al = QHBoxLayout(holder)
+        al.setContentsMargins(0, 0, 0, 0)
+        al.addWidget(add)
+        al.addStretch(1)
+        self.lay.addWidget(holder)
+        note = self._note("An axis that holds a bar series starts at 0.")
+
+        def add_series():
+            series.append({"field": None, "agg": "count", "kind": "line", "axis": "right"})
+            self._changed(True)
+            self._rebuild()
+
+        add.clicked.connect(add_series)
+        follow = self._binning(d, (("zero", "Treat as zero"), ("null", "Treat as null")))
+
+        def changed_x(*_a):
+            d["x"] = x.current_name()
+            follow()
+            self._changed(True)
+
+        x.currentIndexChanged.connect(changed_x)
+        del note
+
+    # ---- Data: pie -----------------------------------------------------
+    def _pie_data(self):
+        d = self.plot["data"]
+        self._header("Data")
+        mode = self._combo((("category", "Categories of a field"),
+                            ("fields", "Number fields")), d.get("mode", "category"))
+        self._row("Slices", mode, "The categories of one field (records counted, or a "
+                  "number field summarised), or one slice per number field")
+        if d.get("mode", "category") == "fields":
+            names = list(d.get("fields") or [])
+            first, extra, add = self._y_rows(names, tip="Each number field is a slice",
+                                             add_text="Add field", label="Field")
+            self._wire_fields(d, "fields", first, extra, add)
+            agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
+                              d.get("agg", "sum"))
+            self._row("Aggregation", agg)
+        else:
+            cat = self._field_combo(d.get("category"), _is_category, none_label=CHOOSE)
+            self._row("Category", cat, "One slice per category")
+            value = self._field_combo(d.get("field"), _is_number,
+                                      none_label="Count of records")
+            self._row("Value", value, "Count of records, or a number field summarised "
+                      "by the aggregation")
+            agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
+                              d.get("agg", "sum"))
+            agg_row = self._row("Aggregation", agg)
+            agg_row.setVisible(bool(d.get("field")))
+
+            def changed_cat(*_a):
+                d["category"] = cat.current_name()
+                d["field"] = value.current_name()
+                agg_row.setVisible(bool(d["field"]))
+                self._changed(True)
+
+            cat.currentIndexChanged.connect(changed_cat)
+            value.currentIndexChanged.connect(changed_cat)
+        threshold = QSpinBox()
+        threshold.setRange(0, 50)
+        threshold.setSuffix(" %")
+        threshold.setValue(int(d.get("threshold", 0) or 0))
+        threshold.setFixedHeight(self.metrics.control_h)
+        self._row("Grouping threshold", threshold, "Slices under this share of the whole "
+                  "are put together as Other (0: every slice shown)")
+        donut = QSpinBox()
+        donut.setRange(0, 90)
+        donut.setSuffix(" %")
+        donut.setValue(int(d.get("donut", 0) or 0))
+        donut.setFixedHeight(self.metrics.control_h)
+        self._row("Donut hole", donut, "The hole as a share of the pie (0: a full pie)")
+        self._note("A slice must be above 0 to be drawn.")
+
+        def changed_mode(*_a):
+            d["mode"] = mode.currentData()
+            self._changed(True)
+            self._rebuild()
+
+        def other(*_a):
+            d["agg"] = agg.currentData()
+            d["threshold"] = threshold.value()
+            d["donut"] = donut.value()
+            self._changed(True)
+
+        mode.currentIndexChanged.connect(changed_mode)
+        agg.currentIndexChanged.connect(other)
+        threshold.valueChanged.connect(other)
+        donut.valueChanged.connect(other)
+
+    # ---- Data: histogram -----------------------------------------------
+    def _histogram_data(self):
+        d = self.plot["data"]
+        m = self.metrics
+        self._header("Data")
+        x = self._field_combo(d.get("x"), _is_number, none_label=CHOOSE)
+        self._row("X-axis", x, "The number field whose distribution is shown")
+        bins = QSpinBox()
+        bins.setRange(0, P.MAX_HIST_BINS)
+        bins.setSpecialValueText("Auto")
+        bins.setValue(int(d.get("bins") or 0))
+        bins.setFixedHeight(m.control_h)
+        self._row("Bins", bins, "Auto: the square root of the number of records (at most "
+                  "64), as ArcGIS Pro")
+        transform = self._combo(P.TRANSFORMS, d.get("transform", "none"))
+        self._row("Transformation", transform, "Preview the field made more normal: "
+                  "Logarithmic (natural logarithm; values of 0 or less left out) or Square "
+                  "root (values below 0 left out)")
+        split = self._field_combo(d.get("split"), _is_split, none_label="None")
+        self._row("Split by", split, "One small histogram per category (on the same bins)")
+        per_row = QSpinBox()
+        per_row.setRange(1, 6)
+        per_row.setValue(int(d.get("per_row", 3) or 3))
+        per_row.setFixedHeight(m.control_h)
+        per_row_row = self._row("Mini charts per row", per_row)
+        preview = self._tick("Show preview chart", d.get("preview"),
+                             "A larger view of one category's histogram; click a small "
+                             "histogram's title to show it")
+
+        self._header("Statistics on the chart")
+        fmt = self.plot.setdefault("format", {})
+        ticks = {}
+        for key, text, colour_key, default in (
+                ("mean", "Mean", "mean_colour", True),
+                ("median", "Median", "median_colour", True),
+                ("std", "± 1 Std. Dev.", "std_colour", False),
+                ("normal", "Normal Distribution Curve", None, False)):
+            holder = QWidget()
+            hl = QHBoxLayout(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(m.gap)
+            box = QCheckBox(text)
+            box.setChecked(bool(d.get(key, default)))
+            hl.addWidget(box, 1)
+            if colour_key:
+                from .plot_view import MEAN_COLOUR, MEDIAN_COLOUR, STD_COLOUR
+                base = {"mean_colour": MEAN_COLOUR, "median_colour": MEDIAN_COLOUR,
+                        "std_colour": STD_COLOUR}[colour_key]
+                btn = QgsColorButton()
+                btn.setFixedHeight(m.control_h)
+                btn.setFixedWidth(64)
+                btn.setShowNull(False)
+                btn.setDefaultColor(QColor(base))
+                btn.setColor(QColor(fmt.get(colour_key) or base))
+
+                def recolour(colour, colour_key=colour_key):
+                    fmt[colour_key] = colour.name()
+                    self._changed(False)
+
+                btn.colorChanged.connect(recolour)
+                hl.addWidget(btn)
+            self.lay.addWidget(holder)
+            ticks[key] = box
+
+        def follow():
+            on = bool(d.get("split"))
+            per_row_row.setVisible(on)
+            preview.setVisible(on)
+
+        follow()
+
+        def changed(*_a):
+            d["x"] = x.current_name()
+            d["split"] = split.current_name()
+            follow()
+            self._changed(True)
+
+        def other(*_a):
+            d["bins"] = bins.value() or None
+            d["transform"] = transform.currentData()
+            d["per_row"] = per_row.value()
+            d["preview"] = preview.isChecked()
+            for key, box in ticks.items():
+                d[key] = box.isChecked()
+            self._changed(True)
+
+        x.currentIndexChanged.connect(changed)
+        split.currentIndexChanged.connect(changed)
+        bins.valueChanged.connect(other)
+        per_row.valueChanged.connect(other)
+        transform.currentIndexChanged.connect(other)
+        preview.toggled.connect(other)
+        for box in ticks.values():
+            box.toggled.connect(other)
+
+    # ---- Data: box plot ------------------------------------------------
+    def _box_data(self):
+        d = self.plot["data"]
+        self._header("Data")
+        split = self._field_combo(d.get("split"), _is_split, none_label="None")
+        self._row("X-axis", split, "A category field: one box per category (None: one box "
+                  "per field)")
+        names = list(d.get("fields") or [])
+        first, extra, add = self._y_rows(names, tip="The number field shown as boxes; "
+                                         "each further field is a box of its own")
+        self._wire_fields(d, "fields", first, extra, add)
+        standardize = self._tick("Standardize values (z-score)", d.get("standardize", True),
+                                 "With several fields, their values become z-scores so "
+                                 "they share one axis")
+        standardize.setEnabled(len(names) > 1)
+        outliers = self._tick("Show outliers", d.get("outliers", True),
+                              "Values more than 1.5 × the interquartile range beyond the "
+                              "box as points; off, the whiskers reach the minimum and "
+                              "maximum")
+
+        def changed(*_a):
+            d["split"] = split.current_name()
+            d["standardize"] = standardize.isChecked()
+            d["outliers"] = outliers.isChecked()
+            self._changed(True)
+
+        split.currentIndexChanged.connect(changed)
+        standardize.toggled.connect(changed)
+        outliers.toggled.connect(changed)
+
     # ---- Axes ----------------------------------------------------------
     def _axes(self):
         axes = self.plot["axes"]
         t = self.plot["type"]
         self._header("Axes")
         edits = {}
-        keys = (["x_min", "x_max"] if t != "bar" else []) + ["y_min", "y_max"]
+        keys = (["x_min", "x_max"] if t in ("scatter", "line", "histogram") else []) + \
+            ["y_min", "y_max"]
+        if t == "combo" and any(s.get("axis") == "right"
+                                for s in self.plot["data"].get("series") or []):
+            keys += ["y2_min", "y2_max"]
         labels = {"x_min": "X minimum", "x_max": "X maximum", "y_min": "Y minimum",
-                  "y_max": "Y maximum"}
+                  "y_max": "Y maximum", "y2_min": "Right Y minimum",
+                  "y2_max": "Right Y maximum"}
         for key in keys:
             e = self._edit("" if axes.get(key) is None else str(axes.get(key)), "Automatic")
             self._row(labels[key], e, "Empty: from the data (dates as YYYY-MM-DD)")
             edits[key] = e
         x_log = None
-        if t != "bar":
+        if t in ("scatter", "line"):
             x_log = self._tick("Logarithmic X axis", axes.get("x_log"),
                                "Values of 0 or less cannot be shown on a log axis")
         y_log = self._tick("Logarithmic Y axis", axes.get("y_log"),
@@ -739,7 +1166,7 @@ class PlotProperties(QScrollArea):
         refill()
         orient = self._combo((("horizontal", "Horizontal"), ("vertical", "Vertical")),
                              "horizontal")
-        if t == "bar":
+        if t in ("bar", "combo", "box"):            # categories along X
             orient.setEnabled(False)
         value = self._edit("", "A number, or a date as YYYY-MM-DD")
         to = self._edit("", "Optional: a second value makes a range")
@@ -818,12 +1245,13 @@ class PlotProperties(QScrollArea):
         gen = self.plot.setdefault("general", {})
         fmt = self.plot.setdefault("format", {})
         self._header("Appearance")
+        axes = self.plot["type"] != "pie"
         title = self._edit(gen.get("title"), P.default_title(self.plot))
         self._row("Title", title)
         x_title = self._edit(gen.get("x_title"), "From the field")
-        self._row("X axis title", x_title)
+        self._row("X axis title", x_title).setVisible(axes)
         y_title = self._edit(gen.get("y_title"), "From the field")
-        self._row("Y axis title", y_title)
+        self._row("Y axis title", y_title).setVisible(axes)
         desc = self._edit(gen.get("description"), "Shown under the plot")
         self._row("Description", desc)
         if self.plot["type"] == "scatter":
@@ -852,6 +1280,8 @@ class PlotProperties(QScrollArea):
                   "lists series (as in Visualize Statistics)")
         grid = self._tick("Grid lines", fmt.get("grid", True))
         axis = self._tick("Axis lines", fmt.get("axis_lines", True))
+        grid.setVisible(axes)
+        axis.setVisible(axes)
         self.title_edit = title
 
         def changed(*_a):
@@ -917,7 +1347,7 @@ class PlotProperties(QScrollArea):
 
             btn.colorChanged.connect(changed)
             if name is None:
-                text = "Point colour"
+                text = "Point colour" if t == "scatter" else "Bar colour"
             elif len(names) == 1:
                 text = "Line colour" if t == "line" else "Bar colour"
             else:
@@ -953,6 +1383,12 @@ def compute(table, plot):
     axes = plot.get("axes", {})
     if t == "scatter":
         return P.scatter(table, d, bool(axes.get("x_log")), bool(axes.get("y_log")))
+    if t == "pie":
+        return P.pie(table, d)
+    if t == "histogram":
+        return P.histogram(table, d)
+    if t == "box":
+        return P.box(table, d)
     if d.get("align") == "reference":
         d["reference"] = P.parse_value(d.get("reference"), P.DATE)
     else:
@@ -961,6 +1397,8 @@ def compute(table, plot):
         d["fields"] = []
     elif d.get("split") and d.get("fields"):
         d["fields"] = d["fields"][:1]
+    if t == "combo":
+        return P.combo(table, d)
     return P.line(table, d) if t == "line" else P.bar(table, d)
 
 
@@ -1078,6 +1516,7 @@ class DataPlotPanel(QWidget):
         self.view = PlotView(self.theme, m)
         self.view.rowsPicked.connect(self._on_rows_picked)
         self.view.rowsMenu.connect(self._on_rows_menu)
+        self.view.previewPicked.connect(self._on_preview)
         split.addWidget(self.view)
         self.props = PlotProperties(self.theme, m)
         self.props.edited.connect(self._on_edited)
@@ -1699,13 +2138,49 @@ class DataPlotPanel(QWidget):
         every position."""
         mask = P.selected_mask(table.np(None), sel_ids)
         out = {"mask": mask, "per": None, "per_series": None, "part": None, "count": 0}
-        if plot["type"] == "scatter":
+        t = plot["type"]
+        if t == "scatter":
             out["count"] = int(mask[data.rows].sum()) if len(data) else 0
+            return out
+        if t == "pie":
+            out["per"], out["part"] = P.pie_selected(data, table, mask,
+                                                     plot["data"].get("field"))
+            if data.fields is None:
+                out["count"] = int((mask & (data.group >= 0)).sum())
+            else:
+                out["count"] = int(mask[P.pie_rows(data, table, range(len(data)))].sum())
+            return out
+        if t == "histogram":
+            out["per"] = P.hist_selected(data, mask)
+            if data.series:
+                out["per_series"] = [P.hist_selected(data, mask, k)
+                                     for k in range(len(data.series))]
+            out["count"] = int(mask[data.rows].sum()) if data.rows is not None else 0
+            return out
+        if t == "box":
+            out["per"] = [int(mask[b.rows].sum()) if b.rows is not None else 0
+                          for b in data.boxes]
+            rows = [b.rows for b in data.boxes if b.rows is not None and len(b.rows)]
+            out["count"] = int(mask[np.unique(np.concatenate(rows))].sum()) if rows else 0
             return out
         per, per_series = P.selected_per_position(data, mask)
         out["per"], out["per_series"] = per, per_series
         out["count"] = int((mask & (data.group >= 0)).sum())
-        if plot["type"] == "bar" and out["count"]:
+        if t == "combo" and out["count"]:
+            part = []
+            for spec in plot["data"].get("series") or []:
+                field = spec.get("field")
+                agg = spec.get("agg", "count") if field else "count"
+                if spec.get("kind", "bar") != "bar":
+                    part.append(None)
+                elif agg == "count":
+                    part.append(per)
+                elif agg == "sum":
+                    part.append(P.selected_sums(data, table, mask, field)[0])
+                else:
+                    part.append(None)
+            out["part"] = part
+        if t == "bar" and out["count"]:
             agg = data.agg
             fields = [s for s in data.series] if not data.split else []
             if agg == "count":
@@ -1721,11 +2196,20 @@ class DataPlotPanel(QWidget):
     def _apply(self, plot, data, sel):
         self.data = data
         self._sel = sel
-        if plot["type"] == "scatter":
-            self.props.set_series([None] if plot["data"].get("colour") == "single" else [])
-        else:
-            self.props.set_series(list(data.series))
+        self.props.set_series(self._colour_names(plot, data))
         self._redraw(plot)
+
+    @staticmethod
+    def _colour_names(plot, data):
+        """The names the Appearance colour rows are for (None: one colour)."""
+        t = plot["type"]
+        if t == "scatter":
+            return [None] if plot["data"].get("colour") == "single" else []
+        if t == "pie":
+            return list(data.labels)
+        if t == "histogram":
+            return list(data.series) if data.series else [None]
+        return list(data.series)
 
     def _redraw(self, plot=None):
         plot = plot or self.current_plot()
@@ -1765,6 +2249,34 @@ class DataPlotPanel(QWidget):
                 m.colours = [QColor(c) for c in self.table.class_colours]
             return m
         data = self.data
+        colours = fmt.get("colours", {})
+        t = m.kind
+        if t == "pie":
+            n = len(data.labels)
+            m.colours = [series_colour(self.theme, i, name, n, colours.get(str(name)))
+                         for i, name in enumerate(data.labels)]
+            return m
+        if t == "histogram":
+            label = {"log": f"ln({data.field})", "sqrt": f"√{data.field}"}.get(
+                data.transform, data.field)
+            m.x_title = gen.get("x_title") or label
+            m.y_title = gen.get("y_title") or "Records"
+            if data.series:
+                n = len(data.series)
+                m.colours = [series_colour(self.theme, i, name, n, colours.get(str(name)))
+                             for i, name in enumerate(data.series)]
+            else:
+                m.colours = [QColor(fmt.get("colour") or self.theme.bar)]
+            return m
+        if t == "box":
+            m.x_title = gen.get("x_title") or (d.get("split") or "")
+            one = data.series[0] if len(data.series) == 1 else "Value"
+            m.y_title = gen.get("y_title") or (
+                "z-score" if data.standardized else one)
+            n = len(data.series)
+            m.colours = [series_colour(self.theme, i, name, n, colours.get(str(name)))
+                         for i, name in enumerate(data.series)]
+            return m
         x_title = d.get("x") or ""
         if data.bins is not None:
             x_title += f" (by {data.bins.size} {P.UNIT_LABELS[data.bins.unit].lower()})" \
@@ -1772,6 +2284,12 @@ class DataPlotPanel(QWidget):
                 f" (by {P.UNIT_LABELS[data.bins.unit].lower()[:-1]})"
         m.x_title = gen.get("x_title") or x_title
         agg = data.agg
+        if t == "combo":
+            m.y_title = gen.get("y_title") or ""
+            n = len(data.series)
+            m.colours = [series_colour(self.theme, s, name, n, colours.get(str(name)))
+                         for s, name in enumerate(data.series)]
+            return m
         if plot["type"] == "bar" and d.get("multi") == "stacked100" and len(data.series) > 1:
             y_title = "Share (%)"
         elif agg == "count":
@@ -1808,8 +2326,34 @@ class DataPlotPanel(QWidget):
             if len(data) > DENSITY_LIMIT:
                 parts.append("shaded by records per spot")
             hint = "Click a point to select its record, drag a box for several"
+        elif plot["type"] == "pie":
+            parts.append(f"{len(data):,} slices")
+            if data.excluded:
+                parts.append(f"{data.excluded:,} records without a category left out")
+            if data.left_out:
+                parts.append("not above 0, so not shown: " + ", ".join(
+                    str(x) for x in data.left_out[:5]) + ("…" if len(data.left_out) > 5 else ""))
+            hint = "Click a slice to select its records"
+        elif plot["type"] == "histogram":
+            if len(data):
+                width = data.edges[1] - data.edges[0]
+                parts.append(f"{len(data):,} bins of {value_text(width)}")
+            if data.missing:
+                parts.append(f"{data.missing:,} records without a value left out")
+            if data.left_out:
+                parts.append(f"{data.left_out:,} with no "
+                             + ("logarithm (0 or less)" if data.transform == "log"
+                                else "square root (below 0)") + " left out")
+            hint = "Click a bar to select its records, drag for a range"
+        elif plot["type"] == "box":
+            parts.append(f"{sum(1 for b in data.boxes if b.n):,} boxes")
+            if data.standardized:
+                parts.append("values as z-scores")
+            parts.extend(data.notes)
+            hint = "Click a box or an outlier to select its records"
         else:
-            unit = "bars" if plot["type"] == "bar" else "points"
+            unit = {"bar": "bars", "line": "points"}.get(
+                plot["type"], "intervals" if data.x_role == P.DATE else "categories")
             parts.append(f"{len(data):,} {unit}")
             trimmed = data.bins.trimmed if data.bins is not None else 0
             if data.excluded - trimmed:
@@ -1823,16 +2367,58 @@ class DataPlotPanel(QWidget):
             parts.extend(data.notes)
             hint = "Click to select records, drag for a range"
         n_sel = self.model.sel_count if self.model is not None else 0
-        shown = len(data) if plot["type"] == "scatter" else sum(data.records)
+        shown = self._shown(plot, data)
         parts.append(f"{n_sel:,} of {shown:,} records selected" if n_sel else hint)
         self.status.set_status("  •  ".join(parts))
         self._update_scope_label()
         self.props.set_summary(self._summary_rows(plot, data, n_sel))
 
+    def _shown(self, plot, data):
+        """Records the plot shows."""
+        t = plot["type"]
+        if t == "scatter":
+            return len(data)
+        if t == "pie":
+            if data.fields is None:
+                return sum(data.records)
+            return len(P.pie_rows(data, self.table, range(len(data))))
+        if t == "histogram":
+            return len(data.rows) if data.rows is not None else 0
+        if t == "box":
+            rows = [b.rows for b in data.boxes if b.rows is not None and len(b.rows)]
+            return len(np.unique(np.concatenate(rows))) if rows else 0
+        return sum(data.records)
+
     def _summary_rows(self, plot, data, n_sel):
         """The Summary section's rows (as the Pivot Table chart's)."""
         n = len(self.table) if self.table is not None else 0
         rows = [("Records", F.format_number(n), "Records read: " + SCOPE_LABELS[self.scope])]
+        t = plot["type"]
+        if t == "pie":
+            rows.append(("Slices", F.format_number(len(data))))
+            rows.append(("Whole", value_text(data.total)))
+            if len(data):
+                rows.append(("Largest", f"{data.labels[0]} "
+                             f"({100.0 * data.values[0] / data.total:.1f}%)"))
+            rows.append(("Selected", F.format_number(n_sel)))
+            return rows
+        if t == "histogram":
+            st = data.stats
+            kind = data.kind if data.transform == "none" else F.REAL
+            rows.append(("Values", F.format_number(st.get("n", 0))))
+            for label, key in (("Minimum", "min"), ("Maximum", "max"), ("Mean", "mean"),
+                               ("Median", "median"), ("Std dev", "std")):
+                rows.append((label, value_text(st.get(key), kind)))
+            rows.append(("Selected", F.format_number(n_sel)))
+            return rows
+        if t == "box":
+            rows.append(("Boxes", F.format_number(sum(1 for b in data.boxes if b.n))))
+            outliers = sum(len(b.out_values) for b in data.boxes
+                           if b.out_values is not None)
+            rows.append(("Outliers", F.format_number(outliers),
+                         "More than 1.5 × the interquartile range beyond the box"))
+            rows.append(("Selected", F.format_number(n_sel)))
+            return rows
         if plot["type"] == "scatter":
             rows.append(("Points", F.format_number(len(data))))
             left = data.missing + data.not_positive
@@ -1842,7 +2428,7 @@ class DataPlotPanel(QWidget):
             if data.trend is not None and data.trend.ok and data.trend.r2 is not None:
                 rows.append(("R²", f"{data.trend.r2:.4f}", data.trend.equation))
         else:
-            unit = "Bars" if plot["type"] == "bar" else "Points"
+            unit = {"bar": "Bars", "line": "Points"}.get(t, "Categories")
             rows.append((unit, F.format_number(len(data))))
             if data.excluded or data.capped:
                 rows.append(("Left out", F.format_number(data.excluded + data.capped),
@@ -1880,6 +2466,18 @@ class DataPlotPanel(QWidget):
         axes = plot.get("axes", {})
         return (bool(axes.get("x_log")), bool(axes.get("y_log"))) != \
             getattr(self, "_built_logs", (False, False))
+
+    def _on_preview(self, name):
+        """A small histogram's title clicked: show it in the preview."""
+        plot = self.current_plot()
+        if plot is None or not plot["data"].get("preview"):
+            return
+        plot = copy.deepcopy(plot)
+        plot["data"]["preview_of"] = name
+        if self.props.plot is not None:
+            self.props.plot["data"]["preview_of"] = name
+        self._write(plot)
+        self._redraw(plot)
 
     def _on_combo_layer(self, layer):
         if layer is not None and layer is not self.layer:
@@ -2036,7 +2634,39 @@ class DataPlotPanel(QWidget):
     def csv_rows(self, plot, data):
         d = plot["data"]
         sel = (getattr(self, "_sel", None) or {}).get("mask")
-        if plot["type"] == "scatter":
+        per = (getattr(self, "_sel", None) or {}).get("per") or []
+        t = plot["type"]
+        if t == "pie":
+            header = ["Slice", "Records" if data.agg == "count" else
+                      P.AGG_LABELS.get(data.agg, "Value"), "Share (%)", "Records",
+                      "Selected"]
+            rows = [[label, v, round(100.0 * v / data.total, 4) if data.total else None,
+                     data.records[i], per[i] if i < len(per) else 0]
+                    for i, (label, v) in enumerate(zip(data.labels, data.values))]
+            return header, rows
+        if t == "histogram":
+            header = ["From", "To", "Records", "Share (%)", "Selected"]
+            header += [str(s) for s in data.series]
+            total = sum(data.counts) or 1
+            rows = []
+            for i, c in enumerate(data.counts):
+                row = [data.edges[i], data.edges[i + 1], c, round(100.0 * c / total, 4),
+                       per[i] if i < len(per) else 0]
+                row += [cs[i] for cs in (data.series_counts or [])]
+                rows.append(row)
+            return header, rows
+        if t == "box":
+            header = ["Category", "Field", "Records", "Lower whisker", "First quartile",
+                      "Median", "Third quartile", "Upper whisker", "Mean", "Outliers",
+                      "Selected"]
+            rows = []
+            for k, b in enumerate(data.boxes):
+                rows.append([b.label, data.series[b.series], b.n, b.low, b.q1, b.median, b.q3,
+                             b.high, b.mean,
+                             len(b.out_values) if b.out_values is not None else 0,
+                             per[k] if k < len(per) else 0])
+            return header, rows
+        if t == "scatter":
             fids = self.table.np(None)[data.rows]
             header = ["Feature id", d["x"], d["y"]] + ([d["size"]] if data.size is not None
                                                         else [])

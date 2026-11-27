@@ -106,8 +106,6 @@ class DataPlotTests(unittest.TestCase):
         H.settle(0.2)
         self.assertIn("Choose", panel.status.message.fullText())
         self.assertEqual(panel.plot_list.count(), 1)
-        self.assertEqual([t for t, _l in P.TYPES if t in P.BUILT],
-                         ["bar", "line", "scatter"])
         acts = panel.new_menu.actions()                 # all 12 types, as ArcGIS Pro lists them
         self.assertEqual(len(acts), len(P.TYPES))
         self.assertEqual(sum(a.isEnabled() for a in acts), len(P.BUILT))
@@ -469,6 +467,131 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(len(panel.store.plots(self.layer.id())), before + 1)
         self.plugin.explorers[self.layer.id()].close()
         H.settle(0.3)
+
+    def click(self, view, point):
+        from qgis.PyQt.QtTest import QTest
+        view.repaint()
+        H.settle(0.1)
+        QTest.mouseClick(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         point)
+        H.settle(0.3)
+
+    def test_12_combo(self):
+        panel = self.panel()
+        self.make(panel, "combo", x="LAND_USE", series=[
+            {"field": None, "agg": "count", "kind": "bar", "axis": "left"},
+            {"field": "SCORE_MAX", "agg": "mean", "kind": "line", "axis": "right"}])
+        data = panel.data
+        groups = defaultdict(list)
+        for ft in self.feats:
+            groups[ft["LAND_USE"]].append(ft["SCORE_MAX"])
+        self.assertEqual(data.labels, sorted(groups))
+        self.assertEqual(data.values[0], [len(groups[k]) for k in data.labels])
+        for i, k in enumerate(data.labels):
+            self.assertAlmostEqual(data.values[1][i], statistics.fmean(groups[k]), places=9)
+        view = panel.view
+        view.repaint()
+        self.assertIsNotNone(view._geo.get("y2"))          # the right axis
+        rect = [r for r, i, s in view._geo["items"] if i == 1 and s == 0][0]
+        self.click(view, rect.center().toPoint())
+        self.assertEqual(set(self.layer.selectedFeatureIds()),
+                         {ft.id() for ft in self.feats if ft["LAND_USE"] == data.labels[1]})
+        self.layer.removeSelection()
+
+    def test_13_pie(self):
+        panel = self.panel()
+        self.make(panel, "pie", mode="category", category="LAND_USE", threshold=3)
+        data = panel.data
+        counts = Counter(ft["LAND_USE"] for ft in self.feats)
+        total = sum(counts.values())
+        big = sorted((k for k, n in counts.items() if 100.0 * n / total >= 3),
+                     key=lambda k: -counts[k])
+        self.assertEqual(data.labels[:len(big)], big)
+        small = [k for k in counts if k not in big]
+        if small:
+            self.assertEqual(data.labels[-1], P.OTHER)
+            self.assertEqual(data.values[-1], sum(counts[k] for k in small))
+        view = panel.view
+        view.repaint()
+        path = view._geo["wedges"][0][0]
+        self.click(view, path.boundingRect().center().toPoint()
+                   if path.contains(path.boundingRect().center())
+                   else path.pointAtPercent(0.5).toPoint())
+        self.assertEqual(set(self.layer.selectedFeatureIds()),
+                         {ft.id() for ft in self.feats if ft["LAND_USE"] == data.labels[0]})
+        self.assertTrue(H.wait_for(lambda: ready(panel) and panel.model.sel_per[0]
+                                   == counts[data.labels[0]]))
+        self.layer.removeSelection()
+        # number fields as slices, summed
+        self.make(panel, "pie", mode="fields", fields=["SCORE_MIN", "SCORE_MAX"], agg="sum")
+        sums = {f: sum(ft[f] for ft in self.feats) for f in ("SCORE_MIN", "SCORE_MAX")}
+        got = dict(zip(panel.data.labels, panel.data.values))
+        self.assertEqual(set(got), set(sums))
+        for k, v in sums.items():
+            self.assertAlmostEqual(got[k], v, places=6)
+
+    def test_14_histogram(self):
+        panel = self.panel()
+        self.make(panel, "histogram", x="SCORE_MAX", bins=10, std=True, normal=True)
+        data = panel.data
+        vals = [ft["SCORE_MAX"] for ft in self.feats]
+        lo, hi = min(vals), max(vals)
+        width = (hi - lo) / 10
+        expect = [0] * 10
+        for v in vals:
+            expect[min(9, int((v - lo) / width))] += 1
+        self.assertEqual(sum(data.counts), len(vals))
+        # bin edges are the same; a value on an inner edge may round either way
+        self.assertTrue(all(abs(a - b) <= 2 for a, b in zip(data.counts, expect)))
+        self.assertAlmostEqual(data.stats["mean"], statistics.fmean(vals), places=9)
+        self.assertAlmostEqual(data.stats["std"], statistics.pstdev(vals), places=9)
+        self.assertEqual(P.default_hist_bins(len(vals)), min(64, math.ceil(len(vals) ** .5)))
+        view = panel.view
+        view.repaint()
+        k = max(range(10), key=lambda i: data.counts[i])
+        rect = [r for r, i, s in view._geo["items"] if i == k][0]
+        self.click(view, rect.center().toPoint())
+        picked = set(self.layer.selectedFeatureIds())
+        self.assertEqual(len(picked), data.counts[k])
+        self.layer.removeSelection()
+        # split: one small histogram per category, the counts add up
+        self.make(panel, "histogram", x="SCORE_MAX", bins=10, split="ZONE_CODE")
+        zones = Counter(ft["ZONE_CODE"] for ft in self.feats)
+        self.assertEqual(sorted(sum(c) for c in panel.data.series_counts),
+                         sorted(zones.values()))
+
+    def test_15_box(self):
+        panel = self.panel()
+        self.make(panel, "box", fields=["SCORE_MAX"], split="LAND_USE", outliers=True)
+        data = panel.data
+        groups = defaultdict(list)
+        for ft in self.feats:
+            groups[ft["LAND_USE"]].append(ft["SCORE_MAX"])
+        self.assertEqual(data.categories, sorted(groups))
+        import numpy as np
+        for b in data.boxes:
+            q1, med, q3 = np.percentile(groups[b.label], [25, 50, 75])
+            self.assertAlmostEqual(b.median, med, places=9)
+            self.assertAlmostEqual(b.q1, q1, places=9)
+            self.assertAlmostEqual(b.q3, q3, places=9)
+            iqr = q3 - q1
+            outs = [v for v in groups[b.label] if v < q1 - 1.5 * iqr or v > q3 + 1.5 * iqr]
+            self.assertEqual(len(b.out_values), len(outs))
+        view = panel.view
+        view.repaint()
+        rect = [r for r, i, s in view._geo["items"] if i == 0 and s is None][0]
+        self.click(view, rect.center().toPoint())
+        self.assertEqual(set(self.layer.selectedFeatureIds()),
+                         {ft.id() for ft in self.feats if ft["LAND_USE"] == data.categories[0]})
+        self.layer.removeSelection()
+        # CSV of the boxes
+        path = os.path.join(tempfile.mkdtemp(prefix="gts_box_"), "box.csv")
+        panel.export_csv(path)
+        with open(path, encoding="utf-8-sig") as fh:
+            rows = list(csv.reader(fh))
+        header = next(r for r in rows if r and r[0] == "Category")
+        self.assertIn("Median", header)
+        self.assertEqual(len(rows) - rows.index(header) - 1, len(data.boxes))
 
 
 if __name__ == "__main__":

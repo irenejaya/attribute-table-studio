@@ -29,7 +29,7 @@ from qgis.PyQt.QtWidgets import QSizePolicy, QWidget
 
 from ..core import fields as F
 from ..core import plots as P
-from .chart_view import OTHER_COLOUR, SERIES, nice_step
+from .chart_view import MEAN_COLOUR, MEDIAN_COLOUR, OTHER_COLOUR, SERIES, nice_step
 
 try:
     import numpy as np
@@ -40,6 +40,7 @@ DENSITY_LIMIT = 100000           # scatter points drawn one by one up to this (m
 CELL = 3                         # density: size of a spot (px)
 PICK_RADIUS = 6                  # px around the mouse that picks a point
 TREND_COLOUR = {False: "#37474F", True: "#ECEFF1"}
+STD_COLOUR = "#8E24AA"
 
 
 def fill_type_menu(menu, slot):
@@ -311,6 +312,7 @@ class PlotModel:
 class PlotView(QWidget):
     rowsPicked = pyqtSignal(object, bool)          # numpy row indexes, add
     rowsMenu = pyqtSignal(object, object)          # numpy row indexes, global pos
+    previewPicked = pyqtSignal(str)                # histogram: category to preview
 
     def __init__(self, theme, metrics, parent=None):
         super().__init__(parent)
@@ -413,7 +415,7 @@ class PlotView(QWidget):
         p.setBrush(QColor(t.base))
         p.drawRoundedRect(r, 4, 4)
         self._geo = {"plot": None, "items": [], "legend": [], "x": None, "y": None,
-                     "points": None}
+                     "points": None, "wedges": [], "minis": []}
         base = QFont(self.font())
         p.setFont(base)
         fm = QFontMetrics(base)
@@ -473,6 +475,14 @@ class PlotView(QWidget):
             self._paint_series(p, area, fm, line=True)
         elif m.kind == "bar":
             self._paint_series(p, area, fm, line=False)
+        elif m.kind == "combo":
+            self._paint_combo(p, area, fm)
+        elif m.kind == "pie":
+            self._paint_pie(p, area, fm)
+        elif m.kind == "histogram":
+            self._paint_histogram(p, area, fm)
+        elif m.kind == "box":
+            self._paint_box(p, area, fm, ratio, vector)
         if show_legend:
             plot = self._geo["plot"] or area
             if place == "bottom":
@@ -485,13 +495,20 @@ class PlotView(QWidget):
             self._paint_legend(p, box, legend, fm, place == "bottom")
 
     # ---- frame: axes, grid, guides --------------------------------------
-    def _frame(self, p, area, fm, xa, ya, x_title, y_title, rotate_x=False):
-        """Lay out *area* around the two axes and draw the grid, the axes
-        and the guides; returns the plot rectangle."""
+    def _frame(self, p, area, fm, xa, ya, x_title, y_title, rotate_x=False, ya2=None,
+               y2_title=""):
+        """Lay out *area* around the axes (*ya2*: a second value axis on the
+        right) and draw the grid, the axes and their labels; returns the
+        plot rectangle."""
         t, m = self.theme, self.model
         yt = ya.ticks(max(2, int(area.height() / 45)))
         ywidth = max([fm.horizontalAdvance(s) for _v, s in yt] + [20])
         left = area.left() + ywidth + 10 + (fm.height() + 6 if y_title else 0)
+        y2t, y2width, right_room = [], 0, 8
+        if ya2 is not None:
+            y2t = ya2.ticks(max(2, int(area.height() / 45)))
+            y2width = max([fm.horizontalAdvance(s) for _v, s in y2t] + [20])
+            right_room = y2width + 14 + (fm.height() + 6 if y2_title else 0)
         xt = xa.ticks(max(2, int((area.width() - ywidth) / 90)))
         if xa.role == P.CATEGORY:
             slant = self._category_slant(fm, xt, area.width() - ywidth - 30)
@@ -500,12 +517,16 @@ class PlotView(QWidget):
         label_h = fm.height() + 6 if not slant else min(
             110, max(fm.horizontalAdvance(s) for _v, s in xt) * 0.72 + 12)
         bottom = area.bottom() - label_h - (fm.height() + 6 if x_title else 0)
-        plot = QRectF(left, area.top() + 6, area.right() - left - 8, bottom - area.top() - 6)
+        plot = QRectF(left, area.top() + 6, area.right() - left - right_room,
+                      bottom - area.top() - 6)
         if plot.width() < 40 or plot.height() < 40:
             plot = QRectF(area.left(), area.top(), max(40.0, area.width()),
                           max(40.0, area.height()))
         xa.place(plot.left(), plot.right())
         ya.place(plot.bottom(), plot.top())
+        if ya2 is not None:
+            ya2.place(plot.bottom(), plot.top())
+            self._geo["y2"] = ya2
         self._geo["plot"] = plot
         self._geo["x"], self._geo["y"] = xa, ya
         fmt = m.plot.get("format", {})
@@ -528,6 +549,11 @@ class PlotView(QWidget):
             if plot.top() - 1 <= y <= plot.bottom() + 1:
                 p.drawText(QRectF(plot.left() - ywidth - 8, y - 9, ywidth, 18),
                            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, s)
+        for v, s in y2t:
+            y = ya2.map(v)
+            if plot.top() - 1 <= y <= plot.bottom() + 1:
+                p.drawText(QRectF(plot.right() + 8, y - 9, y2width, 18),
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, s)
         if xa.role == P.CATEGORY:
             self._category_labels(p, plot, xa, xt, fm, slant)
         else:
@@ -556,10 +582,21 @@ class PlotView(QWidget):
                               fm.height() + 2), Qt.AlignmentFlag.AlignCenter,
                        fm.elidedText(y_title, Qt.TextElideMode.ElideRight, int(plot.height())))
             p.restore()
+        if y2_title and ya2 is not None:
+            p.save()
+            p.translate(area.right() - fm.height() / 2 - 2, plot.center().y())
+            p.rotate(90)
+            p.drawText(QRectF(-plot.height() / 2, -fm.height() / 2, plot.height(),
+                              fm.height() + 2), Qt.AlignmentFlag.AlignCenter,
+                       fm.elidedText(y2_title, Qt.TextElideMode.ElideRight, int(plot.height())))
+            p.restore()
         if fmt.get("axis_lines", True):
             p.setPen(QPen(QColor(t.text_dim), 1))
             p.drawLine(QPointF(plot.left(), plot.bottom()), QPointF(plot.right(), plot.bottom()))
             p.drawLine(QPointF(plot.left(), plot.top()), QPointF(plot.left(), plot.bottom()))
+            if ya2 is not None:
+                p.drawLine(QPointF(plot.right(), plot.top()),
+                           QPointF(plot.right(), plot.bottom()))
         return plot
 
     def _paint_guides(self, p, plot, fm):
@@ -1018,7 +1055,7 @@ class PlotView(QWidget):
             return
         colour = QColor(m.sel_colour)
         raw = m.data.values[s][i] if s < len(m.data.values) else v
-        if part is not None and s < len(part) and raw:
+        if part is not None and s < len(part) and part[s] is not None and raw:
             share = max(0.0, min(1.0, part[s][i] / raw))
             if v >= 0:
                 h = rect.height() * share
@@ -1042,6 +1079,360 @@ class PlotView(QWidget):
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(base.adjusted(0.5, 0.5, -0.5, -0.5))
 
+    # ---- combo ---------------------------------------------------------
+    def _value_axis(self, values, bars, log=False, which="y"):
+        """A value axis for *values* (lists of floats); one holding bars
+        starts at 0, as ArcGIS Pro's."""
+        finite = [v for vals in values for v in vals if v == v and math.isfinite(v)]
+        if log:
+            pos = [v for v in finite if v > 0]
+            lo = min(pos) / 1.5 if pos else 1.0
+            hi = max(pos) * 1.5 if pos else 10.0
+        else:
+            lo = min(finite) if finite else 0.0
+            hi = max(finite) if finite else 1.0
+            lo, hi = nice_range(lo, hi, include_zero=bars, pad=0.0 if bars else 0.04)
+        lo, hi = self._bounds(which, lo, hi, P.NUMBER)
+        return Axis(P.NUMBER, lo, hi, log, F.REAL)
+
+    def _paint_combo(self, p, area, fm):
+        t, m, d = self.theme, self.model, self.model.data
+        axes = m.plot.get("axes", {})
+        log = bool(axes.get("y_log"))
+        left = [s for s in range(len(d.series)) if d.axes[s] == "left"]
+        right = [s for s in range(len(d.series)) if d.axes[s] == "right"]
+        ya = self._value_axis([d.values[s] for s in left] or [[0.0, 1.0]],
+                              any(d.kinds[s] == "bar" for s in left), log)
+        ya2 = None
+        if right:
+            ya2 = self._value_axis([d.values[s] for s in right],
+                                   any(d.kinds[s] == "bar" for s in right), log, "y2")
+        xa = Axis.category(d.labels)
+        y_title = m.y_title or ", ".join(d.series[s] for s in left)
+        y2_title = ", ".join(d.series[s] for s in right) if right else ""
+        plot = self._frame(p, area, fm, xa, ya, m.x_title, y_title, ya2=ya2,
+                           y2_title=y2_title)
+        self._paint_guides(p, plot, fm)
+        n = len(d)
+        if not n:
+            return
+        band = plot.width() / max(1, n)
+        gap = band * 0.18 if band > 6 else 0
+        bar_series = [s for s in range(len(d.series)) if d.kinds[s] == "bar"]
+        line_series = [s for s in range(len(d.series)) if d.kinds[s] == "line"]
+        p.save()
+        p.setClipRect(plot.adjusted(-6, -6, 6, 6))
+        for slot, s in enumerate(bar_series):
+            axis = ya2 if d.axes[s] == "right" else ya
+            colour = m.colours[s] if s < len(m.colours) else QColor(t.bar)
+            w = (band - gap) / max(1, len(bar_series))
+            for i in range(n):
+                v = d.values[s][i]
+                if not math.isfinite(v) or (axis.log and v <= 0):
+                    continue
+                x = xa.map(i) - band / 2 + gap / 2 + slot * w
+                base = axis.map(max(0.0, axis.lo)) if not axis.log else plot.bottom()
+                top = axis.map(v)
+                rect = QRectF(x, min(top, base), max(w - (1 if len(bar_series) > 1 else 0), 1),
+                              max(abs(base - top), 0.8))
+                p.fillRect(rect, colour)
+                self._geo["items"].append((rect, i, s))
+                self._paint_bar_selection(p, rect, i, s, v, "side",
+                                          m.sel_part if m.sel_part else None)
+        for s in line_series:
+            axis = ya2 if d.axes[s] == "right" else ya
+            colour = m.colours[s] if s < len(m.colours) else QColor(t.bar)
+            path = QPainterPath()
+            started = False
+            pts = []
+            for i in range(n):
+                v = d.values[s][i]
+                if not math.isfinite(v) or (axis.log and v <= 0):
+                    started = False
+                    continue
+                pt = QPointF(xa.map(i), axis.map(v))
+                pts.append((i, pt))
+                if started:
+                    path.lineTo(pt)
+                else:
+                    path.moveTo(pt)
+                    started = True
+                self._geo["items"].append((QRectF(pt.x() - 5, pt.y() - 5, 10, 10), i, s))
+            p.setPen(QPen(colour, 2))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(path)
+            for i, pt in pts:
+                p.setBrush(colour)
+                p.setPen(QPen(QColor(t.base), 1))
+                p.drawEllipse(pt, 2.8, 2.8)
+                if m.sel_per is not None and i < len(m.sel_per) and m.sel_per[i]:
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.setPen(QPen(QColor(m.sel_colour), 2.4))
+                    p.drawEllipse(pt, 5.5, 5.5)
+        p.restore()
+
+    # ---- pie -----------------------------------------------------------
+    def _paint_pie(self, p, area, fm):
+        t, m, d = self.theme, self.model, self.model.data
+        self._geo["plot"] = area
+        if not len(d) or d.total <= 0:
+            p.setPen(QColor(t.text_dim))
+            p.drawText(area, Qt.AlignmentFlag.AlignCenter, "No values above 0 to show")
+            return
+        side = min(area.width(), area.height()) - 20
+        rect = QRectF(area.center().x() - side / 2, area.center().y() - side / 2, side, side)
+        donut = max(0.0, min(0.9, float(m.plot["data"].get("donut", 0) or 0) / 100.0))
+        hole = QRectF(rect.center().x() - side * donut / 2, rect.center().y() - side * donut / 2,
+                      side * donut, side * donut)
+        start = 90.0                                   # 12 o'clock, clockwise
+        for i, v in enumerate(d.values):
+            span = -360.0 * v / d.total
+            colour = m.colours[i] if i < len(m.colours) else QColor(t.bar)
+            path = self._wedge(rect, hole, start, span, donut)
+            p.setPen(QPen(QColor(t.base), 1.5))
+            p.setBrush(colour)
+            p.drawPath(path)
+            self._geo["wedges"].append((path, i, start, span))
+            sel = m.sel_per[i] if m.sel_per is not None and i < len(m.sel_per) else 0
+            if sel:
+                scol = QColor(m.sel_colour)
+                if m.sel_part is not None and v:
+                    share = max(0.0, min(1.0, m.sel_part[i] / v))
+                    part = self._wedge(rect, hole, start, span * share, donut)
+                    p.setPen(QPen(scol.darker(170), 1))
+                    p.setBrush(scol)
+                    p.drawPath(part)
+                else:                                  # a mean, median ...: the rim
+                    pen = QPen(scol, 5)
+                    pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+                    p.setPen(pen)
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawArc(rect.adjusted(2.5, 2.5, -2.5, -2.5), int(start * 16),
+                              int(span * 16))
+            start += span
+        self._geo["pie"] = (rect, hole)
+
+    @staticmethod
+    def _wedge(rect, hole, start, span, donut):
+        path = QPainterPath()
+        if donut > 0:
+            path.arcMoveTo(rect, start)
+            path.arcTo(rect, start, span)
+            path.arcTo(hole, start + span, -span)
+            path.closeSubpath()
+        else:
+            path.moveTo(rect.center())
+            path.arcTo(rect, start, span)
+            path.closeSubpath()
+        return path
+
+    def _wedge_at(self, pos):
+        for path, i, _a, _s in self._geo.get("wedges", []):
+            if path.contains(QPointF(pos)):
+                return i
+        return None
+
+    # ---- histogram -----------------------------------------------------
+    def _paint_histogram(self, p, area, fm):
+        m, d = self.model, self.model.data
+        data = m.plot.get("data", {})
+        if not len(d):
+            p.setPen(QColor(self.theme.text_dim))
+            p.drawText(area, Qt.AlignmentFlag.AlignCenter,
+                       f"{d.field} has no values to show in these records")
+            self._geo["plot"] = area
+            return
+        if not d.series:
+            self._paint_one_histogram(p, area, fm, d.counts, d.stats, None,
+                                      m.sel_per, m.x_title, m.y_title, True)
+            return
+        # small histograms, one per category, on the same bins and scale
+        n = len(d.series)
+        per_row = max(1, int(data.get("per_row", 3) or 3))
+        grid = area
+        preview = None
+        if data.get("preview") and n:
+            chosen = data.get("preview_of")
+            k = d.series.index(chosen) if chosen in d.series else 0
+            grid = QRectF(area.left(), area.top(), area.width() * 0.42, area.height())
+            preview = (k, QRectF(grid.right() + 12, area.top(),
+                                 area.right() - grid.right() - 12, area.height()))
+        rows = int(math.ceil(n / per_row))
+        cw = grid.width() / per_row
+        ch = grid.height() / max(1, rows)
+        top = max(max(c) if c else 0 for c in d.series_counts)
+        for k in range(n):
+            r_, c_ = divmod(k, per_row)
+            cell = QRectF(grid.left() + c_ * cw, grid.top() + r_ * ch, cw - 8, ch - 6)
+            sel = m.sel_per_series[k] if m.sel_per_series else None
+            self._paint_one_histogram(p, cell, fm, d.series_counts[k], d.series_stats[k],
+                                      k, sel, "", "", False, top=top,
+                                      title=f"{d.series[k]}  ({sum(d.series_counts[k]):,})")
+        if preview is not None:
+            k, rect = preview
+            sel = m.sel_per_series[k] if m.sel_per_series else None
+            self._paint_one_histogram(p, rect, fm, d.series_counts[k], d.series_stats[k],
+                                      k, sel, m.x_title, m.y_title, True,
+                                      title=f"{d.series[k]}  ({sum(d.series_counts[k]):,})")
+
+    def _paint_one_histogram(self, p, area, fm, counts, stats, series, sel, x_title,
+                             y_title, main, top=None, title=""):
+        """One histogram (the plot, a small one of a category, or its
+        preview) in *area*."""
+        t, m, d = self.theme, self.model, self.model.data
+        data = m.plot.get("data", {})
+        if title:
+            bold = QFont(self.font())
+            bold.setBold(True)
+            p.setFont(bold)
+            p.setPen(QColor(t.text_strong))
+            title_rect = QRectF(area.left(), area.top(), area.width(), fm.height() + 2)
+            p.drawText(title_rect, Qt.AlignmentFlag.AlignCenter,
+                       QFontMetrics(bold).elidedText(title, Qt.TextElideMode.ElideRight,
+                                                     int(area.width())))
+            p.setFont(self.font())
+            if series is not None:
+                self._geo["minis"].append((title_rect, series))
+            area = area.adjusted(0, fm.height() + 4, 0, 0)
+        edges = d.edges
+        lo, hi = edges[0], edges[-1]
+        lo, hi = self._bounds("x", lo, hi, P.NUMBER)
+        xa = Axis(P.NUMBER, lo, hi, False, d.kind if d.transform == "none" else F.REAL)
+        peak = top if top is not None else (max(counts) if counts else 1)
+        y_lo, y_hi = nice_range(0.0, float(max(peak, 1)), include_zero=True)
+        y_lo, y_hi = self._bounds("y", y_lo, y_hi, P.NUMBER) if main else (y_lo, y_hi)
+        ya = Axis(P.NUMBER, y_lo, y_hi, bool(m.plot.get("axes", {}).get("y_log")) and main,
+                  F.INTEGER)
+        plot = self._frame(p, area, fm, xa, ya, x_title, y_title)
+        if main:
+            self._paint_guides(p, plot, fm)
+        p.save()
+        p.setClipRect(plot)
+        colour = m.colours[series] if (series is not None and series < len(m.colours)) \
+            else (m.colours[0] if m.colours else QColor(t.bar))
+        base = ya.map(max(0.0, ya.lo)) if not ya.log else plot.bottom()
+        for i, c in enumerate(counts):
+            if not c or (ya.log and c <= 0):
+                continue
+            x0, x1 = xa.map(edges[i]), xa.map(edges[i + 1])
+            rect = QRectF(x0 + 0.5, ya.map(c), max(x1 - x0 - 1, 0.8), base - ya.map(c))
+            p.fillRect(rect, colour)
+            self._geo["items"].append((rect, i, series))
+            if sel is not None and i < len(sel) and sel[i]:
+                h = rect.height() * sel[i] / c
+                srect = QRectF(rect.left(), rect.bottom() - h, rect.width(), h)
+                scol = QColor(m.sel_colour)
+                p.fillRect(srect, scol)
+                if srect.width() >= 4:               # an outline would hide a thin bar
+                    p.setPen(QPen(scol.darker(170), 1))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawRect(srect.adjusted(0.5, 0.5, -0.5, -0.5))
+        # statistics on the chart
+        if stats.get("n"):
+            lines = []
+            if data.get("mean", True) and stats.get("mean") is not None:
+                lines.append((stats["mean"], QColor(m.plot.get("format", {}).get(
+                    "mean_colour") or MEAN_COLOUR), Qt.PenStyle.DashLine))
+            if data.get("median", True) and stats.get("median") is not None:
+                lines.append((stats["median"], QColor(m.plot.get("format", {}).get(
+                    "median_colour") or MEDIAN_COLOUR), Qt.PenStyle.DashLine))
+            if data.get("std") and stats.get("std"):
+                colour = QColor(m.plot.get("format", {}).get("std_colour") or STD_COLOUR)
+                lines.append((stats["mean"] - stats["std"], colour, Qt.PenStyle.DotLine))
+                lines.append((stats["mean"] + stats["std"], colour, Qt.PenStyle.DotLine))
+            for v, colour, style in lines:
+                x = xa.map(v)
+                pen = QPen(colour, 1.6)
+                pen.setStyle(style)
+                p.setPen(pen)
+                p.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
+            if data.get("normal") and stats.get("std"):
+                width = edges[1] - edges[0] if len(edges) > 1 else 1.0
+                xs = np.linspace(xa.lo, xa.hi, 200)
+                ys = stats["n"] * width * P.normal_pdf(xs, stats["mean"], stats["std"])
+                path = QPainterPath()
+                for j, (a, b) in enumerate(zip(xa.map_np(xs), ya.map_np(ys))):
+                    if j:
+                        path.lineTo(a, b)
+                    else:
+                        path.moveTo(a, b)
+                p.setPen(QPen(QColor(TREND_COLOUR[t.dark]), 1.8))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawPath(path)
+        p.restore()
+
+    # ---- box plot ------------------------------------------------------
+    def _paint_box(self, p, area, fm, ratio, vector):
+        t, m, d = self.theme, self.model, self.model.data
+        axes = m.plot.get("axes", {})
+        log = bool(axes.get("y_log"))
+        vals = []
+        for b in d.boxes:
+            if b.n:
+                vals += [b.low, b.high]
+                if b.out_values is not None and len(b.out_values):
+                    vals += [float(b.out_values.min()), float(b.out_values.max())]
+        if log:
+            pos = [v for v in vals if v > 0]
+            lo, hi = (min(pos) / 1.5, max(pos) * 1.5) if pos else (1.0, 10.0)
+        else:
+            lo, hi = padded(min(vals), max(vals), 0.06) if vals else (0.0, 1.0)
+        lo, hi = self._bounds("y", lo, hi, P.NUMBER)
+        ya = Axis(P.NUMBER, lo, hi, log, F.REAL)
+        xa = Axis.category(d.categories)
+        plot = self._frame(p, area, fm, xa, ya, m.x_title, m.y_title)
+        self._paint_guides(p, plot, fm)
+        if not d.boxes:
+            return
+        nc = max(1, len(d.categories))
+        ns = max(1, len(d.series))
+        band = plot.width() / nc
+        slot = band * 0.8 / ns
+        p.save()
+        p.setClipRect(plot.adjusted(-4, -4, 4, 4))
+        for k, b in enumerate(d.boxes):
+            if not b.n:
+                continue
+            ci, s = divmod(k, ns)
+            colour = m.colours[s] if s < len(m.colours) else QColor(t.bar)
+            cx = xa.map(ci) - band * 0.4 + slot * (s + 0.5)
+            w = min(slot * 0.7, 60.0)
+            y_q1, y_q3 = ya.map(b.q1), ya.map(b.q3)
+            rect = QRectF(cx - w / 2, min(y_q1, y_q3), w, max(abs(y_q1 - y_q3), 1.0))
+            fill = QColor(colour)
+            fill.setAlpha(150)
+            outline = QColor(colour).darker(140)
+            p.setPen(QPen(outline, 1.4))
+            p.drawLine(QPointF(cx, ya.map(b.high)), QPointF(cx, rect.top()))
+            p.drawLine(QPointF(cx, rect.bottom()), QPointF(cx, ya.map(b.low)))
+            for y in (ya.map(b.high), ya.map(b.low)):
+                p.drawLine(QPointF(cx - w / 4, y), QPointF(cx + w / 4, y))
+            p.setBrush(fill)
+            p.drawRect(rect)
+            p.setPen(QPen(QColor(t.text_strong), 2))
+            p.drawLine(QPointF(rect.left(), ya.map(b.median)),
+                       QPointF(rect.right(), ya.map(b.median)))
+            hit = QRectF(cx - w / 2, ya.map(b.high), w, ya.map(b.low) - ya.map(b.high))
+            self._geo["items"].append((hit.normalized(), k, None))
+            sel = m.sel_per[k] if m.sel_per is not None and k < len(m.sel_per) else 0
+            if sel:
+                p.setPen(QPen(QColor(m.sel_colour), 2.4))
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.drawRect(rect.adjusted(-2, -2, 2, 2))
+            if b.out_values is not None and len(b.out_values):
+                sel_rows = m.sel_mask[b.out_rows] if m.sel_mask is not None and \
+                    len(m.sel_mask) else np.zeros(len(b.out_rows), dtype=bool)
+                for j, (v, picked) in enumerate(zip(b.out_values.tolist(), sel_rows.tolist())):
+                    if ya.log and v <= 0:
+                        continue
+                    y = ya.map(v)
+                    c = QColor(m.sel_colour) if picked else colour
+                    p.setPen(QPen(QColor(c).darker(150), 1.1))
+                    p.setBrush(c)
+                    p.drawEllipse(QPointF(cx, y), 3.2, 3.2)
+                    self._geo["items"].append((QRectF(cx - 5, y - 5, 10, 10), k, j))
+        p.restore()
+
     # ---- legend --------------------------------------------------------
     def _legend_entries(self):
         """(kind, colour, text, pick) per legend row; *pick* is a series or
@@ -1062,6 +1453,39 @@ class PlotView(QWidget):
             if len(d) > DENSITY_LIMIT:
                 out.append(("density", QColor(m.single or t.bar),
                             "Shade: records per spot", None))
+        elif m.kind == "combo":
+            for s, name in enumerate(d.series):
+                colour = m.colours[s] if s < len(m.colours) else QColor(t.bar)
+                text = str(name) + ("  (right axis)" if d.axes[s] == "right" else "")
+                out.append(("box" if d.kinds[s] == "bar" else "line", colour, text, None))
+        elif m.kind == "pie":
+            for i, label in enumerate(d.labels):
+                colour = m.colours[i] if i < len(m.colours) else QColor(t.bar)
+                share = 100.0 * d.values[i] / d.total if d.total else 0.0
+                out.append(("box", colour, f"{label}  {share:.1f}%", i))
+        elif m.kind == "histogram":
+            data = m.plot.get("data", {})
+            fmt = m.plot.get("format", {})
+            st = d.stats
+            if not d.series and st.get("n"):
+                kind = d.kind if d.transform == "none" else F.REAL
+                if data.get("mean", True):
+                    out.append(("dash", QColor(fmt.get("mean_colour") or MEAN_COLOUR),
+                                f"Mean  {value_text(st['mean'], kind)}", None))
+                if data.get("median", True):
+                    out.append(("dash", QColor(fmt.get("median_colour") or MEDIAN_COLOUR),
+                                f"Median  {value_text(st['median'], kind)}", None))
+                if data.get("std"):
+                    out.append(("dot", QColor(fmt.get("std_colour") or STD_COLOUR),
+                                f"± 1 Std. Dev.  {value_text(st['std'], kind)}", None))
+                if data.get("normal"):
+                    out.append(("line", QColor(TREND_COLOUR[t.dark]),
+                                "Normal Distribution Curve", None))
+        elif m.kind == "box":
+            if len(d.series) > 1:
+                for s, name in enumerate(d.series):
+                    colour = m.colours[s] if s < len(m.colours) else QColor(t.bar)
+                    out.append(("box", colour, str(name), None))
         else:
             if len(d.series) > 1 or d.split:
                 for s, name in enumerate(d.series):
@@ -1132,6 +1556,12 @@ class PlotView(QWidget):
                 p.setPen(QPen(colour.darker(170), 1))
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawRect(sw.adjusted(0.5, 0.5, -0.5, -0.5))
+            elif kind in ("dash", "dot"):
+                pen = QPen(colour, 1.8)
+                pen.setStyle(Qt.PenStyle.DashLine if kind == "dash" else Qt.PenStyle.DotLine)
+                p.setPen(pen)
+                p.drawLine(QPointF(sw.left() - 2, sw.center().y()),
+                           QPointF(sw.right() + 2, sw.center().y()))
             elif kind == "line":
                 p.setPen(QPen(colour, 2))
                 p.drawLine(QPointF(sw.left() - 2, sw.center().y()),
@@ -1221,6 +1651,10 @@ class PlotView(QWidget):
                 hit = self._scatter_hit(pos)
                 if hit is not None:
                     hover = ("points", hit[0], hit[1])
+            elif self.model.kind == "pie":
+                i = self._wedge_at(pos)
+                if i is not None:
+                    hover = ("wedge", i, None)
             else:
                 hit = self._series_hit(pos)
                 if hit is not None:
@@ -1260,6 +1694,10 @@ class PlotView(QWidget):
         moved = drag is not None and (abs(drag.x() - press.x()) > 4
                                       or abs(drag.y() - press.y()) > 4)
         if not moved:
+            for rect, k in (self._geo or {}).get("minis", []):
+                if rect.contains(press) and m.kind == "histogram" and k is not None:
+                    self.previewPicked.emit(str(m.data.series[k]))
+                    return
             pick = self._legend_hit(press)
             if pick is not None:
                 self.rowsPicked.emit(self._legend_rows(pick), add)
@@ -1281,16 +1719,24 @@ class PlotView(QWidget):
         self.rowsMenu.emit(rows, event.globalPos())
 
     def _rows_at(self, pos):
-        m = self.model
+        m, d = self.model, self.model.data
         if m.kind == "scatter":
             hit = self._scatter_hit(pos)
-            return m.data.rows[hit[0]] if hit is not None else None
+            return d.rows[hit[0]] if hit is not None else None
+        if m.kind == "pie":
+            i = self._wedge_at(pos)
+            return P.pie_rows(d, m.table, [i]) if i is not None else None
         hit = self._series_hit(pos)
         if hit is None:
             return None
         i, s = hit
-        series = s if (m.data.split and s is not None) else None
-        return P.records_of(m.data, [i], series)
+        if m.kind == "histogram":
+            return P.hist_rows(d, [i], s)
+        if m.kind == "box":
+            b = d.boxes[i]
+            return b.rows if s is None else b.out_rows[s:s + 1]
+        series = s if (getattr(d, "split", False) and s is not None) else None
+        return P.records_of(d, [i], series)
 
     def _rows_in(self, a, b):
         """Rows of a drag: the points inside the box (scatter) or the
@@ -1305,8 +1751,23 @@ class PlotView(QWidget):
             y0, y1 = sorted((ya.value_at(a.y()), ya.value_at(b.y())))
             mask = (d.x >= x0) & (d.x <= x1) & (d.y >= y0) & (d.y <= y1)
             return d.rows[mask]
+        if m.kind == "pie":
+            return None
         lo, hi = sorted((a.x(), b.x()))
-        picked = sorted({i for rect, i, _s in geo["items"]
+        items = geo["items"]
+        if m.kind == "histogram":                    # within one small histogram
+            start = self._series_hit(a)
+            series = start[1] if start is not None else (None if not m.data.series else -1)
+            picked = sorted({i for rect, i, s in items if s == series
+                             and rect.right() >= lo and rect.left() <= hi})
+            return P.hist_rows(m.data, picked, series) if picked else None
+        if m.kind == "box":
+            picked = sorted({i for rect, i, s in items if s is None
+                             and rect.right() >= lo and rect.left() <= hi})
+            if not picked:
+                return None
+            return np.unique(np.concatenate([m.data.boxes[i].rows for i in picked]))
+        picked = sorted({i for rect, i, _s in items
                          if rect.right() >= lo and rect.left() <= hi})
         if not picked:
             return None
@@ -1316,7 +1777,9 @@ class PlotView(QWidget):
         m, d = self.model, self.model.data
         if m.kind == "scatter":
             return d.rows[d.classes == pick] if d.classes is not None else d.rows[:0]
-        if d.series_of is not None:
+        if m.kind == "pie":
+            return P.pie_rows(d, m.table, [pick])
+        if getattr(d, "series_of", None) is not None and getattr(d, "group", None) is not None:
             return np.nonzero((d.series_of == pick) & (d.group >= 0))[0]
         return np.zeros(0, dtype=np.int64)
 
@@ -1369,6 +1832,8 @@ class PlotView(QWidget):
                 if n_sel:
                     lines.append((None, f"{n_sel:,} selected"))
             return title, lines, "Click to select · Ctrl+click to add · drag a box"
+        if m.kind in ("pie", "histogram", "box", "combo"):
+            return getattr(self, f"_card_{m.kind}")(a, b)
         i = a
         title = d.labels[i]
         if d.x_role == P.DATE and d.ends is not None and d.bins is not None:
@@ -1393,6 +1858,80 @@ class PlotView(QWidget):
         foot = "Click to select · Ctrl+click to add · drag for a range"
         return title, lines, foot
 
+    def _sel_line(self, n):
+        return [(None, f"{n:,} selected")] if n else []
+
+    def _card_combo(self, i, s):
+        m, d = self.model, self.model.data
+        title = d.labels[i]
+        if d.x_role == P.DATE and d.ends is not None and d.bins is not None:
+            title = f"{d.labels[i]} – {P.bin_label(d.ends[i], d.ends[i], d.bins.unit, d.x_kind)}"
+        lines = []
+        for k, name in enumerate(d.series):
+            colour = m.colours[k] if k < len(m.colours) else None
+            lines.append((colour, f"{name}: {value_text(d.values[k][i])}"))
+        lines.append((None, f"{d.records[i]:,} records"))
+        sel = m.sel_per[i] if m.sel_per is not None and i < len(m.sel_per) else 0
+        return title, lines + self._sel_line(sel), \
+            "Click to select · Ctrl+click to add · drag for a range"
+
+    def _card_pie(self, i, _s):
+        m, d = self.model, self.model.data
+        v = d.values[i]
+        share = 100.0 * v / d.total if d.total else 0.0
+        what = "Records" if d.agg == "count" else P.AGG_LABELS.get(d.agg, "")
+        lines = [(m.colours[i] if i < len(m.colours) else None,
+                  f"{what}: {value_text(v)}  ({share:.1f}%)"),
+                 (None, f"{d.records[i]:,} records")]
+        if d.fields is None and i == d.other:
+            lines.append((None, f"{len(d.members[i]):,} categories under the threshold"))
+        sel = m.sel_per[i] if m.sel_per is not None and i < len(m.sel_per) else 0
+        return d.labels[i], lines + self._sel_line(sel), "Click to select · Ctrl+click to add"
+
+    def _card_histogram(self, i, s):
+        m, d = self.model, self.model.data
+        kind = d.kind if d.transform == "none" else F.REAL
+        lo, hi = d.edges[i], d.edges[i + 1]
+        last = i == len(d) - 1
+        title = f"{value_text(lo, kind)} – {value_text(hi, kind)}"
+        if last:
+            title += "  (maximum included)"
+        counts = d.series_counts[s] if s is not None and d.series_counts else d.counts
+        total = sum(counts) or 1
+        lines = [(None, f"{counts[i]:,} records  ({100.0 * counts[i] / total:.1f}%)")]
+        if s is not None and d.series:
+            lines.insert(0, (m.colours[s] if s < len(m.colours) else None, str(d.series[s])))
+        if d.transform != "none":
+            lines.append((None, "Values after the "
+                          + ("logarithm" if d.transform == "log" else "square root")))
+        sel = m.sel_per_series[s][i] if (s is not None and m.sel_per_series) else \
+            (m.sel_per[i] if m.sel_per is not None and i < len(m.sel_per) else 0)
+        return title, lines + self._sel_line(sel), \
+            "Click to select · Ctrl+click to add · drag for a range"
+
+    def _card_box(self, k, j):
+        m, d = self.model, self.model.data
+        b = d.boxes[k]
+        name = d.series[b.series] if b.series < len(d.series) else ""
+        title = " · ".join(x for x in (b.label, name if len(d.series) > 1 or not b.label
+                                       else "") if x) or name
+        if j is not None:
+            v = float(b.out_values[j])
+            lines = [(None, f"Outlier: {value_text(v)}"),
+                     (None, "More than 1.5 × the interquartile range beyond the box")]
+            return title, lines, "Click to select this record"
+        z = " (z-score)" if d.standardized else ""
+        lines = [(None, f"{b.n:,} records")]
+        for label, v in (("Upper whisker", b.high), ("Third quartile", b.q3),
+                         ("Median", b.median), ("First quartile", b.q1),
+                         ("Lower whisker", b.low), ("Mean", b.mean)):
+            lines.append((None, f"{label}{z}: {value_text(v)}"))
+        if b.out_values is not None and len(b.out_values):
+            lines.append((None, f"{len(b.out_values):,} outliers"))
+        sel = m.sel_per[k] if m.sel_per is not None and k < len(m.sel_per) else 0
+        return title, lines + self._sel_line(sel), \
+            "Click to select · Ctrl+click to add · drag across boxes"
+
     def _paint_hover(self, p):
         if self._hover is None or self._press is not None or not self._geo:
             return
@@ -1411,9 +1950,19 @@ class PlotView(QWidget):
             p.setPen(QPen(QColor(t.text_strong), 1.6))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawEllipse(QPointF(ax, ay), 7, 7)
+        elif kind == "wedge":
+            path = next((w[0] for w in self._geo.get("wedges", []) if w[1] == self._hover[1]),
+                        None)
+            if path is None:
+                return
+            ax, ay = path.boundingRect().center().x(), path.boundingRect().center().y()
+            p.setPen(QPen(QColor(t.text_strong), 1.6))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(path)
         else:
-            i = self._hover[1]
-            rects = [rect for rect, j, _s in self._geo["items"] if j == i]
+            i, s_hover = self._hover[1], self._hover[2]
+            rects = [rect for rect, j, s_ in self._geo["items"] if j == i
+                     and (self.model.kind not in ("histogram", "box") or s_ == s_hover)]
             if not rects:
                 return
             ax = rects[0].center().x()

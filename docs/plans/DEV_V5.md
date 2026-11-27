@@ -8,7 +8,7 @@ stay as they are.
 | Round | Content | Status |
 | --- | --- | --- |
 | 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Built |
-| 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Planned |
+| 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Built |
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Planned |
 | 4 | Help, README, screenshots, 1.4 changelog | Planned |
 
@@ -333,6 +333,39 @@ Changing the trend type took 1.8 s with no new read; showing a selection of
 Visualize Statistics reads one (18 to 34 s at 10 million records), and the
 Line Chart's dates cost the most to read; reading dates faster is left for a
 later round.
+
+## Round 2 built
+
+Combo Chart, Pie Chart, Histogram and Box Plot, as planned, with these
+choices made while building:
+
+- Attribute Explorer has a **Data Plot** button in its top bar, between
+  Visualize Statistics and Pivot Table: an icon with a menu (like Export, so
+  the row keeps its labels) that lists the 12 plot types; picking one opens
+  Data Plot on the layer, with the Explorer's filtered records and a new plot
+  of that type. New plot in Data Plot lists the 12 types too; the types of
+  round 3 are greyed out until they are built.
+- **Combo Chart**: the X-axis box, then one row of boxes per series (Y-axis:
+  Count of records or a number field, its aggregation, Bar or Line, Left or
+  Right y-axis) and **Add series**. Categories come A → Z. "Treat as zero"
+  makes an interval without records 0; a category whose records have no value
+  (NULL) has no value either way.
+- **Pie Chart**: slices largest first, clockwise from 12 o'clock; the share of
+  each in the legend and the hover card (no text on the slices, as the
+  unconfirmed slice labels were left out). Other is exact: a mean of Other is
+  the mean of its records. A selection fills its share of a Count or Sum
+  slice; for the other aggregations the slice's rim shows it.
+- **Histogram**: Auto bins are the square root of the record count, at most
+  64 (the limit Esri's Spanish help gives); a bin runs from its lower edge up
+  to its upper edge, the last one including the maximum. The logarithmic
+  transformation is the natural logarithm. With Split by, the small
+  histograms share the bins and the scale; ArcPy's mini charts per row and
+  preview chart are there, and a click on a small histogram's title shows it
+  in the preview.
+- **Box Plot**: the X-axis box is the category (None: one box per field), the
+  Y-axis boxes the number fields (**Add Y field**). Quartiles use linear
+  interpolation between the closest ranks. A box with selected records gets
+  an outline in the selection colour; selected outliers turn that colour.
 
 ## Not in this plan
 

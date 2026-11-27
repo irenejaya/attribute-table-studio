@@ -56,10 +56,9 @@ TYPES = (
     ("heat", "Matrix Heat Chart"), ("qq", "QQ Plot"),
 )
 TYPE_LABELS = dict(TYPES)
-BUILT = ("bar", "line", "scatter")
+BUILT = ("bar", "line", "combo", "pie", "histogram", "box", "scatter")
 # the round of dev-v5 that builds each type not built yet (shown in the menu)
-COMING = {"combo": 2, "pie": 2, "histogram": 2, "box": 2, "matrix": 3, "qq": 3,
-          "heat": 3, "calendar": 3, "clock": 3}
+COMING = {"matrix": 3, "qq": 3, "heat": 3, "calendar": 3, "clock": 3}
 
 AGGREGATIONS = (("count", "Count"), ("sum", "Sum"), ("mean", "Mean"),
                 ("median", "Median"), ("min", "Minimum"), ("max", "Maximum"))
@@ -1003,6 +1002,468 @@ def density(px, py, width, height, classes=None, n_classes=0):
 
 
 # ============================================================================
+# COMBO CHART
+# ============================================================================
+
+def _apply_order(out, group, order):
+    """Keep the positions *order* (in that order): their group numbers
+    follow; records of the other positions get no position."""
+    k = len(out.labels)
+    remap = np.full(k + 1, -1, dtype=np.int64)
+    if len(order):
+        remap[np.asarray(order, dtype=np.int64)] = np.arange(len(order))
+    group = np.where(group >= 0, remap[np.clip(group, 0, k)], -1)
+    out.labels = [out.labels[i] for i in order]
+    if out.starts is not None:
+        out.starts = [out.starts[i] for i in order]
+        out.ends = [out.ends[i] for i in order]
+    if out.xs is not None:
+        out.xs = [out.xs[i] for i in order]
+    return group
+
+
+def series_name(field, agg):
+    """A series' name: Count, or the aggregation and the field."""
+    if agg == "count" or not field:
+        return "Count"
+    return f"{AGG_LABELS.get(agg, agg)} of {field}"
+
+
+def combo(table, opts):
+    """A combo chart: bar and line series over one X axis.  *opts*: "x",
+    "series" (each a dict: "field" (None: Count), "agg", "kind" "bar" or
+    "line", "axis" "left" or "right"), time binning as for a line chart and
+    "empty" ("zero" or "null").  Categories come A → Z; numbers and dates
+    in ascending order."""
+    x = opts["x"]
+    out, group = _positions(table, x, opts, "combo")
+    k = len(out.labels)
+    present = np.bincount(group[group >= 0], minlength=k)[:k] if k else np.zeros(0)
+    if out.x_role == CATEGORY:
+        rank = _codes_order(table.column(x))
+        order = sorted((i for i in range(k) if present[i]), key=rank.__getitem__)
+        out.excluded = int((group < 0).sum())
+        group = _apply_order(out, group, order)
+        k = len(order)
+    else:
+        out.excluded = int((group < 0).sum())
+    out.group = group.astype(np.int32)
+    _, records = aggregate(group, k)
+    out.records = records.tolist()
+    out.agg = "combo"
+    out.kinds, out.axes = [], []
+    zero = opts.get("empty", "zero") == "zero"
+    for spec in opts.get("series") or [{"field": None, "agg": "count"}]:
+        field = spec.get("field")
+        agg = spec.get("agg", "count") if field else "count"
+        if field and table.column(field) is None:
+            continue
+        vals = aggregate(group, k, table.np(field) if field else None, agg)[0]
+        if zero:                             # an interval without records is 0
+            vals = np.where(records == 0, 0.0, vals)
+        out.series.append(series_name(field, agg))
+        out.values.append(vals.tolist())
+        out.kinds.append(spec.get("kind", "bar"))
+        out.axes.append(spec.get("axis", "left"))
+    return out
+
+
+# ============================================================================
+# PIE CHART
+# ============================================================================
+
+class PiePlot:
+    """The slices of a pie: *labels*, *values* (largest first, Other
+    last), the records of each slice and, for selecting, the slice of
+    every record (*group*; None when the slices are fields, *fields*)."""
+
+    def __init__(self):
+        self.labels = []
+        self.values = []
+        self.records = []
+        self.group = None
+        self.fields = None           # slices = number fields
+        self.members = []            # categories / fields in each slice
+        self.other = None            # index of Other
+        self.total = 0.0
+        self.excluded = 0            # records without a category
+        self.left_out = []           # slices of 0 or less, or without a value
+        self.agg = "count"
+        self.n_codes = 0
+
+    def __len__(self):
+        return len(self.labels)
+
+
+def pie(table, opts):
+    """A pie chart.  *opts* "mode": "category" (the slices are the
+    categories of "category": records counted, or "field" summarised by
+    "agg") or "fields" (one slice per number field of "fields", each
+    summarised by "agg").  "threshold": slices under this percentage of the
+    whole are put together as Other (exact: worked out from their
+    records).  A slice must be above 0 to be drawn."""
+    out = PiePlot()
+    agg = opts.get("agg", "sum")
+    threshold = float(opts.get("threshold", 0) or 0)
+    if opts.get("mode") == "fields":
+        names = [f for f in (opts.get("fields") or []) if table.column(f) is not None]
+        out.fields = names
+        out.agg = agg
+        n = len(table)
+        entries = []
+        for f in names:
+            v = table.np(f)
+            res, rec = aggregate(np.zeros(n, dtype=np.int64), 1, v, agg)
+            entries.append((f, float(res[0]), int((~np.isnan(v)).sum()), [f]))
+    else:
+        cat = opts.get("category")
+        col = table.column(cat)
+        field = opts.get("field")
+        if field and table.column(field) is None:
+            field = None
+        out.agg = agg if field else "count"
+        if col.role == CATEGORY:
+            codes = table.np(cat, "codes").astype(np.int64)
+            labels = [str(v) for v in col.labels]
+            group = np.where(codes >= 0, codes, -1)
+        else:
+            vals = table.np(cat)
+            ok = ~np.isnan(vals)
+            uniq, inv = np.unique(vals[ok], return_inverse=True)
+            group = np.full(len(vals), -1, dtype=np.int64)
+            group[ok] = inv
+            fmt = (lambda v: F.key_to_text(v, col.kind)) if col.role == DATE else F.plain_number
+            labels = [fmt(v) for v in uniq.tolist()]
+        k = len(labels)
+        out.n_codes = k
+        res, rec = aggregate(group, k, table.np(field) if field else None, out.agg)
+        out.excluded = int((group < 0).sum())
+        entries = [(labels[i], float(res[i]), int(rec[i]), [i]) for i in range(k) if rec[i]]
+        out.group = group
+    good = [e for e in entries if e[1] == e[1] and e[1] > 0]
+    out.left_out = [e[0] for e in entries if not (e[1] == e[1] and e[1] > 0)]
+    good.sort(key=lambda e: (-e[1], str(e[0]).lower()))
+    total = sum(e[1] for e in good)
+    keep = [e for e in good if total and 100.0 * e[1] / total >= threshold] \
+        if threshold > 0 else good
+    rest = [e for e in good if e not in keep]
+    for label, value, n, members in keep:
+        out.labels.append(label)
+        out.values.append(value)
+        out.records.append(n)
+        out.members.append(members)
+    if rest:
+        members = [m for e in rest for m in e[3]]
+        if out.fields is None and out.agg not in ("count", "sum"):
+            # an exact Other: its own records summarised, not the slices'
+            mask = np.isin(out.group, np.asarray(members, dtype=np.int64))
+            field = opts.get("field")
+            value = float(aggregate(np.where(mask, 0, -1), 1, table.np(field), out.agg)[0][0])
+        else:
+            value = sum(e[1] for e in rest)
+        out.other = len(out.labels)
+        out.labels.append(OTHER)
+        out.values.append(value)
+        out.records.append(sum(e[2] for e in rest))
+        out.members.append(members)
+    out.total = float(sum(out.values))
+    if out.group is not None:                # category -> slice (-1: none)
+        slice_of = np.full(out.n_codes + 1, -1, dtype=np.int64)
+        for s, members in enumerate(out.members):
+            slice_of[np.asarray(members, dtype=np.int64)] = s
+        g = out.group
+        out.group = np.where(g >= 0, slice_of[np.clip(g, 0, out.n_codes)], -1)
+    return out
+
+
+def pie_rows(plot, table, slices):
+    """Table rows of the slices *slices*: the records of their categories
+    (slices of fields: the records whose field has a value)."""
+    if plot.fields is None:
+        return np.nonzero(np.isin(plot.group, np.asarray(list(slices))))[0]
+    mask = np.zeros(len(table), dtype=bool)
+    for s in slices:
+        for f in plot.members[s]:
+            mask |= ~np.isnan(table.np(f))
+    return np.nonzero(mask)[0]
+
+
+def pie_selected(plot, table, sel_mask, field=None):
+    """Selected records of each slice and, for Count and Sum slices, the
+    selected part of the slice's value."""
+    k = len(plot)
+    if plot.fields is None:
+        g = plot.group[sel_mask]
+        g = g[g >= 0]
+        per = np.bincount(g, minlength=k)[:k].tolist() if k else []
+        part = None
+        if plot.agg == "count":
+            part = [float(n) for n in per]
+        elif plot.agg == "sum" and field:
+            v = table.np(field)
+            ok = sel_mask & (plot.group >= 0) & ~np.isnan(v)
+            part = np.bincount(plot.group[ok], weights=v[ok], minlength=k)[:k].tolist()
+        return per, part
+    per, part = [], []
+    for s in range(k):
+        n = 0
+        p = 0.0
+        for f in plot.members[s]:
+            v = table.np(f)
+            ok = sel_mask & ~np.isnan(v)
+            n += int(ok.sum())
+            p += float(v[ok].sum())
+        per.append(n)
+        part.append(p)
+    return per, (part if plot.agg == "sum" else None)
+
+
+# ============================================================================
+# HISTOGRAM
+# ============================================================================
+
+TRANSFORMS = (("none", "None"), ("log", "Logarithmic"), ("sqrt", "Square root"))
+MAX_HIST_BINS = 200
+
+
+class HistogramPlot:
+    """Equal bins of one number field (after the chosen transformation):
+    *edges*, *counts*, the statistics, the value, bin and table row of
+    every value kept and, with Split by, the counts and statistics of each
+    category (a small histogram each, on the same bins)."""
+
+    def __init__(self):
+        self.edges = []
+        self.counts = []
+        self.values = None
+        self.bin_of = None
+        self.rows = None
+        self.stats = {}
+        self.missing = 0             # NULL or invalid
+        self.left_out = 0            # no logarithm / square root
+        self.transform = "none"
+        self.field = ""
+        self.kind = F.REAL
+        self.series = []             # Split by categories
+        self.series_of = None        # category of every value kept
+        self.series_counts = None    # [category][bin]
+        self.series_stats = []
+
+    def __len__(self):
+        return len(self.counts)
+
+
+def default_hist_bins(n):
+    """The square root of the record count, as ArcGIS Pro (at most 64)."""
+    return int(max(1, min(64, math.ceil(math.sqrt(max(n, 1))))))
+
+
+def _stats(v):
+    if not len(v):
+        return {"n": 0, "mean": None, "median": None, "std": None, "min": None, "max": None}
+    return {"n": int(len(v)), "mean": float(v.mean()), "median": float(np.median(v)),
+            "std": float(v.std()), "min": float(v.min()), "max": float(v.max())}
+
+
+def histogram(table, opts):
+    """A histogram of "x" with "bins" equal bins (None: the default),
+    "transform" ("none", "log": natural logarithm, "sqrt") and "split"
+    (one small histogram per category, on the same bins)."""
+    out = HistogramPlot()
+    x = opts["x"]
+    col = table.column(x)
+    out.field, out.kind = x, col.kind
+    v = table.np(x)
+    ok = ~np.isnan(v)
+    out.missing = int(len(v) - ok.sum())
+    out.transform = opts.get("transform", "none")
+    if out.transform == "log":
+        good = ok & (v > 0)
+    elif out.transform == "sqrt":
+        good = ok & (v >= 0)
+    else:
+        good = ok
+    out.left_out = int(ok.sum() - good.sum())
+    rows = np.nonzero(good)[0]
+    vals = v[rows]
+    if out.transform == "log":
+        vals = np.log(vals)
+    elif out.transform == "sqrt":
+        vals = np.sqrt(vals)
+    out.rows, out.values = rows, vals
+    out.stats = _stats(vals)
+    if not len(vals):
+        out.bin_of = np.zeros(0, dtype=np.int64)
+        return out
+    bins = opts.get("bins")
+    bins = default_hist_bins(len(vals)) if not bins else int(max(1, min(MAX_HIST_BINS, bins)))
+    lo, hi = float(vals.min()), float(vals.max())
+    if lo == hi:
+        edges = np.array([lo - 0.5, hi + 0.5])
+    else:
+        edges = np.linspace(lo, hi, bins + 1)
+    out.edges = edges.tolist()
+    k = len(edges) - 1
+    bin_of = np.clip(np.searchsorted(edges, vals, side="right") - 1, 0, k - 1)
+    out.bin_of = bin_of
+    out.counts = np.bincount(bin_of, minlength=k)[:k].tolist()
+    split = opts.get("split")
+    if split and table.column(split) is not None:
+        mask = np.zeros(len(table), dtype=bool)
+        mask[rows] = True
+        names, series = _split_series(table, split, mask)
+        s = series[rows]
+        out.series, out.series_of = names, s
+        n_s = len(names)
+        both = np.bincount(s * k + bin_of, minlength=n_s * k)[:n_s * k]
+        out.series_counts = both.reshape(n_s, k).tolist()
+        out.series_stats = [_stats(vals[s == i]) for i in range(n_s)]
+    return out
+
+
+def hist_rows(plot, bins, series=None):
+    """Table rows of the values in *bins* (and of the Split by category)."""
+    mask = np.isin(plot.bin_of, np.asarray(list(bins)))
+    if series is not None and plot.series_of is not None:
+        mask &= plot.series_of == series
+    return plot.rows[mask]
+
+
+def hist_selected(plot, sel_mask, series=None):
+    """Selected values in each bin (of one Split by category)."""
+    k = len(plot)
+    if not k:
+        return []
+    sel = sel_mask[plot.rows]
+    if series is not None and plot.series_of is not None:
+        sel &= plot.series_of == series
+    return np.bincount(plot.bin_of[sel], minlength=k)[:k].tolist()
+
+
+def normal_pdf(x, mean, std):
+    return np.exp(-0.5 * ((x - mean) / std) ** 2) / (std * math.sqrt(2 * math.pi))
+
+
+# ============================================================================
+# BOX PLOT
+# ============================================================================
+
+MAX_BOXES = 200
+
+
+class Box:
+    """One box: its category and field, quartiles (*q1*, *median*, *q3*),
+    whiskers, outliers (values and table rows) and the table rows of every
+    value."""
+
+    def __init__(self, label, series):
+        self.label = label
+        self.series = series
+        self.n = 0
+        self.q1 = self.median = self.q3 = None
+        self.low = self.high = None
+        self.mean = None
+        self.out_values = None
+        self.out_rows = None
+        self.rows = None
+
+
+class BoxPlot:
+    def __init__(self):
+        self.categories = []         # along the X axis ("" without a category)
+        self.series = []             # the fields
+        self.boxes = []              # by category, then field
+        self.standardized = False
+        self.outliers = True
+        self.missing = 0
+        self.notes = []
+
+    def __len__(self):
+        return len(self.boxes)
+
+
+def quartiles(v):
+    """First quartile, median and third quartile (linear interpolation
+    between the closest ranks)."""
+    q1, med, q3 = np.percentile(v, [25.0, 50.0, 75.0])
+    return float(q1), float(med), float(q3)
+
+
+def box(table, opts):
+    """Box plots of the number fields "fields" (one box each), per category
+    of "split" (when given).  "standardize": with several fields their
+    values become z-scores, so they share one axis.  "outliers": values
+    more than 1.5 x the interquartile range beyond the box are drawn as
+    points (the whiskers stop at the last value inside); off, the
+    whiskers reach the minimum and maximum."""
+    out = BoxPlot()
+    fields = [f for f in (opts.get("fields") or []) if table.column(f) is not None]
+    out.series = fields
+    out.outliers = bool(opts.get("outliers", True))
+    out.standardized = bool(opts.get("standardize", True)) and len(fields) > 1
+    n = len(table)
+    split = opts.get("split")
+    if split and table.column(split) is not None:
+        col = table.column(split)
+        if col.role == CATEGORY:
+            codes = table.np(split, "codes").astype(np.int64)
+            labels = [str(v) for v in col.labels] + [F.NULL_TEXT]
+            codes = np.where(codes < 0, len(labels) - 1, codes)
+            rank = _codes_order(col) + [len(col.labels)]
+        else:
+            vals = table.np(split)
+            nan = np.isnan(vals)
+            uniq, inv = np.unique(np.where(nan, np.inf, vals), return_inverse=True)
+            codes = inv.astype(np.int64)
+            labels = [F.NULL_TEXT if not math.isfinite(u) else F.plain_number(u)
+                      for u in uniq.tolist()]
+            rank = list(range(len(labels)))
+        present = np.bincount(codes, minlength=len(labels))
+        cats = sorted((c for c in range(len(labels)) if present[c]), key=rank.__getitem__)
+        if len(cats) > MAX_BOXES:
+            out.notes.append(f"{len(cats):,} categories: the first {MAX_BOXES:,} are shown")
+            cats = cats[:MAX_BOXES]
+    else:
+        codes = np.zeros(n, dtype=np.int64)
+        labels = [""]
+        cats = [0]
+    out.categories = [labels[c] for c in cats]
+    for s, f in enumerate(fields):
+        v = table.np(f).copy()
+        valid = ~np.isnan(v)
+        out.missing += int(len(v) - valid.sum())
+        if out.standardized and valid.any():
+            mean, std = float(v[valid].mean()), float(v[valid].std())
+            v = (v - mean) / std if std > 0 else v - mean
+        for c in cats:
+            b = Box(labels[c], s)
+            rows = np.nonzero(valid & (codes == c))[0]
+            b.rows = rows
+            b.n = len(rows)
+            if b.n:
+                vals = v[rows]
+                b.q1, b.median, b.q3 = quartiles(vals)
+                b.mean = float(vals.mean())
+                if out.outliers:
+                    iqr = b.q3 - b.q1
+                    lo_f, hi_f = b.q1 - 1.5 * iqr, b.q3 + 1.5 * iqr
+                    inside = (vals >= lo_f) & (vals <= hi_f)
+                    b.low = float(vals[inside].min()) if inside.any() else b.q1
+                    b.high = float(vals[inside].max()) if inside.any() else b.q3
+                    b.out_values = vals[~inside]
+                    b.out_rows = rows[~inside]
+                else:
+                    b.low, b.high = float(vals.min()), float(vals.max())
+                    b.out_values = vals[:0]
+                    b.out_rows = rows[:0]
+            out.boxes.append(b)
+    # by category, then field
+    nc = len(cats)
+    out.boxes = [out.boxes[s * nc + ci] for ci in range(nc) for s in range(len(fields))]
+    return out
+
+
+# ============================================================================
 # PLOTS: DEFAULTS AND CHECKS
 # ============================================================================
 
@@ -1024,6 +1485,19 @@ def new_plot(ptype, fields, name=None):
         data = {"x": None, "fields": [], "agg": "count", "split": None, "multi": "side",
                 "sort": "category_asc", "unit": None, "interval": 1, "align": "start",
                 "reference": None, "trim": False}
+    elif ptype == "combo":
+        data = {"x": None, "series": [{"field": None, "agg": "count", "kind": "bar",
+                                       "axis": "left"}],
+                "unit": None, "interval": 1, "align": "start", "reference": None,
+                "trim": False, "empty": "zero"}
+    elif ptype == "pie":
+        data = {"mode": "category", "category": None, "field": None, "agg": "sum",
+                "fields": [], "threshold": 0, "donut": 0}
+    elif ptype == "histogram":
+        data = {"x": None, "bins": None, "transform": "none", "split": None,
+                "mean": True, "median": True, "std": False, "normal": False}
+    elif ptype == "box":
+        data = {"fields": [], "split": None, "standardize": True, "outliers": True}
     return {
         "type": ptype, "name": name or TYPE_LABELS.get(ptype, "Plot"), "data": data,
         "axes": {"x_min": None, "x_max": None, "y_min": None, "y_max": None,
@@ -1038,12 +1512,23 @@ def new_plot(ptype, fields, name=None):
 def fields_used(plot):
     """The field names a plot reads."""
     d = plot.get("data", {})
+    t = plot.get("type")
     names = []
-    for key in ("x", "y", "size", "split"):
+    keys = ("category", "field") if t == "pie" else ("x", "y", "size", "split")
+    if t == "pie" and d.get("mode") == "fields":
+        keys = ()
+    for key in keys:
         if d.get(key):
             names.append(d[key])
-    if d.get("agg", "count") != "count":
+    if t == "box" or (t == "pie" and d.get("mode") == "fields"):
         names.extend(d.get("fields") or [])
+    elif t in ("line", "bar") and d.get("agg", "count") != "count":
+        names.extend(d.get("fields") or [])
+    if t == "box" and d.get("split"):
+        names.append(d["split"])
+    for spec in d.get("series") or []:
+        if spec.get("field"):
+            names.append(spec["field"])
     return list(dict.fromkeys(names))
 
 
@@ -1066,6 +1551,21 @@ def ready(plot):
                     else "Choose a category field")
         if d.get("agg", "count") != "count" and not d.get("fields"):
             return f"Choose a number field to {AGG_LABELS[d['agg']].lower()}"
+    elif t == "combo":
+        if not d.get("x"):
+            return "Choose a field for the X axis"
+    elif t == "pie":
+        if d.get("mode") == "fields":
+            if not d.get("fields"):
+                return "Choose the number fields that make the slices"
+        elif not d.get("category"):
+            return "Choose the category field that makes the slices"
+    elif t == "histogram":
+        if not d.get("x"):
+            return "Choose a number field"
+    elif t == "box":
+        if not d.get("fields"):
+            return "Choose a number field for the Y axis"
     else:
         return f"{TYPE_LABELS.get(t, t)} comes in a later round"
     return ""
@@ -1086,6 +1586,22 @@ def default_title(plot):
         if d.get("split"):
             title += f" and {d['split']}"
         return title
+    if t == "combo" and d.get("x"):
+        names = [series_name(s.get("field"), s.get("agg", "count"))
+                 for s in d.get("series") or []]
+        return f"{', '.join(names) or 'Count'} by {d['x']}"
+    if t == "pie":
+        if d.get("mode") == "fields" and d.get("fields"):
+            return f"{AGG_LABELS.get(d.get('agg', 'sum'))} of {', '.join(d['fields'])}"
+        if d.get("category"):
+            what = series_name(d.get("field"), d.get("agg", "sum") if d.get("field")
+                               else "count")
+            return f"{what} by {d['category']}"
+    if t == "histogram" and d.get("x"):
+        return f"Distribution of {d['x']}"
+    if t == "box" and d.get("fields"):
+        title = ", ".join(d["fields"])
+        return title + (f" by {d['split']}" if d.get("split") else "")
     return TYPE_LABELS.get(t, "Plot")
 
 

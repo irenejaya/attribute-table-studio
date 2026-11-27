@@ -336,5 +336,130 @@ class PlotSpecTests(unittest.TestCase):
         self.assertIsNone(P.parse_value("", P.NUMBER))
 
 
+class ComboTests(unittest.TestCase):
+    def test_bar_and_line_series_on_two_axes(self):
+        t = make_table(LU=(F.TEXT, ["b", "a", "b", "c", "a", None]),
+                       V=(F.REAL, [10, 20, 30, None, 50, 60]))
+        p = P.combo(t, {"x": "LU", "series": [
+            {"field": None, "agg": "count", "kind": "bar", "axis": "left"},
+            {"field": "V", "agg": "mean", "kind": "line", "axis": "right"}]})
+        self.assertEqual(p.labels, ["a", "b", "c"])          # A → Z
+        self.assertEqual(p.series, ["Count", "Mean of V"])
+        self.assertEqual(p.kinds, ["bar", "line"])
+        self.assertEqual(p.axes, ["left", "right"])
+        self.assertEqual(p.values[0], [2, 2, 1])
+        self.assertEqual(p.values[1][:2], [35.0, 20.0])
+        # c has a record, but its value is NULL: no value (not an empty bin)
+        self.assertTrue(math.isnan(p.values[1][2]))
+        self.assertEqual(p.excluded, 1)
+
+    def test_empty_interval(self):
+        t = make_table(D=(F.DATE, [day(2024, 1, 5), day(2024, 3, 5)]),
+                       V=(F.REAL, [4, 6]))
+        opts = {"x": "D", "unit": "months", "align": "reference",
+                "reference": day(2024, 1, 1),
+                "series": [{"field": "V", "agg": "sum", "kind": "line", "axis": "left"}]}
+        self.assertEqual(P.combo(t, dict(opts, empty="zero")).values[0], [4, 0, 6])
+        nulls = P.combo(t, dict(opts, empty="null")).values[0]
+        self.assertTrue(math.isnan(nulls[1]))
+
+
+class PieTests(unittest.TestCase):
+    def test_categories_largest_first_and_other(self):
+        lu = ["a"] * 50 + ["b"] * 30 + ["c"] * 15 + ["d"] * 3 + ["e"] * 2 + [None]
+        t = make_table(LU=(F.TEXT, lu), V=(F.REAL, list(range(len(lu)))))
+        p = P.pie(t, {"mode": "category", "category": "LU"})
+        self.assertEqual(p.labels, ["a", "b", "c", "d", "e"])
+        self.assertEqual(p.values, [50, 30, 15, 3, 2])
+        self.assertEqual(p.excluded, 1)
+        p = P.pie(t, {"mode": "category", "category": "LU", "threshold": 5})
+        self.assertEqual(p.labels, ["a", "b", "c", P.OTHER])
+        self.assertEqual(p.values[-1], 5)
+        rows = P.pie_rows(p, t, [p.other])
+        self.assertEqual(sorted(lu[i] for i in rows), ["d"] * 3 + ["e"] * 2)
+        # a mean of Other is the mean of its records
+        p = P.pie(t, {"mode": "category", "category": "LU", "field": "V", "agg": "mean",
+                      "threshold": 20})
+        grouped = {t.columns["LU"].labels[c] for c in p.members[p.other]}
+        self.assertEqual(grouped, {"a", "b"})       # the means under 20% of the whole
+        other = [i for i, v in enumerate(lu) if v in grouped]
+        self.assertAlmostEqual(p.values[p.other], statistics.fmean(other))
+
+    def test_fields_as_slices_and_selection(self):
+        t = make_table(A=(F.REAL, [1, 2, None]), B=(F.REAL, [5, None, 5]),
+                       C=(F.REAL, [-1, -2, 0]))
+        p = P.pie(t, {"mode": "fields", "fields": ["A", "B", "C"], "agg": "sum"})
+        self.assertEqual(p.labels, ["B", "A"])
+        self.assertEqual(p.values, [10, 3])
+        self.assertEqual(p.left_out, ["C"])                 # not above 0
+        mask = P.selected_mask(t.np(None), {1})
+        per, part = P.pie_selected(p, t, mask)
+        self.assertEqual(per, [1, 1])
+        self.assertEqual(part, [5.0, 1.0])
+        self.assertEqual(sorted(P.pie_rows(p, t, [1]).tolist()), [0, 1])
+
+
+class HistogramTests(unittest.TestCase):
+    def test_bins_counts_and_statistics(self):
+        vals = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4, None, float("nan")]
+        t = make_table(X=(F.REAL, [None if v is None else v for v in vals]))
+        t.columns["X"].values[11] = float("nan")
+        p = P.histogram(t, {"x": "X", "bins": 3})
+        self.assertEqual(p.counts, [1, 2, 7])               # [1,2) [2,3) [3,4]
+        self.assertEqual(p.missing, 2)
+        good = [1, 2, 2, 3, 3, 3, 4, 4, 4, 4]
+        self.assertAlmostEqual(p.stats["mean"], statistics.fmean(good))
+        self.assertAlmostEqual(p.stats["median"], statistics.median(good))
+        self.assertAlmostEqual(p.stats["std"], statistics.pstdev(good))
+        self.assertEqual(P.default_hist_bins(10000), 64)
+        self.assertEqual(P.default_hist_bins(100), 10)
+        self.assertEqual(sorted(P.hist_rows(p, [2]).tolist()), [3, 4, 5, 6, 7, 8, 9])
+
+    def test_transformation_and_split(self):
+        t = make_table(X=(F.REAL, [-1, 0, 1, math.e, math.e ** 2]),
+                       S=(F.TEXT, ["a", "a", "b", "b", "a"]))
+        p = P.histogram(t, {"x": "X", "bins": 2, "transform": "log"})
+        self.assertEqual(p.left_out, 2)
+        self.assertAlmostEqual(p.stats["max"], 2.0)
+        p = P.histogram(t, {"x": "X", "bins": 2, "split": "S"})
+        self.assertEqual(p.series, ["a", "b"])
+        self.assertEqual([sum(c) for c in p.series_counts], [3, 2])
+        mask = P.selected_mask(t.np(None), {1, 2, 3})
+        self.assertEqual(sum(P.hist_selected(p, mask)), 3)
+        self.assertEqual(sum(P.hist_selected(p, mask, 1)), 1)
+
+
+class BoxTests(unittest.TestCase):
+    def test_quartiles_whiskers_and_outliers(self):
+        vals = [1, 2, 3, 4, 5, 6, 7, 8, 9, 100]
+        t = make_table(V=(F.REAL, vals))
+        p = P.box(t, {"fields": ["V"]})
+        b = p.boxes[0]
+        q1, med, q3 = np.percentile(vals, [25, 50, 75])
+        self.assertEqual((b.q1, b.median, b.q3), (q1, med, q3))
+        self.assertEqual(b.high, 9)                     # last value inside 1.5 x IQR
+        self.assertEqual(b.out_values.tolist(), [100])
+        self.assertEqual(int(t.fids[b.out_rows[0]]), 10)
+        p = P.box(t, {"fields": ["V"], "outliers": False})
+        self.assertEqual((p.boxes[0].low, p.boxes[0].high), (1, 100))
+
+    def test_split_and_standardize(self):
+        t = make_table(A=(F.REAL, [1, 2, 3, 4, None, 6]),
+                       B=(F.REAL, [10, 20, 30, 40, 50, 60]),
+                       Z=(F.TEXT, ["y", "x", "y", "x", "y", None]))
+        p = P.box(t, {"fields": ["A", "B"], "split": "Z"})
+        self.assertTrue(p.standardized)
+        self.assertEqual(p.categories, ["x", "y", "NULL"])
+        self.assertEqual([(b.label, b.series) for b in p.boxes[:4]],
+                         [("x", 0), ("x", 1), ("y", 0), ("y", 1)])
+        # z-scores: both fields on one scale
+        a = np.array([1, 2, 3, 4, 6.0])
+        z = (a - a.mean()) / a.std()
+        self.assertAlmostEqual(p.boxes[0].median, float(np.median(z[[1, 3]])))
+        self.assertEqual(p.boxes[2].n, 2)               # y: A has 1, 3 (5th is NULL)
+        p = P.box(t, {"fields": ["A"], "split": "Z"})
+        self.assertFalse(p.standardized)                # one field: its own values
+
+
 if __name__ == "__main__":
     unittest.main()
