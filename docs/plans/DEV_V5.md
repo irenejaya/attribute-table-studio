@@ -320,6 +320,20 @@ monthly mean 4.7 s, Bar Chart of medians split by a 51-value field 2.8 s);
 QGIS never paused for more than 68 ms meanwhile. Changing the trend type took
 0.2 s with no new read, and showing a selection of 100,000 records 0.3 s.
 
+On the same table of 10,000,000 records:
+
+| Plot | Ready in | Longest pause of QGIS | Peak memory of QGIS |
+| --- | --- | --- | --- |
+| Scatter Plot with a trend line | 44 s | 37 ms | 1.4 GB |
+| Line Chart, mean per month | 68 s | 131 ms | 1.8 GB |
+| Bar Chart, medians split by a 51-value field | 37 s | 57 ms | 1.8 GB |
+
+Changing the trend type took 1.8 s with no new read; showing a selection of
+1,000,000 records took 1.0 s. A plot reads two or three fields where
+Visualize Statistics reads one (18 to 34 s at 10 million records), and the
+Line Chart's dates cost the most to read; reading dates faster is left for a
+later round.
+
 ## Not in this plan
 
 - Charts on the map (pie or bar symbols per feature).
