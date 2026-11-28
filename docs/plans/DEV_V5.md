@@ -10,7 +10,7 @@ stay as they are.
 | 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Built |
 | 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Built |
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Built |
-| 4 | Help, README, screenshots, 1.4 changelog | In progress: README text, changelog, metadata done; Help pictures and screenshots wait for the layout choice |
+| 4 | Help, README, screenshots, 1.4 changelog | In progress: README text, changelog, metadata and the plot list layout done; Help pictures and screenshots next |
 
 Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to
 dev-v5, and shown with screenshots before the next round starts. The version
@@ -409,9 +409,12 @@ Explorer's Data Plot menu. Choices made while building:
 - **Option icons**: trend line types, transformations and the Bars choices
   (side by side, stacked, 100% stacked) show a small painted picture of their
   shape, also in Visualize Statistics and the Pivot Table chart.
-- **Layout of the plot list**: two mock-ups shown (A: a Plot box in the top
-  row with the list's actions in a menu; B: a Plots button that hides the
-  list card); the choice is open.
+- **Layout of the plot list**: of two mock-ups (A: a Plot box in the top row
+  with the list's actions in a menu; B: a Plots button that hides the list
+  card), B was chosen. The **Plots** button (checkable, top left) hides the
+  Plots card and the plot takes its width; every window opens with the card
+  shown (not remembered). New plot and the list's buttons moved from under
+  the list to above it.
 
 ## Not in this plan
 

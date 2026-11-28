@@ -543,8 +543,11 @@ extent or edit draws it again. Big layers are read in the background
 (progress and Cancel in the status bar).</li>
 <li><b>New plot</b> adds a plot to the layer's list on the left. Click a
 plot to show it; rename it (double-click), duplicate, delete or move it
-with the buttons under the list. <b>Open in new window</b> shows a plot in
+with the buttons above the list. <b>Open in new window</b> shows a plot in
 a second window, beside the first.</li>
+<li><b>Plots</b> (top left) hides the list of plots, so the plot takes its
+width; click it again to show the list. Every window opens with the list
+shown.</li>
 <li>The plots of every layer are saved in the QGIS project and come back
 when it opens. <b>Save plot to file</b> and <b>Load plot from file</b>
 move a plot to another project or layer with the same field names.</li>

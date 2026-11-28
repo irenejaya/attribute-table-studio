@@ -60,6 +60,7 @@ DELETE = "/mIconDelete.svg"
 UNDO = "/mActionUndo.svg"
 SWAP = "/sync_views.svg"
 TABLE = "/mActionOpenTable.svg"
+LIST_VIEW = "/mIconListView.svg"            # Data Plot: show or hide the plot list
 CSV = "/mActionOpenTable.svg"
 XLSX = "/mActionSharingExport.svg"
 GPKG = "/mActionNewGeoPackageLayer.svg"

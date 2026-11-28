@@ -365,8 +365,11 @@ Explorer's filtered records. Data Plot is separate from Visualize Statistics
   again. Big layers are read in the background (progress and Cancel in the
   status bar) and only the fields a plot uses are kept.
 - **Plots**: every layer keeps a list of plots, saved in the QGIS project.
-  New plot, rename, duplicate, delete, move, *Open in new window* (two plots
-  side by side), *Save plot to file* and *Load plot from file*.
+  New plot and the list's buttons sit above the list: rename, duplicate,
+  delete, move, *Open in new window* (two plots side by side), *Save plot to
+  file* and *Load plot from file*. The **Plots** button at the top left hides
+  the list for a wider plot and shows it again; every window opens with the
+  list shown.
 - **Settings** in one card, as in Visualize Statistics: *Data* (an
   **X-axis** and a **Y-axis** box wherever the type has both), *Time
   binning* (dates in intervals of a chosen size, aligned to the first or

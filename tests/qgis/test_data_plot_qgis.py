@@ -422,6 +422,47 @@ class DataPlotTests(unittest.TestCase):
         H.settle(0.3)
         self.assertEqual(len(self.plugin.plot_hosts), 1)
 
+    def test_09b_plots_button(self):
+        """The Plots button hides the Plots card for a wider plot; every window
+        opens with the card shown, New plot and the list's buttons above the list."""
+        panel = self.panel()
+        H.settle(0.2)
+        card, view = panel.list_card, panel.view
+        self.assertTrue(panel.plots_btn.isCheckable())
+        self.assertTrue(panel.plots_btn.isChecked())
+        self.assertTrue(card.isVisible())
+        def top(w):
+            return w.mapTo(card, w.rect().topLeft()).y()
+        list_top = top(panel.plot_list)
+        for b in (panel.new_btn, panel.dup_btn, panel.del_btn, panel.up_btn,
+                  panel.down_btn, panel.window_btn, panel.more_btn):
+            self.assertLess(top(b) + b.height(), list_top + 1)
+        split = view.parentWidget()
+        before = split.sizes()                       # card, plot, settings
+        self.assertGreater(before[0], 0)
+        panel.plots_btn.click()
+        H.settle(0.2)
+        self.assertFalse(card.isVisible())
+        hidden = split.sizes()
+        self.assertEqual(hidden[0], 0)               # the plot takes the card's width
+        self.assertGreaterEqual(hidden[1], before[1] + before[0])
+        self.assertEqual(hidden[2], before[2])
+        panel.plots_btn.click()
+        H.settle(0.2)
+        self.assertTrue(card.isVisible())
+        self.assertEqual(split.sizes(), before)      # back as it was
+        # hidden in one window: the next window still opens with the card shown
+        panel.plots_btn.click()
+        panel.open_in_new_window()
+        H.settle(0.3)
+        second = self.plugin.plot_hosts[-1].panel
+        self.assertIsNot(second, panel)
+        self.assertTrue(second.plots_btn.isChecked())
+        self.assertTrue(second.list_card.isVisible())
+        self.plugin.plot_hosts[-1].close()
+        H.settle(0.3)
+        panel.plots_btn.click()
+
     def test_10_help_dock_and_layer_removal(self):
         panel = self.panel()
         panel.help_btn.click()

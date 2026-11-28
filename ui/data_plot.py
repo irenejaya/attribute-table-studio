@@ -1709,6 +1709,12 @@ class DataPlotPanel(QWidget):
         # top row, as the Pivot Table's: Layer, the records, the actions
         top = QHBoxLayout()
         top.setSpacing(m.gap)
+        # hides the Plots card for a wider plot; every window opens with it shown
+        self.plots_btn = W.button(m, "Plots", icons.native(icons.LIST_VIEW),
+                                  "Show or hide the list of plots", checkable=True)
+        self.plots_btn.setChecked(True)
+        top.addWidget(self.plots_btn)
+        top.addSpacing(m.gap)
         top.addWidget(W.label("Layer", "dim"))
         self.layer_combo = W.LayerCombo(m)
         self.layer_combo.setFilters(VECTOR_LAYER_FILTER)
@@ -1759,7 +1765,9 @@ class DataPlotPanel(QWidget):
 
         split = QSplitter(Qt.Orientation.Horizontal)
         split.setChildrenCollapsible(False)
-        split.addWidget(self._build_list())
+        self.list_card = self._build_list()
+        self.plots_btn.toggled.connect(self.list_card.setVisible)
+        split.addWidget(self.list_card)
         self.view = PlotView(self.theme, m)
         self.view.rowsPicked.connect(self._on_rows_picked)
         self.view.rowsMenu.connect(self._on_rows_menu)
@@ -1782,7 +1790,7 @@ class DataPlotPanel(QWidget):
 
     def _build_list(self):
         """The layer's plots, in a card like the Pivot Table's Build your
-        table: a heading, the list, New plot and the list's buttons."""
+        table: a heading, New plot and the list's buttons, then the list."""
         m = self.metrics
         box = QFrame()
         box.setObjectName("gtsCard")
@@ -1790,6 +1798,9 @@ class DataPlotPanel(QWidget):
         lay.setContentsMargins(12, 10, 12, 10)
         lay.setSpacing(6)
         lay.addWidget(W.label("Plots", "heading"))
+        buttons = QVBoxLayout()               # New plot and the list's buttons, on top
+        buttons.setSpacing(6)
+        lay.addLayout(buttons)
         self.plot_list = QListWidget()
         self.plot_list.setObjectName("gtsFormList")
         self.plot_list.setIconSize(QSize(20, 20))
@@ -1806,7 +1817,7 @@ class DataPlotPanel(QWidget):
         new_row = QHBoxLayout()
         new_row.addWidget(self.new_btn)
         new_row.addStretch(1)
-        lay.addLayout(new_row)
+        buttons.addLayout(new_row)
         row = QHBoxLayout()
         row.setSpacing(m.gap)
         self.dup_btn = W.square_button(m, icons.native(icons.COPY), "Duplicate the plot")
@@ -1835,7 +1846,7 @@ class DataPlotPanel(QWidget):
                   self.window_btn, self.more_btn):
             row.addWidget(b)
         row.addStretch(1)
-        lay.addLayout(row)
+        buttons.addLayout(row)
         box.setMinimumWidth(190)
         return box
 
