@@ -547,7 +547,7 @@ another keeps the fields that have the same names there; the others go
 back to <i>Choose a field…</i>.</li>
 <li><b>New plot</b> makes a plot on the layer of the plot shown (the active
 layer when the list is empty); change its layer under Data.</li>
-<li><b>Records</b> (<b>Change scope</b>): All records, the Attribute Explorer's filtered records
+<li><b>Change scope</b>: All records, the Attribute Explorer's filtered records
 (open the layer in Attribute Explorer first), Selected records or the
 Visible map extent, kept with each plot. The plot follows them: a new
 filter, selection, map extent or edit draws it again. Big layers are read
@@ -564,6 +564,45 @@ another project or layer: it is made again on the layer of the plot shown,
 and its layer can then be changed under Data.</li>
 <li><b>Export</b>: PNG or SVG image, copy the image, or the plotted values
 as CSV.</li>
+<li>The top row: <b>Plots</b>, then the <b>Edit plot</b> group (Edit plot,
+Save edits, Undo, Redo), then <b>Add</b>; at the right <b>Change scope</b>
+(its tooltip and its menu show the records of the plot shown), Clear
+selection, Export, Help and Dock.</li>
+</ul>
+<h4>Edit plot</h4>
+<p><b>Edit plot</b> changes the look of what is inside the plot and puts
+text, lines, arrows and pictures on it. While it is on, the plot and its
+settings are frozen: the list, New plot, Change scope and the usual card
+wait, and the plot follows its records again when you turn it off.</p>
+<ul>
+<li>Click a part of the plot to change its look in the card: the canvas
+(its colour and transparency), the horizontal or vertical grid lines
+(colour, width, dash; Grid lines in Appearance still shows or hides them), a
+series (a line's width, dash and point markers; bars' outline, transparency
+and width; points' size, transparency and outline), pie slices, trend,
+reference, mean, median, standard deviation and normal lines, guides.
+Titles, axes, the legend, colours and point shapes are set outside Edit
+plot.</li>
+<li><b>Add</b>: a <b>Text box</b> (click where it goes; its text, font,
+size, colour, bold, italic, underline and alignment, its fill and
+transparency, border, dash, rounded corners and padding), a
+<b>Horizontal line</b> or <b>Vertical line</b> across the whole plot (click
+where it goes; colour, width, dash, transparency), an <b>Arrow</b> (drag
+from where it starts to where it points; head at the end, the start or
+both) or a <b>Picture</b> (from a PNG, JPG or SVG file, kept inside the
+plot).</li>
+<li>Objects stay inside the plot and keep their place when the window or
+the axes change; they are drawn above the data and below the legend. Drag an
+object to move it; its handles set a text box's width, a picture's size and
+an arrow's ends. Delete removes the object selected, the arrow keys nudge it
+(Shift: 10 px); right-click for Duplicate, Bring to Front, Send to Back and
+Delete.</li>
+<li><b>Save edits</b> keeps the changes; <b>Undo</b> and <b>Redo</b>
+(Ctrl+Z, Ctrl+Y in the plot) step through them. Leaving Edit plot or closing
+the window with unsaved changes asks Save, Discard or Cancel.</li>
+<li>Exports and plot files carry the look and the objects: a plot file is
+the style to reuse, made again on any layer by <b>Load plot from
+file</b>.</li>
 </ul>
 <h4>Selecting</h4>
 <p>Click a point, bar or line point to select its records on the layer

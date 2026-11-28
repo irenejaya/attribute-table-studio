@@ -32,7 +32,8 @@ from qgis.PyQt.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFontComboBox, QFrame,
     QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
     QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
-    QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
+    QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QToolButton, QVBoxLayout,
+    QWidget,
 )
 from qgis.core import (
     QgsCoordinateTransform, QgsExpressionContext, QgsMessageLog, QgsProject,
@@ -2059,6 +2060,10 @@ class PlotProperties(QScrollArea):
             self._row("Text", edit)
             fonts = QFontComboBox()
             fonts.setFixedHeight(m.control_h)
+            # long font names never widen the card: the box shrinks, its list does not
+            fonts.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            fonts.setMinimumContentsLength(6)
             fonts.setMinimumWidth(80)
             if obj.get("font"):
                 fonts.setCurrentFont(QFont(obj["font"]))
@@ -2066,22 +2071,31 @@ class PlotProperties(QScrollArea):
             self._row("Font", fonts)
             number_row("Size", "size", 10.0, 4, 96, 1, 1, " pt")
             colour_row("Colour", "colour", t.text_strong)
-            styles = QWidget()
+            styles = QWidget()                     # B, I, U toggles, as in a text editor
             sl = QHBoxLayout(styles)
             sl.setContentsMargins(0, 0, 0, 0)
-            sl.setSpacing(10)
-            for name, text in (("bold", "Bold"), ("italic", "Italic"),
-                               ("underline", "Underline")):
-                box = QCheckBox(text)
-                box.setChecked(bool(obj.get(name)))
-                box.toggled.connect(lambda on, n=name: put(n, bool(on)))
-                sl.addWidget(box)
+            sl.setSpacing(m.gap)
+            for name, letter, tip in (("bold", "B", "Bold"), ("italic", "I", "Italic"),
+                                      ("underline", "U", "Underline")):
+                btn = QToolButton()
+                btn.setText(letter)
+                btn.setToolTip(tip)
+                btn.setCheckable(True)
+                btn.setChecked(bool(obj.get(name)))
+                btn.setFixedSize(m.control_h, m.control_h)
+                f = btn.font()
+                f.setBold(name == "bold")
+                f.setItalic(name == "italic")
+                f.setUnderline(name == "underline")
+                btn.setFont(f)
+                btn.toggled.connect(lambda on, n=name: put(n, bool(on)))
+                sl.addWidget(btn)
             sl.addStretch(1)
             self._row("Style", styles)
             choice_row("Align", "align", PE.ALIGNS, "left")
             self.lay.addWidget(W.section_header("Box"))
             colour_row("Fill", "fill", t.base, null_text="No fill")
-            transparency_row("fill_alpha", "Fill transparency")
+            transparency_row("fill_alpha", "Transparency")
             colour_row("Border", "border", t.border, null_text="No border")
             number_row("Border width", "border_width", 1.0, 0, 10, 0.5, 1, " px")
             dash_row("border_dash", "solid", "Border dash")

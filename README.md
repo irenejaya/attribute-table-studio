@@ -49,9 +49,8 @@ Every tool has its own **Help**: the ? button at the top right (in Attribute
 Explorer, *☰ › Help*). It has a tab for each part of the tool — Attribute
 Explorer: Overview, Statistics & filters, Selection, Editing, Quick update &
 Find; Visualize Statistics: Chart, Settings; Pivot Table: Overview, Build your
-table, Result, Chart; Data Plot: Overview and one tab per plot type; Compare:
-Setup, Results, Review. Each tab shows a picture
-of that part with red numbered badges and, beside it, what every number does.
+table, Result, Chart; Data Plot: Overview, Edit plot and one tab per plot
+type; Compare: Setup, Results, Review. Each tab shows a picture of that part with red numbered badges and, beside it, what every number does.
 Drag the divider (or make the window bigger) to enlarge the picture. The last
 tab, **More details**, keeps the full written help.
 
@@ -371,13 +370,27 @@ with the Explorer's filtered records. Data Plot is separate from Visualize Stati
   by side), *Save plot to file* and *Load plot from file*. The **Plots**
   button at the top left hides the list for a wider plot and shows it again;
   every window opens with the list shown.
-- **Records**, kept with each plot: all records, the Attribute Explorer's
-  filtered records, selected records or the visible map extent (*Change
-  scope*). The plot follows them live: a new filter, selection, map extent
+- **Records**, kept with each plot (*Change scope*; its tooltip and menu
+  show the records of the plot shown): all records, the Attribute
+  Explorer's filtered records, selected records or the visible map extent. The plot follows them live: a new filter, selection, map extent
   or edit draws it again. Big layers are read in the background (progress
   and Cancel in the status bar) and only the fields a plot uses are kept.
 
   ![Scatter plot with the list hidden](docs/screenshots/dark_plot_scatter.png)
+- **Edit plot** (the group after Plots: Edit plot, Save edits, Undo, Redo,
+  then Add): the look of what is inside the plot and objects on it, with the
+  plot and its settings frozen meanwhile. Click a part (the canvas, the
+  horizontal or vertical grid lines, a series, slices, trend, reference,
+  mean or median lines, guides) to set its colour, width, dash, transparency,
+  outline, markers or size; **Add** a text box (fill, border, transparency,
+  font), a horizontal or vertical line across the plot, an arrow or a
+  picture, then drag it where it goes. Objects stay inside the plot, above
+  the data and below the legend. Save edits keeps the changes; leaving with
+  unsaved ones asks Save, Discard or Cancel. Titles, axes, the legend,
+  colours and shapes stay in the settings card. Exports and plot files carry
+  the look and the objects, so a plot file is a style to reuse on any layer.
+
+  ![Edit plot](docs/screenshots/dark_plot_edit.png)
 - **Settings** in one card, as in Visualize Statistics: *Data* (an
   **X-axis** and a **Y-axis** box wherever the type has both), *Time
   binning* (dates in intervals of a chosen size, aligned to the first or

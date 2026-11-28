@@ -12,7 +12,7 @@ stay as they are.
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Built |
 | 4 | Help, README, screenshots, 1.4 changelog | Built |
 | 5 | Plots keep their own layer: one list of every plot, the layer in the card, records per plot ([PLOT_MANAGER.md](PLOT_MANAGER.md)) | Built |
-| 6 to 8 | Plot editing mode: the mode and the canvas look, added objects, plot files with both, Help ([PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md)) | Planned |
+| 6 to 8 | Plot editing mode: the mode and the canvas look, added objects, plot files with both, Help ([PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md)) | Built |
 
 Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to
 dev-v5, and shown with screenshots before the next round starts. The version
@@ -469,13 +469,12 @@ Explorer's Data Plot menu. Choices made while building:
 - **Asked and left out for now**: several Y fields for Histogram and QQ
   Plot, Visualize Statistics and the Pivot Table chart.
 
-## Plots that keep their layer (Round 5, built), then plot editing mode
+## Plots that keep their layer (Round 5), plot editing mode (Rounds 6 to 8)
 
 - [PLOT_MANAGER.md](PLOT_MANAGER.md), **built** as Round 5: the list holds
   every plot of the project, each keeps its own layer, chosen in the
   settings card, and its own records.
-- [PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md), **planned** as Rounds 6 to 8, all
-  questions answered: an Edit plot mode for what is drawn inside the canvas
+- [PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md), **built** as Rounds 6 to 8: an Edit plot mode for what is drawn inside the canvas
   (grid lines, series lines, backgrounds) and objects added to it (text
   boxes, horizontal and vertical lines, arrows, pictures), with the plot and
   its settings frozen meanwhile; plot files carry the look and the objects,

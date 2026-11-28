@@ -1,7 +1,7 @@
 # Plot editing mode: plan
 
-Status: **plan, nothing built**; all questions answered. It follows the
-plot manager round ([PLOT_MANAGER.md](PLOT_MANAGER.md)) in version 1.4.
+Status: **built** as Rounds 6 to 8 of version 1.4 (dev-v5); see *Built*
+at the end.
 
 ## The idea
 
@@ -90,6 +90,33 @@ back, Delete. Ctrl+Z and Ctrl+Y undo and redo.
 3. Plot files with the look and the objects (the style to reuse).
 4. Help (an Edit plot tab with a numbered picture), README, screenshots;
    tests on QGIS 4.4 then 3.44 in every round.
+
+## Built
+
+As planned, with these choices:
+
+- **Top row** (asked before the build): the records line was removed; Plots,
+  then the Edit plot group (Edit plot, Save edits, Undo, Redo), then Add in
+  a group of its own, each after a divider, at the left; Change scope (its
+  tooltip shows the records), Clear selection, Export, Help and Dock at the
+  right.
+- **Kept per part**: the canvas look is kept in `plot["canvas"]["style"]`,
+  one entry per part (`grid_h`, `series:<name>`, `line:trend:<field>`,
+  `guide:<n>` ...), the objects in `plot["canvas"]["objects"]`; a part keeps
+  the plot's own look for every setting not changed.
+- **Bar width** is one setting for every series (the share of each
+  category's space the bars take); outline and transparency are per series.
+- **Mean, median and standard deviation lines** keep their colour in the
+  card (beside their ticks): Edit plot sets their width and dash only.
+- **Each type's own parts** (boxes, heat cells, calendar days, clock rings,
+  matrix cells) are not edited yet: a click on them selects the canvas.
+- **Pictures** are kept inside the plot as PNG, their longest side at most
+  1,600 px.
+- **Undo** treats quick changes of one setting (typing, a spin box) as one
+  step.
+- **Ctrl+Z, Ctrl+Y, Delete and the arrow keys** belong to the plot while it
+  is edited, so QGIS's own shortcuts do not take them.
+- **Help**: an Edit plot tab (after Overview) with a numbered picture.
 
 ## Answers
 

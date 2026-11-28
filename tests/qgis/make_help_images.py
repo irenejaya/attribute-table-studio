@@ -607,6 +607,15 @@ def plot_special(panel, win, name):
         cy = sum(pt.y() for pt in inside) / len(inside)
         pt = min(inside, key=lambda q: (q.x() - cx) ** 2 + (q.y() - cy) ** 2)
         return on_view(QRectF(pt.x() - 8, pt.y() - 8, 16, 16))
+    if head == "object":                     # an added object of that kind (Edit plot)
+        objs = {o.get("id"): o for o in view._objects()}
+        for oid, rect in geo.get("objects", []):
+            if objs.get(oid, {}).get("kind") == arg:
+                return on_view(rect)
+        raise ValueError(f"no {arg} object")
+    if head == "grid_h":                     # a horizontal grid line, as drawn
+        y, a, b = geo["grid_h"][len(geo["grid_h"]) // 2]
+        return on_view(QRectF(a + (b - a) * 0.55, y - 3, (b - a) * 0.2, 6))
     if head == "disclosure":                 # the first Y field's trend section header
         heads = [b for b in shown(props.widget().findChildren(QAbstractButton))
                  if b.objectName() == "gtsDisclosure"]
@@ -712,6 +721,25 @@ def plot_pictures(plugin, layer):
     render(tabs["plot_calendar"], panel, plot_special)
     make("clock", "Surveys per month", x="SURVEY_DATE", field=None)
     render(tabs["plot_clock"], panel, plot_special)
+    # Edit plot: a text box (selected), an arrow, a horizontal line, wider grid lines
+    from attribute_table_studio.ui import plot_edit as PE
+    make("bar", "Area by land use", x="LAND_USE", fields=["AREA_M2"], agg="sum",
+         sort="value_desc")
+    panel.edit_btn.click()
+    H.settle(0.3)
+    canvas = PE.canvas_of(panel._edit_plot)
+    note = PE.new_object("text", panel.theme, 0.34, 0.06)
+    note.update(text="Rural parcels hold\nhalf of the area", w=0.36)
+    canvas["objects"] += [note,
+                          PE.new_object("arrow", panel.theme, 0.34, 0.12, 0.12, 0.2),
+                          PE.new_object("hline", panel.theme, y=0.55)]
+    canvas["style"]["grid_h"] = {"width": 2.0}
+    panel.view.selected = {"kind": "object", "id": note["id"], "label": "Text box"}
+    panel.props.show_edit(panel.view.selected, panel._edit_plot, panel._on_canvas_card)
+    panel.view.refresh()
+    tidy(860)
+    render(tabs["plot_edit"], panel, plot_special)
+    panel.stop_editing(ask=False)
     panel.plots_btn.click()
     layer.setRenderer(renderer)
     for host in list(plugin.plot_hosts):

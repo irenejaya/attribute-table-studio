@@ -394,6 +394,24 @@ if THEME == "dark":
     H.wait_for(plot_ready, 60)
     save(dwin, "plot_scatter")
     dp.plots_btn.click()
+    # Edit plot: a text box (selected), an arrow and a line on the bar chart
+    from attribute_table_studio.ui import plot_edit as PE  # noqa: E402
+    dp._show_plot(dp.store.plots(layer.id())[3]["id"])
+    dwin.resize(1440, 800)
+    H.wait_for(plot_ready, 60)
+    dp.edit_btn.click()
+    H.settle(0.3)
+    canvas = PE.canvas_of(dp._edit_plot)
+    note = PE.new_object("text", dp.theme, 0.3, 0.06)
+    note.update(text="Rural parcels hold\nhalf of the area", w=0.3)
+    canvas["objects"] += [note, PE.new_object("arrow", dp.theme, 0.3, 0.12, 0.1, 0.22),
+                          PE.new_object("hline", dp.theme, y=0.5)]
+    canvas["style"]["grid_h"] = {"width": 2.0}
+    dp.view.selected = {"kind": "object", "id": note["id"], "label": "Text box"}
+    dp.props.show_edit(dp.view.selected, dp._edit_plot, dp._on_canvas_card)
+    dp.view.refresh()
+    save(dwin, "plot_edit")
+    dp.stop_editing(ask=False)
 for plot_host in list(plugin.plot_hosts):
     plot_host.close()
 layer.setRenderer(old_renderer)

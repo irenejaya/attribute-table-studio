@@ -707,7 +707,7 @@ class DataPlotTests(unittest.TestCase):
         # Overview and one tab per plot type, each with its numbered picture
         from attribute_table_studio.ui.help_pages import PAGES
         tabs = PAGES["plot"]
-        self.assertEqual(len(tabs), 1 + len(P.TYPES))
+        self.assertEqual(len(tabs), 2 + len(P.TYPES))      # Overview, Edit plot, the types
         self.assertEqual(dlg.tabs.count(), len(tabs) + 1)
         self.assertEqual(dlg.tabs.tabText(len(tabs)), "More details")
         bar = dlg.tabs.tabBar()
@@ -1106,7 +1106,10 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(view.selected["id"], text["id"])
         panel.props.widget().findChildren(QPlainTextEdit)[0].setPlainText("Two groups")
         self.assertEqual(text["text"], "Two groups")
-        self.assertIn("Fill transparency", [l.text() for l in panel.props._labels])
+        self.assertIn("Transparency", [l.text() for l in panel.props._labels])
+        card = panel.props
+        self.assertLessEqual(card.widget().minimumSizeHint().width(),
+                             card.viewport().width())          # the card does not overflow
         # moved by a drag, nudged by the arrow keys
         r = view._geo["objects"][0][1]
         self._drag(view, (r.center().x(), r.center().y()),

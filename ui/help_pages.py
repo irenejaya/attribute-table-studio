@@ -704,6 +704,49 @@ PLOT = [
         ],
         crops=[["plots_btn", "dock_btn"], ["list_card", "props", "@status"]]),
 
+    Tab("plot_edit", "Edit plot",
+        "The look of what is inside the plot, and text, lines, arrows and pictures on it. "
+        "Titles, axes, the legend, colours and point shapes stay in the usual settings.",
+        [
+            I("edit_btn", "Edit plot",
+              "Turn editing on and off. While it is on, the plot and its settings are "
+              "frozen: the list, New plot, Change scope and the usual card wait, and the plot "
+              "follows its records again when you turn it off.", icons.TOGGLE_EDIT),
+            I("save_edits_btn", "Save edits",
+              "Keep the changes made so far, with the plot in the project. Leaving Edit plot "
+              "or closing the window with unsaved changes asks Save, Discard or Cancel.",
+              icons.SAVE_EDITS),
+            I("undo_btn+redo_btn", "Undo, Redo",
+              "Step back and forth through the changes (Ctrl+Z and Ctrl+Y in the plot)."),
+            I("add_btn", "Add",
+              "Text box, Horizontal line, Vertical line, Arrow or Picture: click in the plot "
+              "to place it (drag for an arrow).", icons.ADD),
+            I("@object:text", "Text box",
+              "Selected: its handles show and the card holds its text, font, size, colour, "
+              "style and alignment, its fill and transparency, border, corners and padding. "
+              "Drag it to move it, its right edge to set its width."),
+            I("@object:arrow", "Arrow",
+              "Drag it to move it, its ends to point it; colour, width, dash, head and its "
+              "size."),
+            I("@object:hline", "Horizontal line",
+              "Across the whole plot; drag it up or down (a vertical line, left or right). "
+              "Colour, width, dash, transparency."),
+            I("@grid_h", "Grid lines",
+              "Click a part of the plot (the canvas, the grid lines, a series, a trend or "
+              "reference line, a guide) for its look: here colour, width and dash."),
+            I("props", "Settings of what is selected",
+              "Changes show at once; Undo takes them back."),
+        ],
+        notes=[
+            "Objects stay inside the plot and keep their place when the window or the axes "
+            "change; they are drawn above the data and below the legend. Delete removes the "
+            "object selected, the arrow keys nudge it (Shift: 10 px), right-click for "
+            "Duplicate, Bring to Front and Send to Back.",
+            "Exports and plot files carry the look and the objects: a plot file is the style "
+            "to reuse (Load plot from file makes it again on any layer).",
+        ],
+        crops=[["plots_btn", "add_btn"], ["view", "props"]]),
+
     Tab("plot_bar", "Bar",
         "A value per category: one bar each, or one per category and series.",
         [
