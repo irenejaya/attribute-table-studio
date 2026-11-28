@@ -672,14 +672,11 @@ PLOT = [
             I("dock_btn", "Dock", "Dock the window into QGIS, and undock it.", icons.DOCK),
             I("new_btn", "New plot", "Choose a plot type; then choose its fields under Data.",
               icons.ADD),
-            I("dup_btn", "Duplicate", "A copy of the plot, to try other settings.",
-              icons.COPY),
-            I("del_btn", "Delete", "Delete the plot.", icons.DELETE),
-            I("up_btn+down_btn", "Move up, Move down", "Change the order of the list."),
-            I("window_btn", "Open in new window",
-              "Show this plot in a second window, beside this one.", icons.TABLE_VISIBLE),
-            I("more_btn", "More", "Rename the plot, save it to a file or load one from a "
-              "file (on another layer with the same field names)."),
+            I("dup_btn+more_btn", "The list's buttons",
+              "Duplicate the plot (to try other settings), delete it, move it up or "
+              "down, open it in a second window beside this one, and More: rename it, "
+              "save it to a file or load one from a file (on another layer with the "
+              "same field names)."),
             I("plot_list", "The layer's plots",
               "Click a plot to show it; double-click to rename it; right-click for the "
               "same actions."),

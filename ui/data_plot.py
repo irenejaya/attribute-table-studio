@@ -1792,15 +1792,18 @@ class DataPlotPanel(QWidget):
 
     def _build_list(self):
         """The layer's plots, in a card like the Pivot Table's Build your
-        table: a heading, New plot and the list's buttons, then the list."""
+        table: the heading with New plot, the list's buttons, then the list."""
         m = self.metrics
         box = QFrame()
         box.setObjectName("gtsCard")
         lay = QVBoxLayout(box)
         lay.setContentsMargins(12, 10, 12, 10)
         lay.setSpacing(6)
-        lay.addWidget(W.label("Plots", "heading"))
-        buttons = QVBoxLayout()               # New plot and the list's buttons, on top
+        head = QHBoxLayout()                  # the heading, New plot at its right
+        head.addWidget(W.label("Plots", "heading"))
+        head.addStretch(1)
+        lay.addLayout(head)
+        buttons = QVBoxLayout()               # the list's buttons, above it
         buttons.setSpacing(6)
         lay.addLayout(buttons)
         self.plot_list = QListWidget()
@@ -1816,10 +1819,7 @@ class DataPlotPanel(QWidget):
         self.new_menu = fill_type_menu(QMenu(self), self.new_plot)
         self.new_btn = W.button(m, "New plot", icons.native(icons.ADD),
                                 "Make a new plot of this layer", menu=self.new_menu)
-        new_row = QHBoxLayout()
-        new_row.addWidget(self.new_btn)
-        new_row.addStretch(1)
-        buttons.addLayout(new_row)
+        head.addWidget(self.new_btn)
         row = QHBoxLayout()
         row.setSpacing(m.gap)
         self.dup_btn = W.square_button(m, icons.native(icons.COPY), "Duplicate the plot")

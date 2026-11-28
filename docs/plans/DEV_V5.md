@@ -413,8 +413,8 @@ Explorer's Data Plot menu. Choices made while building:
   with the list's actions in a menu; B: a Plots button that hides the list
   card), B was chosen. The **Plots** button (checkable, top left) hides the
   Plots card and the plot takes its width; every window opens with the card
-  shown (not remembered). New plot and the list's buttons moved from under
-  the list to above it.
+  shown (not remembered). New plot moved to the right of the Plots heading
+  and the list's buttons to just under it, above the list.
 
 ## Round 4 built
 
