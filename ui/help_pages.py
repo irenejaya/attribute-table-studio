@@ -818,6 +818,9 @@ PLOT = [
               "legend entry and trend line settings.", icons.ADD),
             I("@row:Size by", "Size by", "A third number field sizes each point: a bubble "
               "plot."),
+            I("@disclosure", "A Y field's trend",
+              "Click to show or hide that Y field's trend line settings; closed, it sums "
+              "them up. A plot with one Y field shows them open."),
             I("@tick:Trend line", "Trend line", "Fit a trend to the points of this Y field."),
             I("@row:Trend", "Trend",
               "Linear, exponential, logarithmic, power or polynomial (with its order)."),
@@ -833,8 +836,12 @@ PLOT = [
               "per field. Hover a point for its record; click or drag a box to select. "
               "Above 100,000 points each spot is shaded by its records."),
             I("@legend", "Legend",
-              "The legend classes or Y fields, each trend with its equation and R²."),
+              "The legend classes or Y fields (each in its point shape), each trend with "
+              "its equation and R²."),
         ],
+        notes=["Appearance (further down the card): each Y field's colour and point shape "
+               "(circle, square, triangle, cross or x); with one Y field, the Shape row sets "
+               "every point's."],
         crops=_PLOT_CROP),
 
     Tab("plot_matrix", "Scatter Matrix",

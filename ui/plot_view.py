@@ -23,7 +23,7 @@ import math
 
 from qgis.PyQt.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from qgis.PyQt.QtGui import (
-    QColor, QFont, QFontMetrics, QImage, QPainter, QPainterPath, QPen, QPixmap,
+    QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap,
 )
 from qgis.PyQt.QtWidgets import QSizePolicy, QWidget
 
@@ -58,6 +58,61 @@ def fill_type_menu(menu, slot):
             act.setText(f"{text}  (coming in round {P.COMING.get(key, '')})")
             act.setEnabled(False)
     return menu
+
+
+POINT_SHAPES = (("circle", "Circle"), ("square", "Square"), ("triangle", "Triangle"),
+                ("cross", "Cross"), ("x", "X"))
+SHAPE_LABELS = dict(POINT_SHAPES)
+
+
+def draw_marker(p, shape, c, dia, colour):
+    """A scatter point of *shape* centred on *c*, *dia* wide: filled shapes
+    with a darker outline, the cross and the x as strokes."""
+    colour = QColor(colour)
+    r = dia / 2.0
+    if shape in ("cross", "x"):
+        pen = QPen(colour.darker(115), max(1.6, dia * 0.24))
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        p.setPen(pen)
+        a = r * (0.78 if shape == "x" else 1.0)
+        if shape == "cross":
+            p.drawLine(QPointF(c.x() - a, c.y()), QPointF(c.x() + a, c.y()))
+            p.drawLine(QPointF(c.x(), c.y() - a), QPointF(c.x(), c.y() + a))
+        else:
+            p.drawLine(QPointF(c.x() - a, c.y() - a), QPointF(c.x() + a, c.y() + a))
+            p.drawLine(QPointF(c.x() - a, c.y() + a), QPointF(c.x() + a, c.y() - a))
+        return
+    p.setPen(QPen(colour.darker(150), 1.2))
+    p.setBrush(colour)
+    if shape == "square":
+        side = dia * 0.88
+        p.drawRect(QRectF(c.x() - side / 2, c.y() - side / 2, side, side))
+    elif shape == "triangle":
+        side = dia * 1.12
+        h = side * 0.866
+        path = QPainterPath()
+        path.moveTo(c.x(), c.y() - h * 2 / 3)
+        path.lineTo(c.x() + side / 2, c.y() + h / 3)
+        path.lineTo(c.x() - side / 2, c.y() + h / 3)
+        path.closeSubpath()
+        p.drawPath(path)
+    else:
+        p.drawEllipse(c, r, r)
+
+
+def marker_icon(shape, colour, size=16):
+    """An icon of a point shape (menus and buttons)."""
+    icon = QIcon()
+    for scale in (1, 2):
+        img = QImage(size * scale, size * scale, QImage.Format.Format_ARGB32_Premultiplied)
+        img.setDevicePixelRatio(scale)
+        img.fill(Qt.GlobalColor.transparent)
+        q = QPainter(img)
+        q.setRenderHint(QPainter.RenderHint.Antialiasing)
+        draw_marker(q, shape, QPointF(size / 2.0, size / 2.0), size * 0.62, colour)
+        q.end()
+        icon.addPixmap(QPixmap.fromImage(img))
+    return icon
 
 
 def series_colour(theme, s, name=None, n=0, override=None):
@@ -298,6 +353,8 @@ class PlotModel:
         self.y_axis_kind = F.REAL    # value axis of line / bar
         self.colours = []            # QColor per series / class
         self.single = None           # scatter: one colour
+        self.shape = "circle"        # scatter: the points' shape (one Y field) ...
+        self.shapes = []             # ... or each Y field's
         self.sel_mask = None         # numpy bool per table row
         self.sel_per = None          # line / bar: selected records per position
         self.sel_per_series = None   # ... per [series][position]
@@ -821,11 +878,11 @@ class PlotView(QWidget):
             return smin + (s - lo) / (hi - lo) * (smax - smin)
         return np.full(len(s), (smin + smax) / 2.0)
 
-    def _sprite(self, colour, dia, ratio):
-        """A point (filled circle with a darker outline) drawn once, at the
-        painter's scale, then copied to every point of that colour and
-        size: about 20 times faster than drawing each circle."""
-        key = (colour.rgba(), float(dia), float(ratio))
+    def _sprite(self, colour, dia, ratio, shape="circle"):
+        """A point (a filled shape with a darker outline, or a cross) drawn
+        once, at the painter's scale, then copied to every point of that
+        colour, size and shape: about 20 times faster than drawing each."""
+        key = (colour.rgba(), float(dia), float(ratio), shape)
         sprite = self._sprites.get(key)
         if sprite is None:
             side = int(math.ceil(dia + 3))
@@ -835,9 +892,7 @@ class PlotView(QWidget):
             img.fill(Qt.GlobalColor.transparent)
             q = QPainter(img)
             q.setRenderHint(QPainter.RenderHint.Antialiasing)
-            q.setPen(QPen(QColor(colour).darker(150), 1.2))
-            q.setBrush(colour)
-            q.drawEllipse(QPointF(side / 2.0, side / 2.0), dia / 2.0, dia / 2.0)
+            draw_marker(q, shape, QPointF(side / 2.0, side / 2.0), dia, colour)
             q.end()
             sprite = (QPixmap.fromImage(img), side / 2.0)
             if len(self._sprites) > 400:
@@ -858,35 +913,42 @@ class PlotView(QWidget):
             dia = np.round(sizes * 2) / 2.0
         self._geo["dia"] = dia
 
-        def draw(ids, colour):
+        def draw(ids, colour, shape):
             if not len(ids):
                 return
             for size in np.unique(dia[ids]):
                 part = ids[dia[ids] == size]
-                if vector:                       # SVG: true circles
-                    outline = QPen(QColor(colour).darker(150), 1.2)
-                    p.setPen(outline)
-                    p.setBrush(colour)
-                    r = float(size) / 2.0
+                if vector:                       # SVG: true shapes
                     for a, b in zip(sx[part].tolist(), sy[part].tolist()):
-                        p.drawEllipse(QPointF(a, b), r, r)
+                        draw_marker(p, shape, QPointF(a, b), float(size), colour)
                     continue
-                pm, half = self._sprite(colour, float(size), ratio)
+                pm, half = self._sprite(colour, float(size), ratio, shape)
                 for a, b in zip((sx[part] - half).tolist(), (sy[part] - half).tolist()):
                     p.drawPixmap(QPointF(a, b), pm)
+
+        shapes = m.shapes if getattr(d, "series", None) is not None else []
+
+        def shape_of(c):
+            return shapes[c] if 0 <= c < len(shapes) else (m.shape or "circle")
 
         if sizes is not None:
             idx = idx[np.argsort(-dia[idx], kind="stable")]       # small ones on top
         plain = idx if sel is None else idx[~sel[idx]]
+        codes = self._colour_codes()
         if colours is None:
-            draw(plain, default)
+            draw(plain, default, m.shape or "circle")
         else:
-            cls = self._colour_codes()[plain]
+            cls = codes[plain]
             for c in np.unique(cls):
                 colour = colours[c] if 0 <= c < len(colours) else QColor(OTHER_COLOUR[t.dark])
-                draw(plain[cls == c], colour)
+                draw(plain[cls == c], colour, shape_of(int(c)))
         if sel is not None:
-            draw(idx[sel[idx]], QColor(m.sel_colour))
+            picked = idx[sel[idx]]
+            if not shapes:
+                draw(picked, QColor(m.sel_colour), m.shape or "circle")
+            else:                                # each Y field keeps its shape
+                for c in np.unique(codes[picked]):
+                    draw(picked[codes[picked] == c], QColor(m.sel_colour), shape_of(int(c)))
 
     def _paint_density(self, p, plot, sx, sy, inside, ratio):
         t, m, d = self.theme, self.model, self.model.data
@@ -1899,14 +1961,16 @@ class PlotView(QWidget):
             pass
         elif m.kind == "scatter":
             several = getattr(d, "series", None) is not None
-            if several:                              # each Y field, in its colour
+            if several:                              # each Y field: its colour and shape
                 for k, name in enumerate(d.names):
                     colour = m.colours[k] if k < len(m.colours) else QColor(t.bar)
-                    out.append(("box", colour, str(name), k))
+                    shape = m.shapes[k] if k < len(m.shapes) else "circle"
+                    out.append((f"marker:{shape}", colour, str(name), k))
             elif d.classes is not None and m.single is None and len(m.colours) > 1:
                 for c, colour in enumerate(m.colours):
                     label = m.table.class_labels[c] if c < len(m.table.class_labels) else ""
-                    out.append(("box", colour, label or "(no label)", c))
+                    out.append((f"marker:{m.shape or 'circle'}", colour,
+                                label or "(no label)", c))
             opts = getattr(d, "trend_options", None) or []
             for k, trend in self._trends():
                 o = opts[k] if k < len(opts) else {}
@@ -2018,6 +2082,11 @@ class PlotView(QWidget):
             sw = QRectF(rect.left() + 8, rect.center().y() - 5, 12, 10)
             if kind == "box":
                 p.fillRect(sw, colour)
+            elif kind.startswith("marker:"):           # a scatter point's shape
+                p.save()
+                p.setRenderHint(QPainter.RenderHint.Antialiasing)
+                draw_marker(p, kind[7:], sw.center(), 9.0, colour)
+                p.restore()
             elif kind == "sel":                 # as the Pivot Table chart's swatch
                 self._geo["sel_swatch"] = QRectF(sw)
                 p.fillRect(sw, colour)

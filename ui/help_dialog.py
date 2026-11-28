@@ -582,13 +582,17 @@ fields against the same X, as in the Line chart: each Y field has its own
 colour, legend entry and trend line settings. <b>Size by</b> a third number
 field makes a bubble plot (NULL draws the smallest point). With one Y field
 the points take the colours of the layer's symbology (each in the colour of
-its legend class), or one colour. <b>Trend line</b>: Linear, Exponential,
+its legend class), or one colour. Each Y field's trend line settings sit in a section of their own
+under <b>Statistics on the chart</b>: click its header to show or hide them
+(closed, the header sums them up). <b>Trend line</b>: Linear, Exponential,
 Logarithmic, Power or Polynomial (order 2 to 6). <b>Forward</b> and
 <b>Backward</b> forecast the line beyond the data, in X units (a
 spreadsheet's periods). <b>Set intercept</b> fixes the trend's value at
 X = 0 for linear, polynomial and exponential trends; R² is then worked out
 about the intercept, as spreadsheet trend lines do. <b>Show</b> puts the
-equation and R² in the legend. The exponential, logarithmic and power trends
+equation and R² in the legend. In <b>Appearance</b>, each Y field has its
+colour and point shape (circle, square, triangle, cross or x); with one Y
+field, <b>Shape</b> sets every point's. The exponential, logarithmic and power trends
 are fitted on the logarithms, and leave out values of 0 or less. Records with no X or Y value are left
 out (counted in the status bar). With many points the plot shades each spot
 by the records on it; every record still counts and can be selected.</p>

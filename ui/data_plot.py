@@ -30,7 +30,7 @@ from qgis.PyQt.QtGui import QColor, QGuiApplication, QIcon
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QScrollArea, QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 from qgis.core import (
     QgsCoordinateTransform, QgsExpressionContext, QgsMessageLog, QgsProject,
@@ -48,7 +48,10 @@ from ..core.jobs import JobRunner
 from ..core.scan import ScanSpec
 from . import icons
 from . import widgets as W
-from .plot_view import PlotModel, PlotView, fill_type_menu, series_colour, value_text
+from .plot_view import (
+    POINT_SHAPES, SHAPE_LABELS, PlotModel, PlotView, fill_type_menu, marker_icon, series_colour,
+    value_text,
+)
 from .theme import Metrics, Theme, stylesheet
 
 LOG_TAG = "Attribute Table Studio"
@@ -80,6 +83,39 @@ def _is_category(kind):
 
 def _is_split(kind):
     return kind in (F.TEXT, F.BOOL, F.INTEGER, F.OTHER)
+
+
+class _SectionHeader(QPushButton):
+    """The header of a section that opens and closes (an arrow, then its
+    text, elided to the room it has)."""
+
+    def __init__(self, metrics):
+        super().__init__()
+        self._full = ""
+        self.setObjectName("gtsDisclosure")
+        self.setFlat(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedHeight(metrics.control_h)
+        self.setIconSize(QSize(14, 14))
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setStyleSheet("QPushButton#gtsDisclosure { text-align: left; border: none; "
+                           "padding: 0px; font-weight: bold; background: transparent; }")
+
+    def set_full_text(self, text):
+        self._full = text
+        self._elide()
+
+    def full_text(self):
+        return self._full
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._elide()
+
+    def _elide(self):
+        room = max(20, self.width() - self.iconSize().width() - 14)
+        self.setText(" " + self.fontMetrics().elidedText(self._full,
+                                                         Qt.TextElideMode.ElideRight, room))
 
 
 # ============================================================================
@@ -255,6 +291,7 @@ class PlotProperties(QScrollArea):
         self.fields = None
         self.series = []                     # series of the last build (colours)
         self.summary_rows = []
+        self._trend_open = {}                # (plot id, Y field): its trend section open
         self._quiet = False
         self.title_edit = None
         self.colour_lay = None
@@ -427,7 +464,10 @@ class PlotProperties(QScrollArea):
 
         self._header("Statistics on the chart")
         for name in names:
-            self._trend_block(trends[name], name if len(names) > 1 else None)
+            # a section per Y field; one Y field's is open to start with
+            key = (self.plot.get("id"), name)
+            opened = self._trend_open.setdefault(key, len(names) == 1)
+            self._trend_block(trends[name], name, key, opened)
         if not names:
             self._note("Choose a Y field for its trend line.")
 
@@ -503,14 +543,19 @@ class PlotProperties(QScrollArea):
         for w in (smin, smax):
             w.valueChanged.connect(other)
 
-    def _trend_block(self, o, name=None):
+    def _trend_block(self, o, name, key, opened):
         """One Y field's trend line (*o*, its settings), as a spreadsheet
         trend line's: type, order, forecast forward and backward, a set
-        intercept, and the equation and R² in the legend.  *name* heads
-        the block when the plot has several Y fields."""
+        intercept, and the equation and R² in the legend; in a section that
+        opens and closes from its header (the field and a summary)."""
         m = self.metrics
-        if name is not None:
-            self.lay.addWidget(W.label(name, "strong"))
+        header = _SectionHeader(m)
+        self.lay.addWidget(header)
+        body = QWidget()
+        outer = self.lay                         # the section's rows go into its body
+        self.lay = QVBoxLayout(body)
+        self.lay.setContentsMargins(0, 0, 0, 4)
+        self.lay.setSpacing(outer.spacing())
         on = self._tick("Trend line", o.get("on"),
                         "The least squares trend of Y on X")
         kind = self._combo([(k, text, icons.option_icon(k, self.theme))
@@ -574,6 +619,32 @@ class PlotProperties(QScrollArea):
         icpt_note = self._note("With a set intercept, R² is worked out about the "
                                "intercept (as spreadsheet trend lines do), not about the "
                                "mean.")
+        self.lay = outer
+        self.lay.addWidget(body)
+
+        def summary():
+            if not on.isChecked():
+                text = f"{name} · no trend line"
+            else:
+                text = f"{name} · {P.TREND_LABELS.get(kind.currentData(), '')} trend"
+                extra = []
+                if forward.value() or backward.value():
+                    extra.append("forecast")
+                if icpt.isChecked() and kind.currentData() in P.INTERCEPT_TRENDS:
+                    extra.append("intercept")
+                if extra:
+                    text += f" ({', '.join(extra)})"
+            header.setToolTip(text + "\nClick to show or hide its trend line settings")
+            header.set_full_text(text)
+
+        def show(state):
+            self._trend_open[key] = state
+            body.setVisible(state)
+            header.setIcon(icons.glyph("chevron" if state else "chevron_right",
+                                       self.theme.text_dim))
+
+        header.clicked.connect(lambda: show(not self._trend_open.get(key)))
+        show(opened)
 
         def follow():
             shown = on.isChecked()
@@ -592,12 +663,15 @@ class PlotProperties(QScrollArea):
 
         follow()
 
+        summary()
+
         def changed(*_a):
             o.update(on=on.isChecked(), type=kind.currentData(), order=order.value(),
                      forward=forward.value(), backward=backward.value(),
                      set_intercept=icpt.isChecked(), equation=equation.isChecked(),
                      r2=r2.isChecked())
             follow()
+            summary()
             self._changed(True)
 
         def changed_value():
@@ -1640,6 +1714,16 @@ class PlotProperties(QScrollArea):
                 self._changed(True)
 
             mode.currentIndexChanged.connect(changed_mode)
+            fmt = self.plot.setdefault("format", {})
+            shape = self._combo([(k, text, marker_icon(k, self.theme.text))
+                                 for k, text in POINT_SHAPES], fmt.get("shape", "circle"))
+            self._row("Shape", shape, "The points' shape")
+
+            def changed_shape(*_a):
+                fmt["shape"] = shape.currentData()
+                self._changed(False)
+
+            shape.currentIndexChanged.connect(changed_shape)
         colours = QWidget()
         self.colour_lay = QVBoxLayout(colours)
         self.colour_lay.setContentsMargins(0, 0, 0, 0)
@@ -1733,6 +1817,8 @@ class PlotProperties(QScrollArea):
             row = QHBoxLayout(holder)
             row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(self.metrics.gap)
+            shape_btn = self._shape_button(fmt, name) \
+                if t == "scatter" and name is not None else None
             lbl = W.ElideLabel(text)               # a series name: in the column, elided
             lbl.setObjectName("gtsDim")
             lbl.setToolTip(text)
@@ -1743,7 +1829,27 @@ class PlotProperties(QScrollArea):
             lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
             row.addWidget(lbl)
             row.addWidget(btn, 1)
+            if shape_btn is not None:              # a Y field's point shape, beside its colour
+                row.addWidget(shape_btn)
             lay.addWidget(holder)
+
+    def _shape_button(self, fmt, name):
+        """A Y field's point shape: a square button showing it, its menu the
+        shapes."""
+        shapes = fmt.setdefault("shapes", {})
+        menu = QMenu(self)
+        btn = W.menu_square(self.metrics, marker_icon(shapes.get(str(name), "circle"),
+                                                      self.theme.text),
+                            f"Point shape of {name}: "
+                            f"{SHAPE_LABELS.get(shapes.get(str(name), 'circle'))}", menu)
+        for key, text in POINT_SHAPES:
+            def choose(_c=False, key=key, text=text):
+                shapes[str(name)] = key
+                btn.setIcon(marker_icon(key, self.theme.text))
+                btn.setToolTip(f"Point shape of {name}: {text}")
+                self._changed(False)
+            menu.addAction(marker_icon(key, self.theme.text), text).triggered.connect(choose)
+        return btn
 
     def refresh_title_hint(self):
         if self.title_edit is not None and self.plot is not None:
@@ -2685,11 +2791,14 @@ class DataPlotPanel(QWidget):
             names = self.data.names or P.scatter_fields(d)
             m.x_title = gen.get("x_title") or d.get("x") or ""
             m.y_title = gen.get("y_title") or ", ".join(names)
-            if len(names) > 1:                       # a colour per Y field
+            m.shape = fmt.get("shape", "circle")
+            if len(names) > 1:                       # a colour and a shape per Y field
                 colours = fmt.get("colours", {})
                 m.colours = [series_colour(self.theme, i, name, len(names),
                                            colours.get(str(name)))
                              for i, name in enumerate(names)]
+                shapes = fmt.get("shapes", {})
+                m.shapes = [shapes.get(str(name), "circle") for name in names]
             elif d.get("colour") == "single" or self.table.classes is None:
                 m.single = QColor(fmt.get("colour") or self.theme.bar)
             else:

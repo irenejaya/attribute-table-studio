@@ -209,11 +209,49 @@ class DataPlotTests(unittest.TestCase):
         r2_lines = [i for i, text in enumerate(texts) if text.startswith("R² =")]
         self.assertEqual(len(r2_lines), 1)            # SCORE_2Y's R² is hidden
         self.assertLess(r2_lines[0], texts.index("Linear trend (SCORE_2Y)"))
-        # the card: a trend block per Y field, the Points row gone
-        labels = [lbl.text() for lbl in props._labels]
+        # the card: a trend section per Y field, closed, its header a summary;
+        # the Points row gone
+        from qgis.PyQt.QtWidgets import QPushButton, QToolButton
+        labels = [lbl.text() for lbl in panel.props._labels]
         self.assertEqual(labels.count("Forward"), 2)
         self.assertNotIn("Points", labels)
         self.assertEqual(panel._colour_names(plot, data), ["SCORE_MIN", "SCORE_2Y"])
+        heads = [b for b in panel.props.widget().findChildren(QPushButton)
+                 if b.objectName() == "gtsDisclosure"]
+        self.assertEqual([h.toolTip().split("\n")[0] for h in heads],   # (text: elided)
+                         ["SCORE_MIN · Linear trend (forecast)",
+                          "SCORE_2Y · Linear trend (intercept)"])
+        forwards = [w for w in panel.props._labels if w.text() == "Forward"]
+        # SCORE_MIN's section was open while it was the only Y field; the new one is closed
+        self.assertEqual([w.isVisible() for w in forwards], [True, False])
+        heads[0].click()
+        heads[1].click()
+        H.settle(0.1)
+        self.assertEqual([w.isVisible() for w in forwards], [False, True])
+        # a point shape per Y field, beside its colour; the legend shows it
+        shape_btns = [b for b in panel.props.widget().findChildren(QToolButton)
+                      if b.toolTip().startswith("Point shape of")]
+        self.assertEqual(len(shape_btns), 2)
+        triangle = next(a for a in shape_btns[1].menu().actions() if a.text() == "Triangle")
+        triangle.trigger()
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        self.assertEqual(panel.current_plot()["format"]["shapes"]["SCORE_2Y"], "triangle")
+        self.assertEqual(panel.model.shapes, ["circle", "triangle"])
+        kinds = {e[2]: e[0] for e in panel.view._legend_entries()}
+        self.assertEqual((kinds["SCORE_MIN"], kinds["SCORE_2Y"]),
+                         ("marker:circle", "marker:triangle"))
+        with tempfile.TemporaryDirectory() as tmp:     # SVG: the shapes as vectors
+            path = os.path.join(tmp, "plot.svg")
+            panel.export_image("svg", path)
+            with open(path, encoding="utf-8") as f:
+                self.assertIn("<svg", f.read())
+        panel.props._rebuild()                        # a rebuilt card keeps what is open
+        H.settle(0.1)
+        heads = [b for b in panel.props.widget().findChildren(QPushButton)
+                 if b.objectName() == "gtsDisclosure"]
+        self.assertEqual(len(heads), 2)
+        forwards = [w for w in panel.props._labels if w.text() == "Forward"]
+        self.assertEqual([w.isVisible() for w in forwards], [False, True])
         # a record of both fields counts once in the selection and the CSV
         both = [i for i, (a, b, c) in enumerate(zip(self.values("SCORE_MAX"),
                                                     self.values("SCORE_MIN"),
@@ -266,6 +304,13 @@ class DataPlotTests(unittest.TestCase):
         self.assertTrue(H.wait_for(lambda: ready(panel)))
         self.assertFalse(tick("Set intercept").isEnabled())
         self.assertIsNone(panel.data.trend.intercept)
+        # one Y field: its trend section is open, one Shape row for all points
+        shape = next(w for w in panel.props.widget().findChildren(QComboBox)
+                     if w.findData("cross") >= 0)
+        shape.setCurrentIndex(shape.findData("cross"))
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        self.assertEqual(panel.model.shape, "cross")
+        self.assertIn("marker:cross", [e[0] for e in panel.view._legend_entries()])
 
     def test_03_line_by_month(self):
         panel = self.panel()

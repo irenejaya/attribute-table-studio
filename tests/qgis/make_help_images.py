@@ -607,6 +607,12 @@ def plot_special(panel, win, name):
         cy = sum(pt.y() for pt in inside) / len(inside)
         pt = min(inside, key=lambda q: (q.x() - cx) ** 2 + (q.y() - cy) ** 2)
         return on_view(QRectF(pt.x() - 8, pt.y() - 8, 16, 16))
+    if head == "disclosure":                 # the first Y field's trend section header
+        heads = [b for b in shown(props.widget().findChildren(QAbstractButton))
+                 if b.objectName() == "gtsDisclosure"]
+        if not heads:
+            raise ValueError("no trend section")
+        return widget_rect(win, heads[0])
     if head == "legend":
         return on_view(geo["legend_box"])
     if head == "plot":

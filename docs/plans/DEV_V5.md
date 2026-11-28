@@ -454,6 +454,17 @@ Explorer's Data Plot menu. Choices made while building:
   the tool keep theirs. The line is drawn over the data and its forecast, no
   longer across the whole axis. Plots saved before keep their one trend on
   the first Y field.
+- **Each Y field's trend settings in a section that opens and closes**:
+  under Statistics on the chart a header per Y field sums its trend up
+  ("AREA_M2 · Linear trend (forecast)"); a click shows or hides its
+  settings, so several Y fields do not fill the card. A plot with one Y
+  field shows them open; what is open is kept while the card is rebuilt.
+- **Point shapes**: circle, square, filled triangle, cross and x, chosen in
+  Appearance beside each Y field's colour (a square button with the shapes in
+  its menu), or in a Shape row with one Y field; the legend shows each
+  field's shape, and the SVG export draws them as vectors.
+- **Asked and left out for now**: several Y fields for Histogram and QQ
+  Plot, Visualize Statistics and the Pivot Table chart.
 
 ## Not in this plan
 

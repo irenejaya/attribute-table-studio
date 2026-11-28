@@ -398,11 +398,13 @@ Explorer's filtered records. Data Plot is separate from Visualize Statistics
     root transformations, small histograms per category with a preview.
   - *Box Plot*: quartiles, whiskers and outliers (1.5 × the interquartile
     range) of one or more fields per category, z-scores for several fields.
-  - *Scatter Plot*: one or more Y fields against one X (each Y field its own
-    colour), Size by, the layer's symbology colours, and per Y field a linear,
-    exponential, logarithmic, power or polynomial trend line with the controls
-    of a spreadsheet trend line: forecast forward and backward, a set
-    intercept, the equation and R² in the legend.
+  - *Scatter Plot*: one or more Y fields against one X, each Y field with its
+    own colour and point shape (circle, square, triangle, cross or x), Size
+    by, the layer's symbology colours, and per Y field a linear, exponential,
+    logarithmic, power or polynomial trend line with the controls of a
+    spreadsheet trend line (forecast forward and backward, a set intercept,
+    the equation and R² in the legend), in a section of its own that opens and
+    closes.
   - *Scatter Plot Matrix*: every pair of several fields, R² values, a
     preview plot, histograms on the diagonal.
   - *QQ Plot*: a field against the normal distribution or a second field,
