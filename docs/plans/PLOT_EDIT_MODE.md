@@ -57,7 +57,7 @@ and is not touched by the mode.
 | Points (scatter, QQ, matrix) | Size (when not Size by), transparency, outline |
 | Trend, reference, mean, median and normal curve lines | Colour, width, dash |
 | Guides | Colour, width, dash (value and label stay in the card) |
-| Each type's own parts (boxes, cells, rings) | In a later round |
+| Each type's own parts (boxes, heat cells, calendar days, clock rings, matrix cells) | Not edited (decided): a click on them selects the canvas |
 
 ## Objects that can be added
 
@@ -109,7 +109,8 @@ As planned, with these choices:
 - **Mean, median and standard deviation lines** keep their colour in the
   card (beside their ticks): Edit plot sets their width and dash only.
 - **Each type's own parts** (boxes, heat cells, calendar days, clock rings,
-  matrix cells) are not edited yet: a click on them selects the canvas.
+  matrix cells) are not edited, as decided after the build: a click on them
+  selects the canvas.
 - **Pictures** are kept inside the plot as PNG, their longest side at most
   1,600 px.
 - **Undo** treats quick changes of one setting (typing, a spin box) as one
