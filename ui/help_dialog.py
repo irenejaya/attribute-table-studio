@@ -529,28 +529,39 @@ PLOT_HELP = """
 <p>Plots made from a layer's records, with the options ArcGIS Pro gives its
 charts. Open it from the <b>Data Plot</b> button of the Attribute Table
 Studio toolbar, the plugin menu or the <b>Data Plot</b> button of Attribute
-Explorer's top bar (its menu lists the plot types; the plot opens with the
-Explorer's filtered records). Data Plot is separate from Visualize
+Explorer's top bar (its menu lists the plot types; a new plot of that layer
+opens with the Explorer's filtered records). Data Plot is separate from Visualize
 Statistics (one column of an Attribute Explorer) and from the Pivot Table
 chart.</p>
 <h4>The window</h4>
 <ul>
-<li><b>Layer</b>: any vector layer, with or without geometry.</li>
+<li><b>Plots</b> (the list on the left) holds every plot of the project.
+Each plot is made from a layer of its own, shown dimmed after its name;
+plots of different layers sit in the same list. Click a plot to show it;
+rename it (double-click), duplicate, delete or move it with the buttons
+above the list. <b>Open in new window</b> shows a plot in a second window,
+beside the first.</li>
+<li><b>Layer</b> (the first row of Data in the settings card): the layer
+the plot is made from, any vector layer with or without geometry. Choosing
+another keeps the fields that have the same names there; the others go
+back to <i>Choose a field…</i>.</li>
+<li><b>New plot</b> makes a plot on the layer of the plot shown (the active
+layer when the list is empty); change its layer under Data.</li>
 <li><b>Records</b> (<b>Change scope</b>): All records, the Attribute Explorer's filtered records
 (open the layer in Attribute Explorer first), Selected records or the
-Visible map extent. The plot follows them: a new filter, selection, map
-extent or edit draws it again. Big layers are read in the background
-(progress and Cancel in the status bar).</li>
-<li><b>New plot</b> adds a plot to the layer's list on the left. Click a
-plot to show it; rename it (double-click), duplicate, delete or move it
-with the buttons above the list. <b>Open in new window</b> shows a plot in
-a second window, beside the first.</li>
+Visible map extent, kept with each plot. The plot follows them: a new
+filter, selection, map extent or edit draws it again. Big layers are read
+in the background (progress and Cancel in the status bar).</li>
+<li>When a plot's layer is removed from the project, the plot stays in the
+list, greyed, until you delete it or choose another layer for it under
+Data.</li>
 <li><b>Plots</b> (top left) hides the list of plots, so the plot takes its
 width; click it again to show the list. Every window opens with the list
 shown.</li>
-<li>The plots of every layer are saved in the QGIS project and come back
-when it opens. <b>Save plot to file</b> and <b>Load plot from file</b>
-move a plot to another project or layer with the same field names.</li>
+<li>The plots are saved in the QGIS project and come back when it opens.
+<b>Save plot to file</b> and <b>Load plot from file</b> move a plot to
+another project or layer: it is made again on the layer of the plot shown,
+and its layer can then be changed under Data.</li>
 <li><b>Export</b>: PNG or SVG image, copy the image, or the plotted values
 as CSV.</li>
 </ul>

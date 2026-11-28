@@ -1,7 +1,6 @@
 # Plots that keep their own layer: plan
 
-Status: **being built** as Round 5 of version 1.4 (dev-v5); questions
-answered.
+Status: **built** as Round 5 of version 1.4 (dev-v5).
 
 ## Now
 
@@ -35,9 +34,9 @@ per plot in the settings card, like its fields.
   list is empty); the layer can then be changed in the card.
 - **Attribute Explorer's Data Plot button**: adds a new plot of that layer
   with the Explorer's filtered records to the list and shows it (as now).
-- **A layer leaves the project**: its plots stay in the list, marked *layer
-  not in the project* (greyed, with a warning icon). Choosing a layer in the
-  card brings one back (fields by name); or delete it.
+- **A layer leaves the project**: its plots stay in the list, greyed and
+  marked *not in the project*, without asking, until you delete them or
+  choose another layer in the card (fields by name).
 - **Plot files**: *Save plot to file* records the layer's name; *Load plot
   from file* adds it to the list on the layer of the plot shown, and the
   layer can be changed in the card.
@@ -60,3 +59,19 @@ before the plot editing mode, which builds on it.
    layers: one list, the layer after each name.
 2. Records are kept per plot.
 3. Built in 1.4, before its release.
+4. A plot whose layer is removed stays, greyed; nothing asks, nothing is
+   deleted until you delete it.
+5. The list as built (the layer dimmed after each name) is good; the layer
+   also shows in the card.
+
+## Built
+
+As proposed above. Choices made while building:
+
+- Only a layer you pick in the Layer box moves a plot: the box also moves
+  by itself when a layer leaves the project, and the plot must not follow
+  it then.
+- Plots read from a project are completed from a new plot of their type
+  when an earlier version (or a hand edit) left settings out.
+- A read that finishes after another plot was chosen no longer builds that
+  plot from the wrong fields (it reads again).

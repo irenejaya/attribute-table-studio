@@ -355,23 +355,27 @@ the profiles afterwards; stale results are never shown.
 Plots of a layer's records, with the twelve chart types of ArcGIS Pro and the
 options it gives each. Open it from the **Data Plot** button of the toolbar
 (after Pivot Table), the plugin menu, or Attribute Explorer's **Data Plot**
-button: its menu lists the plot types, and the plot opens with the
-Explorer's filtered records. Data Plot is separate from Visualize Statistics
+button: its menu lists the plot types, and a new plot of that layer opens
+with the Explorer's filtered records. Data Plot is separate from Visualize Statistics
 (one column of an Attribute Explorer) and from the Pivot Table chart.
 
 ![Data Plot](docs/screenshots/dark_plot.png)
 
-- **Records**: all records, the Attribute Explorer's filtered records,
-  selected records or the visible map extent (*Change scope*). The plot
-  follows them live: a new filter, selection, map extent or edit draws it
-  again. Big layers are read in the background (progress and Cancel in the
-  status bar) and only the fields a plot uses are kept.
-- **Plots**: every layer keeps a list of plots, saved in the QGIS project.
+- **Plots**: one list of every plot of the project, saved in the QGIS
+  project. Each plot is made from a layer of its own (dimmed after its
+  name), chosen in the first row of Data; choosing another layer keeps the
+  fields that have the same names. A plot whose layer leaves the project
+  stays in the list, greyed, until you delete it or give it another layer.
   New plot sits beside the Plots heading and the list's buttons above the
-  list: rename, duplicate, delete, move, *Open in new window* (two plots side by side), *Save plot to
-  file* and *Load plot from file*. The **Plots** button at the top left hides
-  the list for a wider plot and shows it again; every window opens with the
-  list shown.
+  list: rename, duplicate, delete, move, *Open in new window* (two plots side
+  by side), *Save plot to file* and *Load plot from file*. The **Plots**
+  button at the top left hides the list for a wider plot and shows it again;
+  every window opens with the list shown.
+- **Records**, kept with each plot: all records, the Attribute Explorer's
+  filtered records, selected records or the visible map extent (*Change
+  scope*). The plot follows them live: a new filter, selection, map extent
+  or edit draws it again. Big layers are read in the background (progress
+  and Cancel in the status bar) and only the fields a plot uses are kept.
 
   ![Scatter plot with the list hidden](docs/screenshots/dark_plot_scatter.png)
 - **Settings** in one card, as in Visualize Statistics: *Data* (an

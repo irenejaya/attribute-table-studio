@@ -11,7 +11,7 @@ stay as they are.
 | 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Built |
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Built |
 | 4 | Help, README, screenshots, 1.4 changelog | Built |
-| 5 | Plots keep their own layer: one list of every plot, the layer in the card, records per plot ([PLOT_MANAGER.md](PLOT_MANAGER.md)) | Building |
+| 5 | Plots keep their own layer: one list of every plot, the layer in the card, records per plot ([PLOT_MANAGER.md](PLOT_MANAGER.md)) | Built |
 | 6 to 8 | Plot editing mode: the mode and the canvas look, added objects, plot files with both, Help ([PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md)) | Planned |
 
 Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to

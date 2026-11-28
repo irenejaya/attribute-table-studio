@@ -656,9 +656,6 @@ PLOT = [
             I("plots_btn", "Plots",
               "Hide the list of plots, so the plot takes its width; click again to show "
               "it. Every window opens with the list shown.", icons.LIST_VIEW),
-            I("@row:Layer", "Layer",
-              "The layer this plot is made from (each plot has its own); choosing another "
-              "keeps the fields that have the same names there."),
             I("scope_label", "Records", "Which records the plots show, and how many."),
             I("scope_btn", "Change scope",
               "All records, the Attribute Explorer's filtered records, the selected "
@@ -679,9 +676,14 @@ PLOT = [
               "down, open it in a second window beside this one, and More: rename it, "
               "save it to a file or load one from a file (on another layer with the "
               "same field names)."),
-            I("plot_list", "The layer's plots",
-              "Click a plot to show it; double-click to rename it; right-click for the "
-              "same actions."),
+            I("plot_list", "The plots",
+              "Every plot of the project, each with its layer dimmed after its name. Click "
+              "a plot to show it; double-click to rename it; right-click for the same "
+              "actions. A plot whose layer left the project stays, greyed, until you "
+              "delete it or give it another layer."),
+            I("@row:Layer", "Layer",
+              "The layer the plot shown is made from (each plot has its own). Choosing another "
+              "keeps the fields that have the same names there."),
             I("props", "Settings",
               "The plot's settings in one card: Data (its fields), then Axes, Guides, "
               "Summary and Appearance. Each plot type's tab shows its own."),
