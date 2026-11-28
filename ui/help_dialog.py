@@ -892,3 +892,12 @@ class HelpDialog(QDialog):
         lay.addWidget(box)
         self.setStyleSheet(stylesheet(theme, metrics))
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
+        # wide enough for every tab (Data Plot has 14) when a large font needs it
+        # and the screen has room; otherwise the tab row scrolls, as before
+        bar = self.tabs.tabBar()
+        bar.ensurePolished()
+        need = bar.sizeHint().width() + 2 * metrics.margin + 8
+        screen = self.screen() if hasattr(self, "screen") else None
+        room = screen.availableGeometry().width() - 40 if screen is not None else 0
+        if need > self.width() and room > self.width():
+            self.resize(min(need, room), self.height())

@@ -1746,12 +1746,18 @@ class PlotView(QWidget):
         inner = cell.adjusted(pad if not small else 3, 3, -3, -(3 if small else 18))
         xa = Axis(P.NUMBER, lo_x, hi_x, False, d.kinds[xi])
         ya = Axis(P.NUMBER, lo_y, hi_y, False, d.kinds[yi])
-        xa.place(inner.left(), inner.right())
         ya.place(inner.bottom(), inner.top())
         if not small:
+            # room for the widest y label (millions need more than 30 px)
             fm = QFontMetrics(self.font())
+            y_ticks = ya.ticks(max(2, int(inner.height() / 40)))
+            widest = max((fm.horizontalAdvance(s) for _v, s in y_ticks), default=0)
+            pad = int(min(max(30, widest + 10), cell.width() * 0.4))
+            inner = cell.adjusted(pad, 3, -3, -18)
+        xa.place(inner.left(), inner.right())
+        if not small:
             p.setPen(QColor(self.theme.text_dim))
-            for v, s in ya.ticks(max(2, int(inner.height() / 40))):
+            for v, s in y_ticks:
                 y = ya.map(v)
                 if inner.top() <= y <= inner.bottom():
                     p.drawText(QRectF(cell.left(), y - 8, pad - 4, 16),

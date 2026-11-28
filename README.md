@@ -359,6 +359,8 @@ button: its menu lists the plot types, and the plot opens with the
 Explorer's filtered records. Data Plot is separate from Visualize Statistics
 (one column of an Attribute Explorer) and from the Pivot Table chart.
 
+![Data Plot](docs/screenshots/dark_plot.png)
+
 - **Records**: all records, the Attribute Explorer's filtered records,
   selected records or the visible map extent (*Change scope*). The plot
   follows them live: a new filter, selection, map extent or edit draws it
@@ -370,6 +372,8 @@ Explorer's filtered records. Data Plot is separate from Visualize Statistics
   file* and *Load plot from file*. The **Plots** button at the top left hides
   the list for a wider plot and shows it again; every window opens with the
   list shown.
+
+  ![Scatter plot with the list hidden](docs/screenshots/dark_plot_scatter.png)
 - **Settings** in one card, as in Visualize Statistics: *Data* (an
   **X-axis** and a **Y-axis** box wherever the type has both), *Time
   binning* (dates in intervals of a chosen size, aligned to the first or

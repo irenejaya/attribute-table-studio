@@ -10,7 +10,7 @@ stay as they are.
 | 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Built |
 | 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Built |
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Built |
-| 4 | Help, README, screenshots, 1.4 changelog | In progress: README text, changelog, metadata and the plot list layout done; Help pictures and screenshots next |
+| 4 | Help, README, screenshots, 1.4 changelog | Built |
 
 Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to
 dev-v5, and shown with screenshots before the next round starts. The version
@@ -415,6 +415,28 @@ Explorer's Data Plot menu. Choices made while building:
   Plots card and the plot takes its width; every window opens with the card
   shown (not remembered). New plot and the list's buttons moved from under
   the list to above it.
+
+## Round 4 built
+
+- **Help**: the Data Plot's ? button opens Overview, one tab per plot type
+  (Bar, Line, Combo, Pie, Histogram, Box Plot, Scatter, Scatter Matrix, QQ
+  Plot, Matrix Heat, Calendar, Data Clock) and More details. Each picture
+  shows the plot beside its settings card with red numbered badges on the
+  type's own rows and on a bar, slice, cell or the legend; the window's
+  height is trimmed so the card never ends in half a row. Short tab names
+  keep the 14 tabs in one row. Pictures: `tests/qgis/make_help_images.py`
+  (made-up parcels).
+- **README**: Data Plot in the tool table, its own section with two
+  screenshots (the bar chart with records selected, the scatter plot with the
+  plot list hidden), light and dark. The other screenshots were made again,
+  as they showed the Explorer's top bar without the Data Plot button and the
+  settings cards before their boxes were lined up.
+- **metadata.txt**: version 1.4 and its changelog.
+- Fixed while making the pictures: a series' colour row squeezed its name to
+  a letter or two (the elided label was ignored by the row's layout), and the
+  scatter plot matrix's preview cut its y labels when they ran to millions.
+  `make_screenshots.py` had stopped at the Explorer selection since 1.3 (an
+  array of record ids where QGIS wants a list).
 
 ## Not in this plan
 

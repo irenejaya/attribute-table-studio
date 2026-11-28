@@ -2265,7 +2265,7 @@ class SuiteTests(unittest.TestCase):
         from attribute_table_studio.core import pivot as P
         from attribute_table_studio.ui.help_dialog import HelpDialog, picture_path
         from attribute_table_studio.ui.help_pages import PAGES
-        self.assertEqual(set(PAGES), {"explorer", "chart", "pivot", "compare"})
+        self.assertEqual(set(PAGES), {"explorer", "chart", "pivot", "plot", "compare"})
         for topic, tabs in PAGES.items():
             for tab in tabs:
                 self.assertFalse(QPixmap(picture_path(tab.key)).isNull(), tab.key)

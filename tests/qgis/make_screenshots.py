@@ -188,7 +188,7 @@ if THEME == "dark":
 filt(ex, "LAND_VALUE", F.INTEGER, "gt", "650000")
 ex.refresh()
 wait_profiles(ex)
-layer.selectByIds(ex.model.fids[1:4])
+layer.selectByIds(list(ex.model.fids[1:4]))
 H.settle(0.3)
 ex.edit_bar.edit_btn.click()
 H.settle(0.3)
@@ -340,6 +340,63 @@ if THEME == "dark":
     save(pc_win, "pivot_chart")
     pv.chart_host.close()
     layer.removeSelection()
+
+# Data Plot: a few plots of the layer, the bar chart with some records selected
+from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsSymbol  # noqa: E402
+from qgis.PyQt.QtGui import QColor  # noqa: E402
+dp = plugin.open_data_plot(layer)
+dwin = dp.window()
+dwin.resize(1440, 800)
+
+
+def plot_ready():
+    return (dp.data is not None and not dp.reader.busy and not dp.builder.busy
+            and not dp.selector.busy)
+
+
+def make_plot(kind, name, **data):
+    dp.new_plot(kind)
+    plot = dp.current_plot()
+    plot["name"] = name
+    plot["data"].update(data)
+    dp._write(plot)
+    dp._fill_list(plot["id"])
+    dp._show_plot(plot["id"])
+    H.wait_for(plot_ready, 60)
+    H.settle(0.4)
+
+
+old_renderer = layer.renderer().clone()      # the points in the layer's colours
+cats = []
+for value, colour in (("Residential", "#4c9be8"), ("Commercial", "#e8833a"),
+                      ("Industrial", "#7b5ea7"), ("Rural", "#3aa76d"),
+                      ("Open space", "#9aa64b"), ("Community", "#d45d8a")):
+    sym = QgsSymbol.defaultSymbol(layer.geometryType())
+    sym.setColor(QColor(colour))
+    cats.append(QgsRendererCategory(value, sym, value))
+layer.setRenderer(QgsCategorizedSymbolRenderer("LAND_USE", cats))
+make_plot("clock", "Surveys per month", x="SURVEY_DATE", field=None)
+make_plot("scatter", "Area and land value", x="AREA_M2", y="LAND_VALUE", trend=True)
+make_plot("line", "Mean land value per month", x="SURVEY_DATE", fields=["LAND_VALUE"],
+          agg="mean", unit="months")
+make_plot("bar", "Area by land use", x="LAND_USE", fields=["AREA_M2"], agg="sum",
+          split="OWNER_TYPE", multi="stacked", sort="value_desc")
+layer.selectByExpression('"LAND_USE" = \'Residential\' AND "OWNER_TYPE" = \'Council\'')
+H.wait_for(plot_ready, 60)
+save(dwin, "plot")
+layer.removeSelection()
+
+if THEME == "dark":
+    # the scatter plot with its trend, the plot list hidden (Plots)
+    dp._show_plot(dp.store.plots(layer.id())[1]["id"])
+    dp.plots_btn.click()
+    dwin.resize(1280, 760)
+    H.wait_for(plot_ready, 60)
+    save(dwin, "plot_scatter")
+    dp.plots_btn.click()
+for plot_host in list(plugin.plot_hosts):
+    plot_host.close()
+layer.setRenderer(old_renderer)
 
 # Geometry and Table Compare
 base = sample_parcels(n=2000, seed=7, name="Sample parcels (baseline)")

@@ -1580,6 +1580,8 @@ class PlotProperties(QScrollArea):
             width = getattr(self, "_label_width", 0) or self.metrics.fm.horizontalAdvance(
                 "Description") + 4
             lbl.setFixedWidth(width)
+            # an elided label is ignored by the row's layout: fixed, it keeps its column
+            lbl.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
             row.addWidget(lbl)
             row.addWidget(btn, 1)
             lay.addWidget(holder)

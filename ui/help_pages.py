@@ -635,4 +635,281 @@ COMPARE = [
         crops=[["review_scope", "geom_summary_label", "@table_top"], ["review_tally"]]),
 ]
 
-PAGES = {"explorer": EXPLORER, "chart": CHART, "pivot": PIVOT, "compare": COMPARE}
+# ============================================================================
+# DATA PLOT
+# ============================================================================
+# Targets: "@row:Label" is the settings row with that label ("#2" for the
+# second), "@tick:Text" a tick box, "@button:Text" a button of the settings
+# card; "@item" the plot's largest bar, box, cell or point, "@wedge" its
+# largest slice, "@legend", "@plot" the plot area, "@cell:r2" / "@cell:preview"
+# a cell of the scatter plot matrix.
+
+_PLOT_CROP = [["view", "props"]]
+_SELECT = ("Click to select its records (Ctrl+click adds, a drag selects a range); "
+           "right-click to inspect them in Attribute Explorer.")
+
+PLOT = [
+    Tab("plot_overview", "Overview",
+        "Plots of a layer's records. Every layer keeps its own list of plots, saved in "
+        "the QGIS project.",
+        [
+            I("plots_btn", "Plots",
+              "Hide the list of plots, so the plot takes its width; click again to show "
+              "it. Every window opens with the list shown.", icons.LIST_VIEW),
+            I("layer_combo", "Layer", "The layer the plots are made of."),
+            I("scope_label", "Records", "Which records the plots show, and how many."),
+            I("scope_btn", "Change scope",
+              "All records, the Attribute Explorer's filtered records, the selected "
+              "records or the visible map extent. The plot follows them as they change.",
+              icons.FILTER),
+            I("clear_btn", "Clear selection",
+              "Deselect the records (the plot's selection is the layer's).",
+              icons.DESELECT_LAYER),
+            I("export_btn", "Export",
+              "Save the plot as a PNG or SVG image, copy it, or write the plotted values "
+              "as CSV.", icons.EXPORT),
+            I("help_btn", "Help", "Opens this window.", icons.HELP),
+            I("dock_btn", "Dock", "Dock the window into QGIS, and undock it.", icons.DOCK),
+            I("new_btn", "New plot", "Choose a plot type; then choose its fields under Data.",
+              icons.ADD),
+            I("dup_btn", "Duplicate", "A copy of the plot, to try other settings.",
+              icons.COPY),
+            I("del_btn", "Delete", "Delete the plot.", icons.DELETE),
+            I("up_btn+down_btn", "Move up, Move down", "Change the order of the list."),
+            I("window_btn", "Open in new window",
+              "Show this plot in a second window, beside this one.", icons.TABLE_VISIBLE),
+            I("more_btn", "More", "Rename the plot, save it to a file or load one from a "
+              "file (on another layer with the same field names)."),
+            I("plot_list", "The layer's plots",
+              "Click a plot to show it; double-click to rename it; right-click for the "
+              "same actions."),
+            I("props", "Settings",
+              "The plot's settings in one card: Data (its fields), then Axes, Guides, "
+              "Summary and Appearance. Each plot type's tab shows its own."),
+            I("@status", "Status bar",
+              "The plot type, its bars or points, the records left out and what a click "
+              "does; the progress (with Cancel) while a big layer is read."),
+        ],
+        notes=[
+            "Labels in the settings card are short so the boxes line up; hover one for "
+            "its full name.",
+            "Big layers are read in the background into compact columns; a setting that "
+            "needs no new field never reads the layer again.",
+        ],
+        crops=[["plots_btn", "dock_btn"], ["list_card", "props", "@status"]]),
+
+    Tab("plot_bar", "Bar",
+        "A value per category: one bar each, or one per category and series.",
+        [
+            I("@row:X-axis", "X-axis",
+              "The categories: a text, yes / no or whole number field, or dates grouped "
+              "in time intervals (Time binning)."),
+            I("@row:Y-axis", "Y-axis", "Count of records, or a number field."),
+            I("@button:Add Y field", "Add Y field", "Another number field: a series of "
+              "its own.", icons.ADD),
+            I("@row:Aggregate", "Aggregate",
+              "Sum, mean, median, minimum or maximum of the field per category."),
+            I("@row:Split by", "Split by",
+              "One series per category of a second field: the 8 with the most records "
+              "get their own colour, the rest form an exact Other."),
+            I("@row:Bars", "Bars", "Several series side by side, stacked or 100% stacked."),
+            I("@row:Sort", "Sort", "A → Z, Z → A, smallest or largest value first."),
+            I("@item", "A bar", "Hover it for its numbers. " + _SELECT),
+            I("@legend", "Legend", "Click a series to select its records."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_line", "Line",
+        "Values along a date or number field; dates are grouped in time intervals.",
+        [
+            I("@row:X-axis", "X-axis", "A date or number field."),
+            I("@row:Y-axis", "Y-axis",
+              "Count of records, or a number field (Add Y field: one line each)."),
+            I("@row:Aggregate", "Aggregate", "Sum, mean, median, minimum or maximum."),
+            I("@row:Split by", "Split by", "One line per category of a second field."),
+            I("@row:Interval", "Interval",
+              "The size and unit of each interval (Auto from the time span)."),
+            I("@row:Align to", "Align to",
+              "Intervals start at the first record, end at the last one, or start at a "
+              "reference time."),
+            I("@tick:Trim incomplete interval", "Trim incomplete interval",
+              "Leave out a first or last interval the records do not fill."),
+            I("@row:Empty bins", "Empty bins",
+              "Intervals without records: treat as zero, connect the line or break it."),
+            I("@item", "A point", "Hover it for its interval and value. " + _SELECT),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_combo", "Combo",
+        "Bars and lines over one X axis, on a left and a right axis.",
+        [
+            I("@row:X-axis", "X-axis", "Categories, numbers, or dates grouped in intervals."),
+            I("@row:Y-axis", "Series",
+              "Count of records or a number field, with its aggregate."),
+            I("@row:Show as", "Show as",
+              "Bar or Line, on the left or the right y-axis; each axis fits its own "
+              "series."),
+            I("@row:Y-axis#2", "Second series", "Another series (remove it with −)."),
+            I("@button:Add series", "Add series", "Another bar or line.", icons.ADD),
+            I("@row:Interval", "Interval", "The time intervals of a date field."),
+            I("@item", "A bar or point", "Hover it for every series at that place. "
+              + _SELECT),
+            I("@legend", "Legend", "The series and their axes."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_pie", "Pie",
+        "Shares of a whole, largest first from 12 o'clock.",
+        [
+            I("@row:Slices", "Slices",
+              "The categories of one field, or several number fields (one slice each)."),
+            I("@row:Category", "Category", "The field whose categories are the slices."),
+            I("@row:Value", "Value", "Count of records, or a number field summarised."),
+            I("@row:Threshold", "Threshold",
+              "Slices under this share go together as an exact Other."),
+            I("@row:Donut hole", "Donut hole", "A hole in the middle: a donut chart."),
+            I("@wedge", "A slice", "Hover it for its value and share. " + _SELECT),
+            I("@legend", "Legend", "Click a category to select its records."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_histogram", "Histogram",
+        "The distribution of one number field.",
+        [
+            I("@row:X-axis", "X-axis", "The number field."),
+            I("@row:Bins", "Bins",
+              "Auto: the square root of the number of records (at most 64)."),
+            I("@row:Transform", "Transform",
+              "Logarithmic or square root, to see a skewed field more evenly."),
+            I("@row:Split by", "Split by",
+              "One small histogram per category, on the same bins."),
+            I("@tick:Mean", "Mean", "A line at the mean (its colour beside it)."),
+            I("@tick:Median", "Median", "A line at the median."),
+            I("@tick:± 1 Std. Dev.", "± 1 Std. Dev.",
+              "Lines one standard deviation either side of the mean."),
+            I("@tick:Normal Distribution Curve", "Normal Distribution Curve",
+              "The bell curve with the field's mean and standard deviation."),
+            I("@item", "A bin", "Hover it for its range and records. " + _SELECT),
+            I("@legend", "Legend", "The lines and the selected records."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_box", "Box Plot",
+        "The spread of one or more number fields, per category.",
+        [
+            I("@row:X-axis", "X-axis",
+              "A category field: one box per category (None: one box per field)."),
+            I("@row:Y-axis", "Y-axis", "The number field (Add Y field: a box each)."),
+            I("@tick:Standardize values (z-score)", "Standardize values (z-score)",
+              "With several fields, their values become z-scores on one axis."),
+            I("@tick:Show outliers", "Show outliers",
+              "Values more than 1.5 × the interquartile range beyond the box as points; "
+              "off, the whiskers reach the minimum and maximum."),
+            I("@item", "A box",
+              "From the first to the third quartile, the median across it. Hover it for "
+              "its numbers. " + _SELECT),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_scatter", "Scatter",
+        "The relationship between two number fields: a point per record.",
+        [
+            I("@row:X-axis", "X-axis", "The number field along the bottom."),
+            I("@row:Y-axis", "Y-axis", "The number field up the side."),
+            I("@row:Size by", "Size by", "A third number field sizes each point: a bubble "
+              "plot."),
+            I("@tick:Trend line", "Trend line", "Fit a trend to the points."),
+            I("@row:Trend", "Trend",
+              "Linear, exponential, logarithmic, power or polynomial, with its equation "
+              "and R² in the legend."),
+            I("@plot", "The points",
+              "In the colours of the layer's symbology. Hover a point for its record; "
+              "click or drag a box to select. Above 100,000 points each spot is shaded "
+              "by its records."),
+            I("@legend", "Legend", "The legend classes, the trend's equation and R²."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_matrix", "Scatter Matrix",
+        "Every pair of two or more number fields.",
+        [
+            I("@row:Field", "Field", "The number fields (Add field: one more)."),
+            I("@row:Lower left", "Lower left", "R² values, scatter plots or nothing."),
+            I("@row:Upper right", "Upper right",
+              "Scatter plots, a preview plot or nothing."),
+            I("@row:Diagonal", "Diagonal", "Each field's histogram, or its name."),
+            I("@tick:Trend line", "Trend line", "A linear trend in each small plot."),
+            I("@cell:r2", "R² value",
+              "How closely the pair follows a line, shaded by its strength. Click it to "
+              "show the pair in the preview."),
+            I("@cell:preview", "Preview plot",
+              "A larger view of the pair clicked; drag a box to select."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_qq", "QQ Plot",
+        "Whether a field follows the normal distribution, or two fields share one.",
+        [
+            I("@row:Field", "Field", "The number field checked."),
+            I("@row:Compare", "Compare",
+              "The normal distribution, or a second number field."),
+            I("@row:Transform", "Transform",
+              "Logarithmic, square root, inverse or Box-Cox (its lambda makes the field "
+              "most normal)."),
+            I("@tick:Reference line", "Reference line",
+              "Through the first and third quartiles: the points follow it when the "
+              "distributions agree."),
+            I("@plot", "The points", "Each point is a record: click or drag to select."),
+        ],
+        notes=["The normal quantiles and the Box-Cox lambda come from SciPy when QGIS has "
+               "it, and from the plugin's own calculation otherwise (the same numbers)."],
+        crops=_PLOT_CROP),
+
+    Tab("plot_heat", "Matrix Heat",
+        "A grid of two fields, each cell coloured by its value.",
+        [
+            I("@row:X-axis", "X-axis", "The columns: text, whole numbers or dates."),
+            I("@row:Y-axis", "Y-axis", "The rows."),
+            I("@row:Value", "Value", "Count of records, or a number field summarised."),
+            I("@row:Method", "Method",
+              "Equal interval, geometric interval, natural breaks or quantile."),
+            I("@row:Classes", "Classes", "2 to 10 colour classes."),
+            I("@row:Ramp", "Ramp", "Any colour ramp of the QGIS default style."),
+            I("@item", "A cell", "Hover it for its value. " + _SELECT),
+            I("@legend", "Legend", "The classes and their ranges."),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_calendar", "Calendar",
+        "A date field on a calendar, each day coloured by its value.",
+        [
+            I("@row:Date", "Date", "A date or date-time field."),
+            I("@row:Calendar", "Calendar",
+              "Year by month and day of month, or week by day of week and hour of day."),
+            I("@row:View", "View",
+              "Single pools every year (or week) into one grid; Sequential draws one "
+              "each."),
+            I("@tick:Include leap day", "Include leap day", "Keep 29 February."),
+            I("@row:Value", "Value", "Count of records, or a number field summarised."),
+            I("@row:Ramp", "Ramp", "The colours of the classes (Method, Classes above)."),
+            I("@item", "A day", "Hover it for its date and value. " + _SELECT),
+        ],
+        crops=_PLOT_CROP),
+
+    Tab("plot_clock", "Data Clock",
+        "A date field as a clock: rings of a longer period, wedges of a shorter one.",
+        [
+            I("@row:Date", "Date", "A date or date-time field."),
+            I("@row:Rings", "Rings",
+              "Years and months, weeks or days; weeks and days; or days and hours. The "
+              "oldest ring is inside."),
+            I("@row:Value", "Value", "Count of records, or a number field summarised."),
+            I("@row:Method", "Method", "How the values are cut into colour classes."),
+            I("@wedge", "A wedge", "Hover it for its period and value. " + _SELECT),
+            I("@legend", "Legend", "The classes and their ranges."),
+        ],
+        crops=_PLOT_CROP),
+]
+
+PAGES = {"explorer": EXPLORER, "chart": CHART, "pivot": PIVOT, "plot": PLOT,
+         "compare": COMPARE}

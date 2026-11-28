@@ -463,6 +463,21 @@ class DataPlotTests(unittest.TestCase):
         H.settle(0.3)
         panel.plots_btn.click()
 
+    def test_09c_colour_rows(self):
+        """A series' colour row: its name in the label column, the colour button
+        beside it (never under it)."""
+        from qgis.PyQt.QtWidgets import QWidget
+        panel = self.panel()
+        self.make(panel, "pie", category="LAND_USE")
+        H.settle(0.3)
+        lay = panel.props.colour_lay
+        self.assertGreater(lay.count(), 2)
+        for i in range(lay.count()):
+            holder = lay.itemAt(i).widget()
+            label, button = [w for w in holder.children() if isinstance(w, QWidget)][:2]
+            self.assertEqual(label.width(), panel.props._label_width)
+            self.assertGreaterEqual(button.x(), label.x() + label.width())
+
     def test_10_help_dock_and_layer_removal(self):
         panel = self.panel()
         panel.help_btn.click()
@@ -470,6 +485,20 @@ class DataPlotTests(unittest.TestCase):
         self.assertTrue(dlg.isVisible())
         self.assertEqual(dlg.windowTitle(), "Data Plot — Help")
         self.assertIn("Scatter Plot", dlg.details.toPlainText())
+        # Overview and one tab per plot type, each with its numbered picture
+        from attribute_table_studio.ui.help_pages import PAGES
+        tabs = PAGES["plot"]
+        self.assertEqual(len(tabs), 1 + len(P.TYPES))
+        self.assertEqual(dlg.tabs.count(), len(tabs) + 1)
+        self.assertEqual(dlg.tabs.tabText(len(tabs)), "More details")
+        bar = dlg.tabs.tabBar()
+        if bar.font().pointSizeF() <= 10:             # the usual font: one row, no arrows
+            self.assertLessEqual(bar.sizeHint().width(), dlg.tabs.width())
+        for i, tab in enumerate(tabs):
+            self.assertFalse(dlg.pages[i].picture.missing, tab.key)
+            text = dlg.pages[i].text.toPlainText()
+            for item in tab.items:
+                self.assertIn(item.title, text)
         dlg.close()
         host = self.plugin.plot_hosts[0]
         panel.dock_btn.click()
