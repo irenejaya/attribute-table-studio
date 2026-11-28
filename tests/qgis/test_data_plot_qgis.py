@@ -312,6 +312,55 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(panel.model.shape, "cross")
         self.assertIn("marker:cross", [e[0] for e in panel.view._legend_entries()])
 
+    def test_02d_choosing_fields_rebuilds_the_card_safely(self):
+        """Choosing, adding, changing and removing Y fields lays the card out
+        again after the box's own signal (deleting a box while its signal
+        runs froze or crashed QGIS 3)."""
+        from qgis.PyQt.QtWidgets import QComboBox, QToolButton
+        panel = self.panel()
+
+        def combos(label):
+            out = []
+            for lbl in panel.props._labels:
+                try:
+                    if lbl.text() == label and lbl.isVisible():
+                        out.append(next(iter(lbl.parentWidget().findChildren(QComboBox))))
+                except (RuntimeError, StopIteration):
+                    continue
+            return out
+
+        def pick(box, name):
+            box.setCurrentIndex(next(k for k in range(box.count()) if name in box.itemText(k)))
+            H.settle(0.3)
+
+        def button(text):
+            return next(b for b in panel.props.widget().findChildren(QAbstractButton)
+                        if b.text().strip() == text)
+
+        panel.new_plot("scatter")                         # Y before X
+        H.settle(0.2)
+        pick(combos("Y-axis")[0], "SCORE_MIN")
+        pick(combos("X-axis")[0], "SCORE_MAX")
+        button("Add Y field").click()
+        H.settle(0.3)
+        self.assertEqual(len(combos("Y-axis")), 2)
+        pick(combos("Y-axis")[1], "SCORE_2Y")
+        self.assertEqual(P.scatter_fields(panel.current_plot()["data"]),
+                         ["SCORE_MIN", "SCORE_2Y"])
+        remove = [b for b in panel.props.widget().findChildren(QToolButton)
+                  if b.toolTip() == "Remove this field"]
+        remove[0].click()
+        H.settle(0.3)
+        self.assertEqual(P.scatter_fields(panel.current_plot()["data"]), ["SCORE_MIN"])
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        panel.new_plot("line")                            # back to Choose a field…
+        H.settle(0.2)
+        pick(combos("Y-axis")[0], "SCORE_MAX")
+        combos("Y-axis")[0].setCurrentIndex(0)
+        H.settle(0.3)
+        self.assertEqual(panel.current_plot()["data"]["fields"], [])
+        self.assertEqual(len(combos("Y-axis")), 1)
+
     def test_03_line_by_month(self):
         panel = self.panel()
         self.make(panel, "line", x="SURVEY_DATE", agg="mean", fields=["SCORE_MAX"],

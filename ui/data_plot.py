@@ -358,6 +358,7 @@ class PlotProperties(QScrollArea):
         self.summary_rows = []
         self._trend_open = {}                # (plot id, Y field): its trend section open
         self._layer_pending = False          # the Layer row is still to come (under Data)
+        self._rebuild_pending = False        # a rebuild waits for the event loop
         self.layer_combo = None
         self._quiet = False
         self.title_edit = None
@@ -485,7 +486,17 @@ class PlotProperties(QScrollArea):
 
     def _rebuild(self):
         """Lay the card out again (a Y field added or removed), keeping
-        the scroll position."""
+        the scroll position.  It waits for the event loop: the box or button
+        that asked for it is deleted with the card, and deleting it while
+        its own signal still runs freezes or crashes QGIS 3 (Qt 5)."""
+        if not self._rebuild_pending:
+            self._rebuild_pending = True
+            QTimer.singleShot(0, self._rebuild_now)
+
+    def _rebuild_now(self):
+        self._rebuild_pending = False
+        if self.plot is None:                    # Edit plot shows its own card
+            return
         pos = self.verticalScrollBar().value()
         self.set_plot(self.plot, self.fields)
         self.verticalScrollBar().setValue(pos)
