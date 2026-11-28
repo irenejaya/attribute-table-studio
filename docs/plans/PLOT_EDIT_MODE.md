@@ -1,101 +1,102 @@
-# Plot editing mode: discussion draft
+# Plot editing mode: plan
 
-Status: **draft for discussion, nothing built**. The open questions at the end
-need answers before a build plan with rounds is written.
+Status: **plan, nothing built**. Decisions below are the user's answers to the
+first draft; the questions at the end are still open.
 
 ## The idea
 
-Data Plot gets an **Edit plot** mode for the look of a plot. While it is on,
-the data stop changing under you, and every part of the plot can be clicked:
-a grid line, an axis, the title, the legend, a series. The settings card on
-the right then shows the settings of the clicked part (for example the
-width, colour and dash of the horizontal grid lines only). Free text can be
-added and dragged anywhere on the plot. What is set in the mode is kept with
-the plot.
+Data Plot gets an **Edit plot** mode for what is drawn inside the plot
+canvas (the area inside the axes). While it is on, the plot and its settings
+are frozen, things in the canvas can be clicked and their look changed in
+the right panel, and objects can be added: text boxes, horizontal and
+vertical lines, arrows and pictures. Everything else (fields, titles, axes,
+legend, colours and shapes) stays where it is now, in the settings card,
+and is not touched by the mode.
 
-## How it would work
+## Decisions
 
-1. **Turning it on.** An **Edit plot** button (pencil icon) beside Export in
-   the top row. While it is on:
-   - the button stays pressed;
-   - a strip above the plot says *Editing the look · the data are frozen*,
-     with **Add text** and **Done** in it;
-   - hovering a part of the plot outlines it, and a click selects it (an
-     outline with handles where the part can be moved);
-   - clicks no longer select records.
-2. **The settings card.** With a part selected, the card shows that part's
-   settings only, under a header naming it ("Horizontal grid lines"). With
-   nothing selected, it shows the usual settings. Esc or a click on an empty
-   spot clears the selection.
-3. **Moving.** The title, the legend and added text can be dragged. Arrow
-   keys nudge a selected one by 1 px (Shift: 10 px).
-4. **Free text.** **Add text**, then a click on the plot, places a text box
-   there, ready for typing. Its settings: text (several lines), font, size,
-   colour, bold, italic, alignment, an optional box behind it (fill and
-   border) and rotation. Double-click edits the text in place; Delete removes
-   it.
-5. **Undo.** Ctrl+Z and Ctrl+Y undo and redo every change made in the mode.
-6. **Leaving.** **Done** (or the Edit plot button again) ends the mode, and
-   the plot follows its records again, keeping the look.
+- **In the Data Plot window**, not a separate window.
+- **Its own group in the top row**, after Export with a divider between
+  them: **Edit plot** (pencil, stays pressed while on), **Save edits**,
+  **Undo**, **Redo** and **Add ▾** (Text box, Horizontal line, Vertical line,
+  Arrow, Picture…). Like the editing buttons of Attribute Explorer, the
+  others are greyed out until Edit plot is on.
+- **Frozen while editing**: the plot no longer follows its records, and the
+  settings card's usual settings (fields, records, legend, titles, axes,
+  colours) cannot change; the card shows only the settings of what is
+  selected in the canvas. Leaving the mode unfreezes both.
+- **Only the canvas is edited.** Titles, axis titles, axis labels and axis
+  lines are not editable or movable in the mode: they stay in the card. The
+  legend is neither edited nor dragged: showing it and its place stay in
+  Appearance (Automatic, right, under, hidden).
+- **No setting twice.** Anything the card already sets (series colours,
+  point shapes, grid lines on or off, guides' values and labels, trend
+  settings) stays in the card only; the mode adds what the card does not
+  have.
+- **Added objects stay inside the canvas** and can be dragged anywhere in
+  it; their place is kept as a share of the canvas, so they stay put when the
+  window is resized or the axes change. Horizontal and vertical lines are
+  drawing objects, not tied to an axis value.
+- **Drawing order**: the data, then the added objects, then the legend when
+  it is inside the plot.
+- **Styles**: a look can be saved as a style and used on other plots (see
+  question 2).
+- **Data Plot only**; Visualize Statistics and the Pivot Table chart keep
+  their look.
 
-## What can be edited (proposal)
+## What the mode edits (canvas only)
 
-| Part | Settings |
+| Part | Settings in the mode |
 | --- | --- |
-| Whole picture | Background colour, outer margin |
-| Plot area | Background colour, border (colour, width) |
-| Title, description | Text, font, size, colour, bold, alignment; position by dragging |
-| Axis titles (X, Y, right Y) | Text, font, size, colour |
-| Axis labels (X, Y) | Size, colour, decimals, thousands separator; X label angle |
-| Axis lines (X, Y) | Shown, colour, width |
-| Grid lines, horizontal and vertical apart | Shown, colour, width, solid / dashed / dotted |
-| Legend | Position by dragging, size of text, background, border, shown |
-| A series (bar, line, slice, points) | Colour, transparency; line width and dash (lines), outline (bars, slices), point size and shape (scatter) |
-| Trend line, reference line, mean and median lines | Colour, width, dash |
-| Guides | Colour, width, dash, label size |
-| Added text | As in step 4 |
+| Canvas | Background colour and transparency |
+| Grid lines, horizontal and vertical apart | Colour, width, solid / dashed / dotted (on or off stays in Appearance) |
+| Lines of a series (line, combo) | Width, dash, a marker on each point |
+| Bars and slices | Outline colour and width, transparency, bar width |
+| Points (scatter, QQ, matrix) | Size (when not Size by), transparency, outline |
+| Trend, reference, mean, median and normal curve lines | Colour, width, dash |
+| Guides | Colour, width, dash (value and label stay in the card) |
+| Each type's own parts (boxes, cells, rings) | In a later round |
 
-Each type has some parts of its own (the boxes of a Box Plot, the cells of a
-heat chart, the rings of a Data Clock), which would follow in a later round.
+## Objects that can be added
 
-## Where it is kept
+| Object | How it is placed | Settings |
+| --- | --- | --- |
+| Text box | Add, then click in the canvas; drag to move, handles to set its width (the text wraps) | Text (several lines), font, size, colour, bold, italic, underline, alignment; box fill colour and transparency, border colour, width and dash, rounded corners, padding |
+| Horizontal line | Across the whole canvas width; drag up or down | Colour (a default, changeable), width, dash, transparency |
+| Vertical line | Across the whole canvas height; drag left or right | Colour, width, dash, transparency |
+| Arrow | Add, then drag from where it starts to where it points; handles at both ends | Colour, width, dash, head at the end, the start or both, head size |
+| Picture | Add, then choose a PNG, JPG or SVG file; drag to move, handles to resize (keeping its proportions) | Transparency, border; the picture is kept inside the plot (so the project needs no file beside it), up to a size limit |
 
-- In the plot's settings, so it is saved in the project, in a plot file
-  (Save plot to file), and in PNG and SVG exports: a **style** part (one entry
-  per part) and an **annotations** list (the added text).
-- Added text and moved parts keep their place as a share of the plot area,
-  so they stay in place when the window is resized. Text could instead be
-  pinned to a value on the axes (it then moves with the data); see question 4.
-- Settings that already exist in the card (titles, colours, grid on or off,
-  legend position) stay one setting: Appearance and Edit plot change the
-  same value, never two copies.
+Common to all: click to select (handles show), Delete removes, arrow keys
+nudge (Shift: 10 px), right-click for Duplicate, Bring to front, Send to
+back, Delete. Ctrl+Z and Ctrl+Y undo and redo.
 
-## Possible rounds (after the questions are settled)
+## Saving
 
-1. The mode itself: hit testing of the parts, selecting, the card for a
-   selected part, freezing, undo; whole picture, plot area, title,
-   description, axes, grid lines, legend.
-2. Added text: place, type, move, edit, delete; saved and exported.
-3. Series, trend and reference lines, guides; the type's own parts.
-4. Help (an Edit plot tab with a numbered picture), README, tests on QGIS 4.4
-   then 3.44.
+- **Save edits** keeps the changes made so far and stays in the mode.
+  Turning Edit plot off with unsaved changes asks: Save, Discard or Cancel,
+  as QGIS asks when a layer leaves editing.
+- The look and the objects are kept in the plot's settings: saved in the
+  project, in plot files, and drawn in PNG and SVG exports.
+
+## Possible rounds
+
+1. The mode: the edit group, freezing, selecting parts of the canvas, the
+   card for a selected part, Save, Undo and Redo; canvas background, grid
+   lines, series lines, bars, points, trend and other lines, guides.
+2. Objects: text box, horizontal and vertical lines, arrows, pictures.
+3. Styles: save a look as a style, apply it to other plots.
+4. Help (an Edit plot tab with a numbered picture), README, screenshots;
+   tests on QGIS 4.4 then 3.44 in every round.
 
 ## Open questions
 
-1. **What "frozen" means.** (a) The data freeze only while the mode is on and
-   follow the records again after Done; or (b) a plot can stay frozen as a
-   snapshot (Freeze / Unfreeze) whether or not you are editing?
-2. **Where the mode lives.** A pressed Edit plot button in the top row, with a
-   strip above the plot (proposed), or a separate editing window?
-3. **Added items.** Only text to start with, or also arrows, lines and boxes
-   (to point at or frame a part of the plot)? Images such as a logo?
-4. **Placing text.** Kept as a share of the plot area (stays in place when the
-   window or the axes change; proposed), or pinned to an X and Y value (moves
-   with the data)? Or a choice per text box?
-5. **Scope.** All 12 plot types from the start for the common parts (title,
-   axes, grid, legend, text), with each type's own parts later (proposed)?
-6. **A default look.** Should a look be savable as a style and applied to
-   other plots (for example a house style for reports), or is a look per plot
-   enough for now?
-7. **Visualize Statistics and the Pivot Table chart.** Data Plot only, as you
-   said, or should the other charts get the same mode later?
+1. **The legend**: neither edited nor dragged in the mode (its place stays in
+   Appearance)? The answer said both "cannot be dragged" and "just drag".
+2. **What a style holds**: (a) only the look of the canvas (grid, lines,
+   backgrounds, series widths), applied to any plot of any layer; or (b) a
+   whole plot made into a template (type, settings, look, objects), from
+   which a new plot is made by choosing a layer and its fields? Today's
+   *Load plot from file* is close to (b).
+3. **Objects in a style**: when a style is applied, do its text boxes,
+   lines, arrows and pictures come too, or only the look?
