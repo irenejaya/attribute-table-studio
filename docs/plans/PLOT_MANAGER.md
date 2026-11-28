@@ -1,6 +1,7 @@
 # Plots that keep their own layer: plan
 
-Status: **plan, nothing built**.
+Status: **being built** as Round 5 of version 1.4 (dev-v5); questions
+answered.
 
 ## Now
 
@@ -53,9 +54,9 @@ files; tests on QGIS 4.4 then 3.44; Help pictures (Overview), README and
 screenshots. It changes how every plot finds its layer, so it is best done
 before the plot editing mode, which builds on it.
 
-## Open questions
+## Answers
 
-1. **The list**: one list with the layer after each name (proposed), or
-   grouped under a heading per layer (which can be folded)?
-2. **Records per plot** (proposed), or one choice for the whole window as
-   now?
+1. Each plot in the list has its own layer, and plots can have different
+   layers: one list, the layer after each name.
+2. Records are kept per plot.
+3. Built in 1.4, before its release.

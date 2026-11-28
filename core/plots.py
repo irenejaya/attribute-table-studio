@@ -26,6 +26,7 @@ ends trimmed.
 """
 
 import datetime
+import copy
 import math
 from array import array
 
@@ -2289,6 +2290,46 @@ def fields_used(plot):
         if spec.get("field"):
             names.append(spec["field"])
     return list(dict.fromkeys(names))
+
+
+def complete_plot(plot):
+    """Fill in what a plot saved by an earlier version (or edited by hand)
+    lacks, from a new plot of its type; returns *plot*."""
+    t = plot.get("type")
+    if t not in TYPE_LABELS:
+        return plot
+    for key, value in new_plot(t, []).items():
+        if key not in plot:
+            plot[key] = copy.deepcopy(value)
+        elif isinstance(value, dict) and isinstance(plot[key], dict):
+            for k, v in value.items():
+                plot[key].setdefault(k, copy.deepcopy(v))
+    return plot
+
+
+def clear_missing_fields(plot, available):
+    """A plot moved to another layer keeps the fields that have the same
+    names there: the others (not in *available*) are set back to none.
+    Returns the names cleared."""
+    have = set(available)
+    d = plot.setdefault("data", {})
+    gone = []
+    for key in ("x", "y", "size", "split", "category", "field"):
+        name = d.get(key)
+        if name and name not in have:
+            gone.append(name)
+            d[key] = None
+    if isinstance(d.get("fields"), list):
+        gone += [n for n in d["fields"] if n and n not in have]
+        d["fields"] = [n for n in d["fields"] if n in have]
+    for spec in d.get("series") or []:
+        if spec.get("field") and spec["field"] not in have:
+            gone.append(spec["field"])
+            spec["field"] = None
+            spec["agg"] = "count"
+    if plot.get("type") == "scatter" and d.get("fields"):
+        d["y"] = d["fields"][0]
+    return list(dict.fromkeys(gone))
 
 
 def missing_fields(plot, available):

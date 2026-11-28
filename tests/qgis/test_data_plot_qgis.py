@@ -99,7 +99,7 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(texts[2], "Data Plot")
         panel = self.panel()
         self.assertIs(panel.layer, self.layer)
-        self.assertEqual(panel.window_title(), "Data Plot — Plot parcels")
+        self.assertEqual(panel.window_title(), "Data Plot")
         self.assertIs(self.plugin.open_data_plot(), panel)          # one main window
         # a new plot asks for its fields first, as ArcGIS Pro does
         panel.new_plot("scatter")
@@ -501,7 +501,8 @@ class DataPlotTests(unittest.TestCase):
         panel._write(plot)
         names = [p["name"] for p in panel.store.plots(self.layer.id())]
         text, _ok = QgsProject.instance().readEntry(DP.PROJECT_SCOPE, DP.PROJECT_PLOTS, "")
-        self.assertEqual([p["name"] for p in json.loads(text)[self.layer.id()]], names)
+        stored = json.loads(text)["plots"]                 # one list, each plot with its layer
+        self.assertEqual([p["name"] for p in stored if p["layer"] == self.layer.id()], names)
         folder = tempfile.mkdtemp(prefix="gts_plots_")
         path = os.path.join(folder, "plots.qgz")
         self.assertTrue(QgsProject.instance().write(path))
@@ -510,7 +511,7 @@ class DataPlotTests(unittest.TestCase):
         panel.store._data = None
         again = panel.store.plots(layer_id)
         self.assertEqual([p["name"] for p in again], names)
-        self.assertEqual(panel.store.get(layer_id, plot["id"])["general"]["title"],
+        self.assertEqual(panel.store.get(plot["id"])["general"]["title"],
                          "Surveys per week")
         # save to and load from a file
         file_path = os.path.join(folder, "plot.json")
@@ -525,6 +526,7 @@ class DataPlotTests(unittest.TestCase):
             saved = json.load(fh)
         self.assertIn(DP.FILE_TAG, saved)
         self.assertNotIn("id", saved["plot"])
+        self.assertNotIn("layer", saved["plot"])            # made again on any layer
         count = len(panel.store.plots(layer_id))
         panel.load_from_file(file_path)
         self.assertEqual(len(panel.store.plots(layer_id)), count + 1)
@@ -635,6 +637,66 @@ class DataPlotTests(unittest.TestCase):
             self.assertEqual(label.width(), panel.props._label_width)
             self.assertGreaterEqual(button.x(), label.x() + label.width())
 
+    def test_09d_plots_keep_their_layer(self):
+        """Every plot of the project in one list, each on its own layer, with
+        its own records; the layer is chosen per plot in Data."""
+        from qgis.core import QgsFeature, QgsVectorLayer
+        panel = self.panel()
+        self.make(panel, "bar", x="LAND_USE", fields=["SCORE_MAX"], agg="sum")
+        first = panel.plot_id
+        other = H.demo_layer(n=120, seed=8, name="Other parcels")
+        panel.new_plot("histogram", layer=other)
+        second = panel.plot_id
+        self.assertIs(panel.layer, other)
+        rows = {panel.plot_list.item(i).data(Qt.ItemDataRole.UserRole):
+                panel.plot_list.item(i).data(DP.LAYER_ROLE)
+                for i in range(panel.plot_list.count())}
+        self.assertEqual((rows[first], rows[second]), ("Plot parcels", "Other parcels"))
+        self.assertEqual(panel.window_title(), "Data Plot")
+        # records per plot
+        panel._fill_list(first)
+        self.assertIs(panel.layer, self.layer)
+        panel.set_scope("selected")
+        self.assertEqual(panel.current_plot()["scope"], "selected")
+        panel._fill_list(second)
+        self.assertEqual(panel.scope, "all")
+        panel._fill_list(first)
+        self.assertEqual(panel.scope, "selected")
+        self.assertIn("Selected", panel.scope_label.fullText())
+        panel.set_scope("all")
+        # the Layer row of Data moves the plot; fields of the same names stay
+        self.assertIs(panel.props.layer_combo.currentLayer(), self.layer)
+        scores = QgsVectorLayer("None?field=SCORE_MAX:double", "Scores only", "memory")
+        feats = []
+        for v in (1.5, 2.5, 4.0):
+            ft = QgsFeature(scores.fields())
+            ft["SCORE_MAX"] = v
+            feats.append(ft)
+        scores.dataProvider().addFeatures(feats)
+        QgsProject.instance().addMapLayer(scores)
+        combo = panel.props.layer_combo                  # as when you pick it
+        combo.setLayer(scores)
+        combo.activated.emit(combo.currentIndex())
+        self.assertTrue(H.wait_for(lambda: panel.layer is scores))
+        d = panel.current_plot()["data"]
+        self.assertIsNone(d["x"])                        # LAND_USE: not on that layer
+        self.assertEqual(d["fields"], ["SCORE_MAX"])
+        self.assertIn("LAND_USE", panel.status.message.fullText())
+        self.assertEqual(panel.plot_list.currentItem().data(DP.LAYER_ROLE), "Scores only")
+        # projects saved before kept a list per layer: read into the one list
+        store = panel.store
+        old = {self.layer.id(): [{"id": "old1", "type": "bar", "name": "Older plot",
+                                  "data": {}}]}
+        QgsProject.instance().writeEntry(DP.PROJECT_SCOPE, DP.PROJECT_PLOTS, json.dumps(old))
+        store._data = None
+        self.assertEqual([(p["name"], p["layer"]) for p in store.plots()],
+                         [("Older plot", self.layer.id())])
+        store._save()                                     # back to a list of every plot
+        store._data = None
+        QgsProject.instance().removeMapLayer(scores.id())
+        QgsProject.instance().removeMapLayer(other.id())
+        H.settle(0.3)
+
     def test_10_help_dock_and_layer_removal(self):
         panel = self.panel()
         panel.help_btn.click()
@@ -664,13 +726,24 @@ class DataPlotTests(unittest.TestCase):
         panel.dock_btn.click()
         H.settle(0.3)
         self.assertFalse(host.is_docked)
+        # a plot of a layer that leaves the project stays in the list, marked;
+        # choosing a layer in Data brings it back
         other = H.demo_layer(n=50, seed=4, name="Short-lived parcels")
-        panel.set_layer(other)
-        H.settle(0.2)
+        panel.new_plot("bar", layer=other)
+        pid, other_id = panel.plot_id, other.id()
         self.assertIs(panel.layer, other)
         QgsProject.instance().removeMapLayer(other.id())
         H.settle(0.3)
         self.assertIsNone(panel.layer)
+        self.assertEqual(panel.plot_id, pid)
+        item = panel.plot_list.currentItem()
+        self.assertIn("not in the project", item.data(DP.LAYER_ROLE))
+        self.assertIn("not in the project", panel.view.message)
+        self.assertEqual(panel.current_plot()["layer"], other_id)   # not moved by itself
+        panel._change_layer(self.layer)
+        H.settle(0.3)
+        self.assertIs(panel.layer, self.layer)
+        self.assertEqual(panel.current_plot()["layer"], self.layer.id())
 
     def test_11_from_attribute_explorer(self):
         # the Data Plot button of Attribute Explorer's top bar, between

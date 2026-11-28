@@ -390,9 +390,9 @@ class AttributeTableStudioPlugin:
             host = self.plot_hosts[0]
             host.show_and_raise()
             panel = host.panel
-            if layer is not None and (layer is not panel.layer or plot_id):
+            if layer is not None and not new_type and (layer is not panel.layer or plot_id):
                 panel.set_layer(layer, plot_id)
-            self._plot_request(panel, scope, new_type)
+            self._plot_request(panel, layer, scope, new_type)
             return panel
         from .ui.data_plot import DataPlotPanel
         from .ui.tool_host import ToolHost
@@ -408,20 +408,23 @@ class AttributeTableStudioPlugin:
         if layer is None:
             active = self.iface.activeLayer()
             layer = active if isinstance(active, QgsVectorLayer) else None
-        if layer is not None:
+        if layer is not None and not new_type:
             panel.set_layer(layer, plot_id)
-        self._plot_request(panel, scope, new_type)
+        elif not new_type:
+            panel.set_layer(None)
+        self._plot_request(panel, layer, scope, new_type)
         host.refresh_title()
         return panel
 
     @staticmethod
-    def _plot_request(panel, scope, new_type):
-        if panel.layer is None:
-            return
-        if scope:
-            panel.set_scope(scope)
+    def _plot_request(panel, layer, scope, new_type):
+        """A new plot of *new_type* on *layer* with the records *scope* (the
+        Attribute Explorer's Data Plot button), or other records for the
+        plot shown."""
         if new_type:
-            panel.new_plot(new_type)
+            panel.new_plot(new_type, scope=scope, layer=layer)
+        elif scope and panel.current_plot() is not None:
+            panel.set_scope(scope)
 
     def _on_plot_closed(self, host):
         if host in self.plot_hosts:
@@ -462,10 +465,8 @@ class AttributeTableStudioPlugin:
             panel = self.pivot_host.panel
             if panel.layer is not None and panel.layer.id() in layer_ids:
                 panel.set_layer(None)
-        for host in self.plot_hosts:
-            panel = host.panel
-            if panel.layer is not None and panel.layer.id() in layer_ids:
-                panel.set_layer(None)
+        for host in self.plot_hosts:             # their plots stay in the list, marked
+            host.panel.layers_removed(layer_ids)
 
     def _restore_forgotten_filters(self, layers):
         """Projects saved by earlier versions while an explorer's map filter

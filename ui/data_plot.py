@@ -25,16 +25,17 @@ import copy
 import json
 import uuid
 
-from qgis.PyQt.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
+from qgis.PyQt.QtCore import QObject, QRect, QSize, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QColor, QGuiApplication, QIcon
 from qgis.PyQt.QtWidgets import (
     QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
     QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QApplication, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStyle,
+    QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from qgis.core import (
     QgsCoordinateTransform, QgsExpressionContext, QgsMessageLog, QgsProject,
-    QgsRenderContext,
+    QgsRenderContext, QgsVectorLayer,
 )
 from qgis.gui import QgsColorButton
 
@@ -85,6 +86,40 @@ def _is_split(kind):
     return kind in (F.TEXT, F.BOOL, F.INTEGER, F.OTHER)
 
 
+LAYER_ROLE = Qt.ItemDataRole.UserRole + 1        # the plot's layer, shown after its name
+
+
+class _PlotItemDelegate(QStyledItemDelegate):
+    """A row of the plot list: the type icon, the plot's name, then its
+    layer, dimmed."""
+
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self.theme = theme
+
+    def paint(self, painter, option, index):
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        widget = opt.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        where = index.data(LAYER_ROLE)
+        if not where:
+            return
+        rect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, opt, widget)
+        fm = opt.fontMetrics
+        x = rect.left() + fm.horizontalAdvance(opt.text) + 8
+        room = rect.right() - x - 2
+        if room < 24:
+            return
+        painter.save()
+        painter.setPen(QColor(self.theme.text_dim))
+        painter.drawText(QRect(int(x), rect.top(), int(room), rect.height()),
+                         int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                         fm.elidedText(f"· {where}", Qt.TextElideMode.ElideRight, int(room)))
+        painter.restore()
+
+
 class _SectionHeader(QPushButton):
     """The header of a section that opens and closes (an arrow, then its
     text, elided to the room it has)."""
@@ -123,9 +158,12 @@ class _SectionHeader(QPushButton):
 # ============================================================================
 
 class PlotStore(QObject):
-    """The plots of every layer, kept in the QGIS project as JSON (layer id
-    -> list of plots).  One store is shared by all Data Plot windows;
-    *changed* tells them a layer's list changed ("" for every layer)."""
+    """Every plot of the project, in one list kept in the QGIS project as
+    JSON; each plot names its own layer ("layer": the layer's id, and
+    "layer_name" to show while the layer is not in the project).  One store
+    is shared by all Data Plot windows; *changed* tells them the list or a
+    plot changed (layer id and plot id; "" for the whole list).  Projects
+    saved before kept a list per layer: it is read into the one list."""
 
     changed = pyqtSignal(str, str)           # layer id, plot id ("" for the list)
     _instance = None
@@ -154,48 +192,65 @@ class PlotStore(QObject):
                 data = json.loads(text) if text else {}
             except ValueError:
                 data = {}
-            self._data = data if isinstance(data, dict) else {}
+            plots = []
+            if isinstance(data, dict) and isinstance(data.get("plots"), list):
+                plots = [p for p in data["plots"] if isinstance(p, dict)]
+            elif isinstance(data, dict):             # before: a list per layer
+                for layer_id, items in data.items():
+                    for plot in items if isinstance(items, list) else []:
+                        if isinstance(plot, dict):
+                            plot.setdefault("layer", layer_id)
+                            plots.append(plot)
+            for plot in plots:                       # what earlier versions lacked
+                P.complete_plot(plot)
+            self._data = [p for p in plots if p.get("type") in P.TYPE_LABELS]
         return self._data
 
-    def _save(self, layer_id, plot_id=""):
+    def _save(self, layer_id="", plot_id=""):
         QgsProject.instance().writeEntry(PROJECT_SCOPE, PROJECT_PLOTS,
-                                         json.dumps(self._load()))
+                                         json.dumps({"version": 2, "plots": self._load()}))
         self.changed.emit(layer_id, plot_id)
 
-    def plots(self, layer_id):
-        return self._load().get(layer_id, [])
+    def plots(self, layer_id=None):
+        """Every plot, or the plots of one layer."""
+        plots = self._load()
+        if layer_id is None:
+            return plots
+        return [p for p in plots if p.get("layer") == layer_id]
 
-    def get(self, layer_id, plot_id):
-        for plot in self.plots(layer_id):
+    def get(self, plot_id):
+        for plot in self._load():
             if plot.get("id") == plot_id:
                 return plot
         return None
 
-    def add(self, layer_id, plot, after=None):
+    def add(self, plot, after=None):
+        """Add *plot* (its "layer" set) after the plot *after*; its id."""
         plot = copy.deepcopy(plot)
         plot["id"] = uuid.uuid4().hex[:12]
-        plots = self._load().setdefault(layer_id, [])
+        plots = self._load()
         ids = [p.get("id") for p in plots]
         pos = ids.index(after) + 1 if after in ids else len(plots)
         plots.insert(pos, plot)
-        self._save(layer_id)
+        self._save(plot.get("layer", ""))
         return plot["id"]
 
-    def update(self, layer_id, plot):
-        plots = self._load().setdefault(layer_id, [])
+    def update(self, plot):
+        plots = self._load()
         for i, p in enumerate(plots):
             if p.get("id") == plot.get("id"):
                 plots[i] = copy.deepcopy(plot)
-                self._save(layer_id, plot["id"])
+                self._save(plot.get("layer", ""), plot["id"])
                 return
 
-    def remove(self, layer_id, plot_id):
-        plots = self._load().get(layer_id, [])
-        self._load()[layer_id] = [p for p in plots if p.get("id") != plot_id]
-        self._save(layer_id)
+    def remove(self, plot_id):
+        plots = self._load()
+        gone = self.get(plot_id)
+        plots[:] = [p for p in plots if p.get("id") != plot_id]
+        self._save(gone.get("layer", "") if gone else "")
 
-    def move(self, layer_id, plot_id, delta):
-        plots = self._load().get(layer_id, [])
+    def move(self, plot_id, delta):
+        plots = self._load()
         ids = [p.get("id") for p in plots]
         if plot_id not in ids:
             return
@@ -203,7 +258,7 @@ class PlotStore(QObject):
         j = max(0, min(len(plots) - 1, i + delta))
         if i != j:
             plots.insert(j, plots.pop(i))
-            self._save(layer_id)
+            self._save()
 
 
 # ============================================================================
@@ -282,6 +337,7 @@ class PlotProperties(QScrollArea):
     (True when the plot needs other records or fields read)."""
 
     edited = pyqtSignal(bool)
+    layerChosen = pyqtSignal(object)        # another layer for the plot (Layer in Data)
     WIDTH = 312                              # as the Visualize Statistics card
 
     def __init__(self, theme, metrics, parent=None):
@@ -292,6 +348,8 @@ class PlotProperties(QScrollArea):
         self.series = []                     # series of the last build (colours)
         self.summary_rows = []
         self._trend_open = {}                # (plot id, Y field): its trend section open
+        self._layer_pending = False          # the Layer row is still to come (under Data)
+        self.layer_combo = None
         self._quiet = False
         self.title_edit = None
         self.colour_lay = None
@@ -384,7 +442,33 @@ class PlotProperties(QScrollArea):
     def _header(self, text):
         header = W.section_header(text)
         self.lay.addWidget(header)
+        if text == "Data" and self._layer_pending:   # the plot's layer heads Data
+            self._layer_pending = False
+            self._layer_row()
         return header
+
+    def _layer_row(self):
+        """Layer: the layer this plot is made from; choosing another moves
+        the plot to it (layerChosen), keeping the fields of the same names."""
+        layer = QgsProject.instance().mapLayer(self.plot.get("layer") or "")
+        layer = layer if isinstance(layer, QgsVectorLayer) else None
+        combo = W.LayerCombo(self.metrics)
+        combo.setFilters(VECTOR_LAYER_FILTER)
+        combo.setAllowEmptyLayer(layer is None)       # its layer left the project
+        combo.setLayer(layer)
+        combo.setMinimumWidth(80)
+        self._row("Layer", combo, "The layer this plot is made from; choosing another "
+                  "keeps the fields that have the same names there")
+
+        def chosen(_index):
+            new = combo.currentLayer()
+            if new is not None and (layer is None or new.id() != layer.id()):
+                self.layerChosen.emit(new)
+
+        # only a layer you pick: the box also moves by itself when a layer
+        # leaves the project, and the plot must not follow it then
+        combo.activated.connect(chosen)
+        self.layer_combo = combo
 
     def _changed(self, read=False):
         if not self._quiet:
@@ -404,8 +488,13 @@ class PlotProperties(QScrollArea):
         self._quiet = True
         self._card()                         # setWidget deletes the previous card
         self._labels = []
-        self.title_edit = self.colour_lay = self.summary_grid = None
-        if plot is not None:
+        self.title_edit = self.colour_lay = self.summary_grid = self.layer_combo = None
+        self._layer_pending = plot is not None
+        if plot is not None and fields is None:  # its layer is not in the project
+            self._header("Data")
+            self._note("This plot's layer is not in the project. Choose a layer: the "
+                       "plot keeps the fields that have the same names there.")
+        elif plot is not None:
             t = plot["type"]
             if t == "scatter":
                 self._scatter_data()
@@ -1934,9 +2023,10 @@ class DataPlotPanel(QWidget):
         self.reader = JobRunner(self)
         self.builder = JobRunner(self)
         self.selector = JobRunner(self)
-        self.layer = None
+        self.layer = None                    # the layer of the plot shown
+        self._new_layer = None               # where New plot starts when no plot is shown
         self.plot_id = None
-        self.scope = "all"
+        self.scope = "all"                   # the records of the plot shown
         self.table = None
         self._table_info = None              # (scope key, fields, classes) of the table
         self.data = None
@@ -1982,14 +2072,6 @@ class DataPlotPanel(QWidget):
         self.plots_btn.setChecked(True)
         top.addWidget(self.plots_btn)
         top.addSpacing(m.gap)
-        top.addWidget(W.label("Layer", "dim"))
-        self.layer_combo = W.LayerCombo(m)
-        self.layer_combo.setFilters(VECTOR_LAYER_FILTER)
-        self.layer_combo.setMinimumWidth(200)
-        self.layer_combo.setMaximumWidth(260)
-        self.layer_combo.layerChanged.connect(self._on_combo_layer)
-        top.addWidget(self.layer_combo)
-        top.addSpacing(10)
         self.scope_label = W.ElideLabel()
         self.scope_label.setMinimumWidth(110)
         self.scope_label.setSizePolicy(QSizePolicy.Policy.Preferred,
@@ -2042,6 +2124,9 @@ class DataPlotPanel(QWidget):
         split.addWidget(self.view)
         self.props = PlotProperties(self.theme, m)
         self.props.edited.connect(self._on_edited)
+        # after the signal: the card is rebuilt for the new layer's fields
+        self.props.layerChosen.connect(
+            lambda layer: QTimer.singleShot(0, lambda: self._change_layer(layer)))
         split.addWidget(self.props)
         split.setStretchFactor(0, 0)
         split.setStretchFactor(1, 1)
@@ -2076,6 +2161,7 @@ class DataPlotPanel(QWidget):
         self.plot_list.setIconSize(QSize(20, 20))
         self.plot_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.plot_list.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.plot_list.setItemDelegate(_PlotItemDelegate(self.theme, self.plot_list))
         self.plot_list.currentRowChanged.connect(self._on_row_changed)
         self.plot_list.itemDoubleClicked.connect(lambda _i: self.rename_plot())
         self.plot_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -2122,40 +2208,79 @@ class DataPlotPanel(QWidget):
     # ====================================================================
 
     def window_title(self):
-        name = self.layer.name() if self.layer is not None else ""
-        return f"Data Plot — {name}" if name else "Data Plot"
+        return "Data Plot"
 
     def current_plot(self):
-        if self.layer is None or not self.plot_id:
+        if not self.plot_id:
             return None
-        return self.store.get(self.layer.id(), self.plot_id)
+        return self.store.get(self.plot_id)
+
+    @staticmethod
+    def _layer_of(plot):
+        """The layer a plot is made from (None while it is not in the project)."""
+        layer = QgsProject.instance().mapLayer(plot.get("layer") or "") if plot else None
+        return layer if isinstance(layer, QgsVectorLayer) else None
+
+    def _default_layer(self):
+        """The layer a new plot starts on when no plot is shown: the active
+        layer, else the project's first vector layer."""
+        active = self.iface.activeLayer() if self.iface is not None else None
+        if isinstance(active, QgsVectorLayer) and active.isValid():
+            return active
+        for layer in QgsProject.instance().mapLayers().values():
+            if isinstance(layer, QgsVectorLayer) and layer.isValid():
+                return layer
+        return None
 
     def set_layer(self, layer, plot_id=None):
-        if layer is not self.layer:
-            self._disconnect_layer()
-            for runner in (self.reader, self.builder, self.selector):
-                runner.new_generation()
-            self.layer = layer
-            self.table = None
-            self._table_info = None
-            self.data = None
-            self.plot_id = None
-            self._revision = 0
-            self.layer_combo.blockSignals(True)
-            self.layer_combo.setLayer(layer)
-            self.layer_combo.blockSignals(False)
-            if self.scope == "extent" and layer is not None and not layer.isSpatial():
-                self.scope = "all"
-            if layer is not None:
-                self._connect_layer()
-            self.titleChanged.emit()
-        self._fill_list(plot_id)
-        self._update_scope_button()
-        self._update_buttons()
+        """Show *plot_id*, else the first plot of *layer* (a layer without
+        plots: the plot shown stays, and New plot starts on *layer*).
+        None: the layer shown left the project (or the project closed)."""
         if layer is None:
-            self.props.set_plot(None, None)
-            self.view.set_message("Choose a layer")
-            self.status.set_status("Ready")
+            self._attach(None)
+            self._fill_list()
+            return
+        plots = self.store.plots(layer.id())
+        if plot_id is None and plots:
+            current = self.current_plot()
+            keep = current is not None and current.get("layer") == layer.id()
+            plot_id = current["id"] if keep else plots[0].get("id")
+        if plot_id is not None:
+            self._fill_list(plot_id)
+            return
+        self._new_layer = layer
+        if self.current_plot() is None:
+            self._attach(layer)
+        self._fill_list()
+
+    def _attach(self, layer):
+        """Follow *layer* (the layer of the plot shown): its signals, its
+        Attribute Explorer, a fresh table."""
+        if layer is self.layer:
+            return
+        self._disconnect_layer()
+        for runner in (self.reader, self.builder, self.selector):
+            runner.new_generation()
+        self.layer = layer
+        self.table = None
+        self._table_info = None
+        self.data = None
+        self._revision = 0
+        if layer is not None:
+            self._connect_layer()
+        self.titleChanged.emit()
+
+    def layers_removed(self, layer_ids):
+        """Layers left the project: their plots stay in the list, marked."""
+        shown = self.layer is not None and self.layer.id() in layer_ids
+        if shown:
+            self._attach(None)
+        if self._new_layer is not None and self._new_layer.id() in layer_ids:
+            self._new_layer = None
+        # the project still holds them while they are being removed; the plot
+        # shown is shown again (its layer marked) when it was on one of them
+        QTimer.singleShot(0, lambda: None if self._closing else
+                          self._fill_list(self.plot_id if shown else None))
 
     def _connect_layer(self):
         lyr = self.layer
@@ -2167,7 +2292,7 @@ class DataPlotPanel(QWidget):
             (lyr.dataChanged, self._on_data),
             (lyr.subsetStringChanged, self._on_data),
             (lyr.updatedFields, self._on_schema),
-            (lyr.nameChanged, self.titleChanged.emit),
+            (lyr.nameChanged, self._on_layer_renamed),
             (lyr.rendererChanged, self._on_renderer),
         ]
         for sig, slot in pairs:
@@ -2187,16 +2312,29 @@ class DataPlotPanel(QWidget):
         self._layer_signals = []
         self._unwatch_explorer()
 
+    def _on_layer_renamed(self):
+        self._fill_list(self.plot_id)
+        self.titleChanged.emit()
+
     def _fill_list(self, select=None):
+        """Every plot of the project, each with its layer after its name."""
         lst = self.plot_list
         keep = select or self.plot_id
         lst.blockSignals(True)
         lst.clear()
-        plots = self.store.plots(self.layer.id()) if self.layer is not None else []
+        plots = self.store.plots()
         row = -1
         for i, plot in enumerate(plots):
-            item = QListWidgetItem(icons.plot_type(plot.get("type")), plot.get("name", "Plot"))
-            item.setToolTip(f"{plot.get('name', '')}\n{P.TYPE_LABELS.get(plot.get('type'), '')}")
+            layer = self._layer_of(plot)
+            name = plot.get("name", "Plot")
+            item = QListWidgetItem(icons.plot_type(plot.get("type")), name)
+            if layer is not None:
+                where = layer.name()
+            else:
+                where = f"{plot.get('layer_name') or 'its layer'}: not in the project"
+                item.setForeground(QColor(self.theme.text_dim))
+            item.setData(LAYER_ROLE, where)
+            item.setToolTip(f"{name}\n{P.TYPE_LABELS.get(plot.get('type'), '')} of {where}")
             item.setData(Qt.ItemDataRole.UserRole, plot.get("id"))
             lst.addItem(item)
             if plot.get("id") == keep:
@@ -2216,70 +2354,93 @@ class DataPlotPanel(QWidget):
         self._show_plot(item.data(Qt.ItemDataRole.UserRole) if item is not None else None)
 
     def _show_plot(self, plot_id):
-        self.plot_id = plot_id
-        plot = self.current_plot()
+        """Show a plot on its own layer, with its own records."""
+        plot = self.store.get(plot_id) if plot_id else None
+        self.plot_id = plot.get("id") if plot else None
+        if plot is not None:
+            layer = self._layer_of(plot)
+            self._attach(layer)
+            scope = plot.get("scope", "all")
+            if scope == "extent" and layer is not None and not layer.isSpatial():
+                scope = "all"
+            if scope != self.scope:
+                self.scope = scope
+                self._watch_explorer()
+        else:
+            self._attach(self._new_layer or self._default_layer())
         self.data = None
+        self._update_scope_button()
         self.props.set_plot(copy.deepcopy(plot) if plot else None,
                             self.layer.fields() if self.layer is not None else None)
         self._update_buttons()
         if plot is None:
-            if self.layer is not None:
-                self.view.set_message(f"{self.layer.name()} has no plots yet.\n"
-                                      "Choose New plot to make one.")
-                self.status.set_status("Choose New plot to make a plot of this layer")
+            self.view.set_message("No plots yet.\nChoose New plot to make one."
+                                  if not self.store.plots() else "Choose a plot")
+            self.status.set_status("Choose New plot to make a plot")
+            return
+        if self.layer is None:
+            text = (f"The layer of this plot ({plot.get('layer_name') or 'unknown'}) is not "
+                    "in the project: choose a layer in Data")
+            self.view.set_message(text)
+            self.status.set_status(text, "warning")
             return
         self.load()
 
     def _update_buttons(self):
-        has_layer = self.layer is not None
         has_plot = self.current_plot() is not None
-        self.new_btn.setEnabled(has_layer)
+        has_layer = self.layer is not None
+        self.new_btn.setEnabled(has_layer or self._default_layer() is not None)
         for b in (self.dup_btn, self.del_btn, self.up_btn, self.down_btn, self.window_btn,
                   self.export_btn):
             b.setEnabled(has_plot)
-        self.scope_btn.setEnabled(has_layer)
+        self.scope_btn.setEnabled(has_plot and has_layer)
         self.clear_btn.setEnabled(has_layer)
-        self.more_btn.setEnabled(has_layer)
+        self.more_btn.setEnabled(True)
 
-    def _on_store_changed(self, layer_id, plot_id):
+    def _on_store_changed(self, _layer_id, plot_id):
         if self._writing or self._closing:
             return
-        if layer_id == "":
-            if self.layer is not None:
-                self._fill_list()
-            return
-        if self.layer is None or layer_id != self.layer.id():
-            return
         if plot_id and plot_id == self.plot_id:
-            self._show_plot(plot_id)              # edited in another window
+            self._fill_list(plot_id)              # edited in another window
         else:
             self._fill_list()
 
     def _write(self, plot):
+        if self.layer is not None and plot.get("layer") == self.layer.id():
+            plot["layer_name"] = self.layer.name()
         self._writing = True
         try:
-            self.store.update(self.layer.id(), plot)
+            self.store.update(plot)
         finally:
             self._writing = False
 
-    def new_plot(self, ptype):
-        if self.layer is None:
+    def _add(self, plot):
+        self._writing = True
+        try:
+            pid = self.store.add(plot, after=self.plot_id)
+        finally:
+            self._writing = False
+        self._fill_list(pid)
+        return pid
+
+    def new_plot(self, ptype, scope=None, layer=None):
+        """A new plot of type *ptype* on *layer* (by default the layer of
+        the plot shown), with the records *scope*."""
+        layer = layer or self.layer or self._new_layer or self._default_layer()
+        if layer is None:
             return
-        fields = self.layer.fields()
+        fields = layer.fields()
         pairs = [(fields.at(i).name(), F.field_kind(fields.at(i)))
                  for i in range(fields.count())]
-        names = {p.get("name") for p in self.store.plots(self.layer.id())}
+        names = {p.get("name") for p in self.store.plots()}
         base = P.TYPE_LABELS[ptype]
         name, n = base, 2
         while name in names:
             name, n = f"{base} {n}", n + 1
         plot = P.new_plot(ptype, pairs, name)
-        self._writing = True
-        try:
-            pid = self.store.add(self.layer.id(), plot, after=self.plot_id)
-        finally:
-            self._writing = False
-        self._fill_list(pid)
+        plot["layer"], plot["layer_name"] = layer.id(), layer.name()
+        plot["scope"] = scope or "all"
+        self._add(plot)
 
     def duplicate_plot(self):
         plot = self.current_plot()
@@ -2287,12 +2448,7 @@ class DataPlotPanel(QWidget):
             return
         twin = copy.deepcopy(plot)
         twin["name"] = f"{plot.get('name', 'Plot')} (copy)"
-        self._writing = True
-        try:
-            pid = self.store.add(self.layer.id(), twin, after=self.plot_id)
-        finally:
-            self._writing = False
-        self._fill_list(pid)
+        self._add(twin)
 
     def rename_plot(self):
         plot = self.current_plot()
@@ -2315,7 +2471,7 @@ class DataPlotPanel(QWidget):
             return
         self._writing = True
         try:
-            self.store.remove(self.layer.id(), plot["id"])
+            self.store.remove(plot["id"])
         finally:
             self._writing = False
         self.plot_id = None
@@ -2326,7 +2482,7 @@ class DataPlotPanel(QWidget):
             return
         self._writing = True
         try:
-            self.store.move(self.layer.id(), self.plot_id, delta)
+            self.store.move(self.plot_id, delta)
         finally:
             self._writing = False
         self._fill_list(self.plot_id)
@@ -2365,7 +2521,8 @@ class DataPlotPanel(QWidget):
             return
         if not path.lower().endswith(".json"):
             path += ".json"
-        body = {k: v for k, v in plot.items() if k != "id"}
+        # the plot without what ties it to this project (its id and its layer)
+        body = {k: v for k, v in plot.items() if k not in ("id", "layer")}
         try:
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump({FILE_TAG: 1, "plot": body}, fh, indent=2)
@@ -2375,7 +2532,10 @@ class DataPlotPanel(QWidget):
         self.status.set_status(f"Plot saved to {path}", "success")
 
     def load_from_file(self, path=None):
-        if self.layer is None:
+        """A plot file made again on the layer of the plot shown (the layer
+        can then be changed in Data)."""
+        layer = self.layer or self._new_layer or self._default_layer()
+        if layer is None:
             return
         if not path:
             path, _f = QFileDialog.getOpenFileName(self, "Load plot from file", "",
@@ -2391,18 +2551,32 @@ class DataPlotPanel(QWidget):
         except (OSError, ValueError, KeyError) as exc:
             QMessageBox.warning(self, "Load plot", f"The plot could not be loaded:\n{exc}")
             return
-        fields = self.layer.fields()
+        fields = layer.fields()
         missing = P.missing_fields(plot, [fields.at(i).name() for i in range(fields.count())])
-        self._writing = True
-        try:
-            pid = self.store.add(self.layer.id(), plot, after=self.plot_id)
-        finally:
-            self._writing = False
-        self._fill_list(pid)
+        plot["layer"], plot["layer_name"] = layer.id(), layer.name()
+        self._add(plot)
         if missing:
-            self.status.set_status("Plot loaded; this layer lacks the field(s) "
+            self.status.set_status(f"Plot loaded on {layer.name()}, which lacks the field(s) "
                                    + ", ".join(missing) + ": choose others in Data",
                                    "warning")
+
+    def _change_layer(self, layer):
+        """The plot shown moves to *layer* (Layer in Data): the fields with
+        the same names stay, the others are cleared."""
+        plot = self.current_plot()
+        if plot is None or layer is None:
+            return
+        plot = copy.deepcopy(plot)
+        fields = layer.fields()
+        gone = P.clear_missing_fields(plot, [fields.at(i).name() for i in range(fields.count())])
+        plot["layer"], plot["layer_name"] = layer.id(), layer.name()
+        if plot.get("scope") == "extent" and not layer.isSpatial():
+            plot["scope"] = "all"
+        self._write(plot)
+        self._fill_list(plot["id"])
+        if gone:
+            self.status.set_status(f"{layer.name()} has no field " + ", ".join(gone)
+                                   + ": choose others in Data", "warning")
 
     # ====================================================================
     # RECORDS
@@ -2430,6 +2604,12 @@ class DataPlotPanel(QWidget):
             act.triggered.connect(lambda _c=False, k=key: self.set_scope(k))
 
     def set_scope(self, kind):
+        """The records of the plot shown (kept with the plot)."""
+        plot = self.current_plot()
+        if plot is not None and plot.get("scope", "all") != kind:
+            plot = copy.deepcopy(plot)
+            plot["scope"] = kind
+            self._write(plot)
         if kind == self.scope:
             return
         self.scope = kind
@@ -2442,8 +2622,9 @@ class DataPlotPanel(QWidget):
         if self.table is not None and self.layer is not None:
             text += f" ({len(self.table):,})"
         self.scope_label.setText(text)
-        self.scope_label.setToolTip("The plots show these records and follow them as "
-                                    "they change; Change scope picks others")
+        self.scope_label.setToolTip("The plot shows these records and follows them as "
+                                    "they change; Change scope picks others (kept with "
+                                    "the plot)")
 
     def _update_scope_button(self):
         self._update_scope_label()
@@ -2480,9 +2661,8 @@ class DataPlotPanel(QWidget):
     def _on_explorer_gone(self, *_args):
         self._explorer = None
         if self.scope == "explorer" and not self._closing:
-            self.scope = "all"
+            self.set_scope("all")
             self._update_scope_button()
-            self.load()
             self.status.set_status("The Attribute Explorer closed: the plot shows all "
                                    "records", "warning")
 
@@ -2511,7 +2691,7 @@ class DataPlotPanel(QWidget):
         layer = self.layer
         if self.scope == "explorer":
             exp = self.explorer_lookup(layer)
-            if exp is None:
+            if exp is None:                      # no Attribute Explorer of this layer
                 self.scope = "all"
                 self._update_scope_button()
             else:
@@ -2579,6 +2759,9 @@ class DataPlotPanel(QWidget):
         have = self._table_info
         if (self.table is not None and have is not None and have[0] == info
                 and all(n in have[1] for n, _i, _k in wanted)):
+            if self.reader.busy:                 # a read for another plot: not needed now
+                self.reader.new_generation()
+                self.status.set_busy(False)
             self.rebuild()
             return
         for runner in (self.reader, self.builder, self.selector):
@@ -2604,6 +2787,10 @@ class DataPlotPanel(QWidget):
                 return
             self.table = job.result
             self._table_info = (info, names_wanted)
+            plot = self.current_plot()
+            if plot is not None and any(n not in names_wanted for n in P.fields_used(plot)):
+                self.load()                      # the plot shown changed meanwhile
+                return
             self.rebuild()
 
         self.view.set_message(f"Reading {self.layer.name()}…")
@@ -3125,10 +3312,6 @@ class DataPlotPanel(QWidget):
             self.props.plot["data"][key] = value
         self._write(plot)
         self._redraw(plot)
-
-    def _on_combo_layer(self, layer):
-        if layer is not None and layer is not self.layer:
-            self.set_layer(layer)
 
     def _on_data(self, *_args):
         self._revision += 1

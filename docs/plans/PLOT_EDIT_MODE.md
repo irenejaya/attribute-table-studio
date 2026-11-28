@@ -1,7 +1,7 @@
 # Plot editing mode: plan
 
-Status: **plan, nothing built**. Decisions below are the user's answers to the
-first draft; the questions at the end are still open.
+Status: **plan, nothing built**; all questions answered. It follows the
+plot manager round ([PLOT_MANAGER.md](PLOT_MANAGER.md)) in version 1.4.
 
 ## The idea
 
@@ -27,8 +27,8 @@ and is not touched by the mode.
   selected in the canvas. Leaving the mode unfreezes both.
 - **Only the canvas is edited.** Titles, axis titles, axis labels and axis
   lines are not editable or movable in the mode: they stay in the card. The
-  legend is neither edited nor dragged: showing it and its place stay in
-  Appearance (Automatic, right, under, hidden).
+  legend cannot be edited or dragged at all: showing it and its place stay
+  in Appearance (Automatic, right, under, hidden).
 - **No setting twice.** Anything the card already sets (series colours,
   point shapes, grid lines on or off, guides' values and labels, trend
   settings) stays in the card only; the mode adds what the card does not
@@ -39,8 +39,10 @@ and is not touched by the mode.
   drawing objects, not tied to an axis value.
 - **Drawing order**: the data, then the added objects, then the legend when
   it is inside the plot.
-- **Styles**: a look can be saved as a style and used on other plots (see
-  question 2).
+- **Styles are plot files**: *Save plot to file* already keeps a whole plot
+  (type, settings, look) and *Load plot from file* makes it again on a layer
+  of your choice; the file now also holds the canvas look and the added
+  objects, so a plot file is the style to reuse.
 - **Data Plot only**; Visualize Statistics and the Pivot Table chart keep
   their look.
 
@@ -85,18 +87,13 @@ back, Delete. Ctrl+Z and Ctrl+Y undo and redo.
    card for a selected part, Save, Undo and Redo; canvas background, grid
    lines, series lines, bars, points, trend and other lines, guides.
 2. Objects: text box, horizontal and vertical lines, arrows, pictures.
-3. Styles: save a look as a style, apply it to other plots.
+3. Plot files with the look and the objects (the style to reuse).
 4. Help (an Edit plot tab with a numbered picture), README, screenshots;
    tests on QGIS 4.4 then 3.44 in every round.
 
-## Open questions
+## Answers
 
-1. **The legend**: neither edited nor dragged in the mode (its place stays in
-   Appearance)? The answer said both "cannot be dragged" and "just drag".
-2. **What a style holds**: (a) only the look of the canvas (grid, lines,
-   backgrounds, series widths), applied to any plot of any layer; or (b) a
-   whole plot made into a template (type, settings, look, objects), from
-   which a new plot is made by choosing a layer and its fields? Today's
-   *Load plot from file* is close to (b).
-3. **Objects in a style**: when a style is applied, do its text boxes,
-   lines, arrows and pictures come too, or only the look?
+1. The legend cannot be dragged at all.
+2. A style is a whole plot, as *Save plot to file* and *Load plot from file*
+   already do it (type, settings, look), made again on a chosen layer.
+3. Its objects (text boxes, lines, arrows, pictures) come with it.

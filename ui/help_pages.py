@@ -656,7 +656,9 @@ PLOT = [
             I("plots_btn", "Plots",
               "Hide the list of plots, so the plot takes its width; click again to show "
               "it. Every window opens with the list shown.", icons.LIST_VIEW),
-            I("layer_combo", "Layer", "The layer the plots are made of."),
+            I("@row:Layer", "Layer",
+              "The layer this plot is made from (each plot has its own); choosing another "
+              "keeps the fields that have the same names there."),
             I("scope_label", "Records", "Which records the plots show, and how many."),
             I("scope_btn", "Change scope",
               "All records, the Attribute Explorer's filtered records, the selected "
