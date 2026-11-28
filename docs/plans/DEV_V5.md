@@ -469,16 +469,17 @@ Explorer's Data Plot menu. Choices made while building:
 - **Asked and left out for now**: several Y fields for Histogram and QQ
   Plot, Visualize Statistics and the Pivot Table chart.
 
-## Next: plots that keep their layer, then plot editing mode
+## Plots that keep their layer (Round 5, built), then plot editing mode
 
-- [PLOT_MANAGER.md](PLOT_MANAGER.md): the list holds every plot of the
-  project, each keeps its own layer, chosen in the settings card.
-- [PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md): an Edit plot mode for what is drawn
-  inside the canvas (grid lines, series lines, backgrounds) and objects added
-  to it (text boxes, horizontal and vertical lines, arrows, pictures), with
-  the plot and its settings frozen meanwhile; styles to reuse a look.
-
-Both are plans; nothing is built until their open questions are settled.
+- [PLOT_MANAGER.md](PLOT_MANAGER.md), **built** as Round 5: the list holds
+  every plot of the project, each keeps its own layer, chosen in the
+  settings card, and its own records.
+- [PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md), **planned** as Rounds 6 to 8, all
+  questions answered: an Edit plot mode for what is drawn inside the canvas
+  (grid lines, series lines, backgrounds) and objects added to it (text
+  boxes, horizontal and vertical lines, arrows, pictures), with the plot and
+  its settings frozen meanwhile; plot files carry the look and the objects,
+  so a plot file is the style to reuse.
 
 ## Not in this plan
 
