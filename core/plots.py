@@ -786,7 +786,9 @@ class ScatterPlot:
     Size by value, or None), *classes* (legend class, or None) and *rows*
     (index of each point's record in the table); records left out have a
     NULL or invalid X or Y (*missing*) or a value of 0 or less on a log
-    axis (*not_positive*)."""
+    axis (*not_positive*).  With several Y fields (*names*) every record
+    gives a point per field: *series* is the field of each point (None for
+    one field), *trends* the trend line of each field (None where off)."""
 
     def __init__(self):
         self.x = self.y = self.size = self.classes = self.rows = None
@@ -796,43 +798,125 @@ class ScatterPlot:
         self.size_missing = 0
         self.size_range = None
         self.trend = None
+        self.names = []
+        self.y_kinds = []
+        self.series = None
+        self.trends = []
+        self.trend_options = []
 
     def __len__(self):
         return 0 if self.x is None else len(self.x)
 
+    def y_kind_of(self, point):
+        """The field type of the Y value of *point*."""
+        if self.series is None or not self.y_kinds:
+            return self.y_kind
+        return self.y_kinds[int(self.series[point])]
+
+    def y_name_of(self, point, default=""):
+        if self.series is None:
+            return self.names[0] if self.names else default
+        return self.names[int(self.series[point])]
+
+
+TREND_DEFAULTS = {"on": False, "type": "linear", "order": 2, "forward": 0.0,
+                  "backward": 0.0, "set_intercept": False, "intercept": 0.0,
+                  "equation": True, "r2": True}
+INTERCEPT_TRENDS = ("linear", "polynomial", "exponential")     # as in spreadsheets
+
+
+def scatter_fields(d):
+    """The Y fields of a scatter plot, in order, each once: "y" is the first
+    (a plot made before several Y fields has only "y"), "fields" holds them
+    all."""
+    names = [n for n in (d.get("fields") or []) if n]
+    if d.get("y"):
+        names = [d["y"]] + names[1:]
+    return list(dict.fromkeys(names))
+
+
+def trend_options(d, name, first=False):
+    """The trend line settings of Y field *name*: on, type, order, forecast
+    forward and backward (in X units), a set intercept, and whether the
+    legend shows the equation and R².  The first field of a plot made
+    before several Y fields takes the plot's one trend setting."""
+    out = dict(TREND_DEFAULTS)
+    stored = (d.get("trends") or {}).get(name)
+    if stored is None and first:
+        out["on"] = bool(d.get("trend"))
+        out["type"] = d.get("trend_type", "linear")
+        out["order"] = int(d.get("order", 2) or 2)
+    if stored:
+        out.update(stored)
+    return out
+
 
 def scatter(table, opts, x_log=False, y_log=False):
-    """Points of the fields *opts* "x" and "y"; "size" (optional) sizes
-    them (a NULL size draws the smallest point); "trend" fits a trend line
-    of "trend_type" ("order" for a polynomial)."""
+    """Points of the field *opts* "x" against each Y field (scatter_fields);
+    "size" (optional) sizes them (a NULL size draws the smallest point);
+    each Y field's trend_options fit and extend its trend line."""
     out = ScatterPlot()
-    xc, yc = table.column(opts["x"]), table.column(opts["y"])
-    out.x_kind, out.y_kind = xc.kind, yc.kind
-    x, y = table.np(opts["x"]), table.np(opts["y"])
-    ok = ~np.isnan(x) & ~np.isnan(y)
-    out.missing = int(len(x) - ok.sum())
-    positive = ok.copy()
-    if x_log:
-        positive &= x > 0
-    if y_log:
-        positive &= y > 0
-    out.not_positive = int(ok.sum() - positive.sum())
-    rows = np.nonzero(positive)[0]
+    names = [n for n in scatter_fields(opts) if table.column(n) is not None]
+    out.names = names
+    xc = table.column(opts["x"])
+    out.x_kind = xc.kind
+    out.y_kinds = [table.column(n).kind for n in names]
+    out.y_kind = out.y_kinds[0] if out.y_kinds else F.REAL
+    x = table.np(opts["x"])
+    has_x = ~np.isnan(x)
+    plotted = np.zeros(len(x), dtype=bool)
+    valid = np.zeros(len(x), dtype=bool)
+    parts_rows, parts_y, parts_s = [], [], []
+    for k, name in enumerate(names):
+        y = table.np(name)
+        ok = has_x & ~np.isnan(y)
+        valid |= ok
+        positive = ok.copy()
+        if x_log:
+            positive &= x > 0
+        if y_log:
+            positive &= y > 0
+        out.not_positive += int(ok.sum() - positive.sum())
+        rows = np.nonzero(positive)[0]
+        plotted[rows] = True
+        parts_rows.append(rows)
+        parts_y.append(y[rows])
+        parts_s.append(np.full(len(rows), k, dtype=np.int16))
+    out.missing = int(len(x) - valid.sum())
+    rows = np.concatenate(parts_rows) if parts_rows else np.zeros(0, dtype=np.int64)
     out.rows = rows
-    out.x, out.y = x[rows], y[rows]
+    out.x = x[rows]
+    out.y = np.concatenate(parts_y) if parts_y else np.zeros(0)
+    if len(names) > 1:
+        out.series = np.concatenate(parts_s)
     size_field = opts.get("size")
     if size_field and table.column(size_field) is not None:
         s = table.np(size_field)[rows]
         good = ~np.isnan(s)
-        out.size_missing = int(len(s) - good.sum())
+        out.size_missing = int(len(np.unique(rows[~good]))) if len(names) > 1 else \
+            int(len(s) - good.sum())
         if good.any():
             out.size_range = (float(s[good].min()), float(s[good].max()))
         out.size = s
-    if table.classes is not None:
+    if table.classes is not None and len(names) == 1:
         out.classes = table.np("\x00classes")[rows]
-    if opts.get("trend") and len(rows) >= 2:
-        out.trend = fit_trend(out.x, out.y, opts.get("trend_type", "linear"),
-                              int(opts.get("order", 2)))
+    start = 0
+    for k, name in enumerate(names):
+        n = len(parts_rows[k])
+        o = trend_options(opts, name, first=(k == 0))
+        out.trend_options.append(o)
+        trend = None
+        if o["on"] and n >= 2:
+            xs, ys = out.x[start:start + n], out.y[start:start + n]
+            intercept = float(o["intercept"]) if o.get("set_intercept") else None
+            trend = fit_trend(xs, ys, o.get("type", "linear"), int(o.get("order", 2)),
+                              intercept=intercept)
+            if trend.ok:
+                trend.extend(float(o.get("backward") or 0), float(o.get("forward") or 0),
+                             x_log)
+        out.trends.append(trend)
+        start += n
+    out.trend = out.trends[0] if len(names) == 1 else None
     return out
 
 
@@ -850,6 +934,20 @@ class Trend:
         self.a = self.b = None
         self.equation = ""
         self.ok = False
+        self.intercept = None        # a set intercept (None: fitted)
+        self.problem = ""            # why it could not be fitted
+        self.lo = self.hi = None     # the X range it is drawn over (data and forecast)
+
+    def extend(self, backward=0.0, forward=0.0, x_log=False):
+        """Forecast: draw the line *backward* and *forward* X units beyond
+        the data, as spreadsheet trend lines do (not below 0 where the trend
+        or the axis takes a logarithm of X)."""
+        if self.lo is None:
+            return
+        lo, hi = self.lo - max(0.0, backward), self.hi + max(0.0, forward)
+        if (self.kind in ("logarithmic", "power") or x_log) and lo <= 0:
+            lo = self.lo * 1e-3 if self.lo > 0 else self.lo
+        self.lo, self.hi = lo, hi
 
     def at(self, xs):
         xs = np.asarray(xs, dtype=np.float64)
@@ -901,12 +999,52 @@ def _poly_fit(x, y, order):
     return coef, r2
 
 
-def fit_trend(x, y, kind="linear", order=2):
+def _fixed_fit(x, y, order, intercept):
+    """Least squares polynomial through (0, *intercept*): the coefficients
+    of x, x², ... fitted to y - intercept (worked out in slices), and R²
+    about the intercept, as spreadsheet trend lines with a set intercept
+    give it (1 - residual / sum of (y - intercept)²)."""
+    scale = float(np.abs(x).max()) or 1.0
+    ata = np.zeros((order, order))
+    aty = np.zeros(order)
+    for i in range(0, len(x), CHUNK):
+        t = x[i:i + CHUNK] / scale
+        yy = y[i:i + CHUNK] - intercept
+        powers = np.vander(t, 2 * order + 1, increasing=True)
+        sums = powers.sum(axis=0)
+        for r in range(order):
+            ata[r] += sums[r + 2:r + 2 + order]
+        aty += (powers[:, 1:order + 1] * yy[:, None]).sum(axis=0)
+    try:
+        a_t = np.linalg.solve(ata, aty)
+    except np.linalg.LinAlgError:
+        a_t = np.linalg.lstsq(ata, aty, rcond=None)[0]
+    coef = np.concatenate([[intercept], a_t / scale ** np.arange(1, order + 1)])
+    ss_res = ss_tot = 0.0
+    for i in range(0, len(x), CHUNK):
+        yy = y[i:i + CHUNK]
+        pred = np.polynomial.polynomial.polyval(x[i:i + CHUNK], coef)
+        ss_res += float(((yy - pred) ** 2).sum())
+        ss_tot += float(((yy - intercept) ** 2).sum())
+    r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else None
+    return coef, r2
+
+
+def fit_trend(x, y, kind="linear", order=2, intercept=None):
     """Least squares trend of *y* on *x*.  Exponential, logarithmic and
     power fits are made on the logarithms (as spreadsheet trend lines are),
     so their R² is that of the straight line on the logarithms; records
-    whose values have no logarithm (0 or less) are left out of them."""
+    whose values have no logarithm (0 or less) are left out of them.
+    *intercept* sets the value at x = 0 of a linear, polynomial or
+    exponential trend (above 0 for an exponential one); R² is then worked
+    out about the intercept."""
     out = Trend(kind)
+    if kind not in INTERCEPT_TRENDS:
+        intercept = None
+    if intercept is not None and kind == "exponential" and not intercept > 0:
+        out.problem = "an exponential trend's intercept must be above 0"
+        return out
+    out.intercept = intercept
     x = np.asarray(x, dtype=np.float64)
     y = np.asarray(y, dtype=np.float64)
     keep = np.ones(len(x), dtype=bool)
@@ -918,18 +1056,33 @@ def fit_trend(x, y, kind="linear", order=2):
     x, y = x[keep], y[keep]
     out.used = len(x)
     need = (int(order) + 1) if kind == "polynomial" else 2
-    if len(x) < need or float(x.max()) == float(x.min()):
+    if intercept is not None:
+        need -= 1                    # the constant is given
+    if len(x) < need or float(x.max()) == float(x.min()) or \
+            (intercept is not None and not np.any(x != 0)):
         return out
+    out.lo, out.hi = float(x.min()), float(x.max())
     if kind == "linear":
-        out.coef, out.r2 = _poly_fit(x, y, 1)
+        if intercept is None:
+            out.coef, out.r2 = _poly_fit(x, y, 1)
+        else:
+            out.coef, out.r2 = _fixed_fit(x, y, 1, intercept)
         out.equation = _poly_text(out.coef)
     elif kind == "polynomial":
         order = max(2, min(6, int(order)))
-        out.coef, out.r2 = _poly_fit(x, y, order)
+        if intercept is None:
+            out.coef, out.r2 = _poly_fit(x, y, order)
+        else:
+            out.coef, out.r2 = _fixed_fit(x, y, order, intercept)
         out.coef = _clean(out.coef, float(np.abs(x).max()))
+        if intercept is not None:
+            out.coef[0] = intercept
         out.equation = _poly_text(out.coef)
     elif kind == "exponential":
-        coef, out.r2 = _poly_fit(x, np.log(y), 1)
+        if intercept is None:
+            coef, out.r2 = _poly_fit(x, np.log(y), 1)
+        else:
+            coef, out.r2 = _fixed_fit(x, np.log(y), 1, math.log(intercept))
         out.a, out.b = math.exp(coef[0]), coef[1] if len(coef) > 1 else 0.0
         out.equation = f"y = {nice_number(out.a)}e^({nice_number(out.b)}x)"
     elif kind == "logarithmic":
@@ -2116,9 +2269,14 @@ def fields_used(plot):
     keys = ("category", "field") if t == "pie" else ("x", "y", "size", "split")
     if t == "pie" and d.get("mode") == "fields":
         keys = ()
+    if t == "scatter":
+        keys = ("x", "size")
+        names.extend(scatter_fields(d)[:1])
     for key in keys:
         if d.get(key):
             names.append(d[key])
+    if t == "scatter":
+        names.extend(scatter_fields(d)[1:])
     if t in ("heat", "calendar", "clock") and d.get("field"):
         names.append(d["field"])
     if t in ("box", "matrix") or (t == "pie" and d.get("mode") == "fields"):
@@ -2144,7 +2302,7 @@ def ready(plot):
     d = plot.get("data", {})
     t = plot.get("type")
     if t == "scatter":
-        if not d.get("x") or not d.get("y"):
+        if not d.get("x") or not scatter_fields(d):
             return "Choose a number field for X and for Y"
     elif t in ("line", "bar"):
         if not d.get("x"):
@@ -2187,8 +2345,9 @@ def ready(plot):
 def default_title(plot):
     d = plot.get("data", {})
     t = plot.get("type")
-    if t == "scatter" and d.get("x") and d.get("y"):
-        return f"{d['y']} and {d['x']}"
+    if t == "scatter" and d.get("x") and scatter_fields(d):
+        ys = scatter_fields(d)
+        return f"{', '.join(ys)} and {d['x']}"
     if t in ("line", "bar") and d.get("x"):
         agg = d.get("agg", "count")
         if agg == "count" or not d.get("fields"):

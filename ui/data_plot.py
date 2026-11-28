@@ -28,9 +28,9 @@ import uuid
 from qgis.PyQt.QtCore import QObject, QSize, Qt, QTimer, pyqtSignal
 from qgis.PyQt.QtGui import QColor, QGuiApplication, QIcon
 from qgis.PyQt.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QInputDialog,
-    QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox, QScrollArea,
-    QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
+    QScrollArea, QSizePolicy, QSpinBox, QSplitter, QVBoxLayout, QWidget,
 )
 from qgis.core import (
     QgsCoordinateTransform, QgsExpressionContext, QgsMessageLog, QgsProject,
@@ -390,11 +390,18 @@ class PlotProperties(QScrollArea):
     # ---- Data: scatter -------------------------------------------------
     def _scatter_data(self):
         d = self.plot["data"]
+        names = P.scatter_fields(d)
+        if names and not d.get("fields"):
+            d["fields"] = list(names)            # a plot made before several Y fields
+        trends = d.setdefault("trends", {})
+        for k, name in enumerate(names):         # each Y field keeps its own settings
+            if name not in trends:
+                trends[name] = P.trend_options(d, name, first=(k == 0))
         self._header("Data")
         x = self._field_combo(d.get("x"), _is_number, none_label=CHOOSE)
-        y = self._field_combo(d.get("y"), _is_number, none_label=CHOOSE)
         self._row("X-axis", x, "The number field along the bottom")
-        self._row("Y-axis", y, "The number field up the side")
+        first, extra, add = self._y_rows(names, tip="The number field up the side; each "
+                                         "further Y field is a series of its own colour")
         size = self._field_combo(d.get("size"), _is_number, none_label="None")
         self._row("Size by", size, "A third number field sizes each point (a bubble "
                   "plot); a NULL size draws the smallest point")
@@ -419,53 +426,202 @@ class PlotProperties(QScrollArea):
         size_row.setVisible(bool(d.get("size")))
 
         self._header("Statistics on the chart")
-        trend = self._tick("Trend line", d.get("trend"),
-                           "The least squares trend of Y on X, with its equation and R²")
-        kind = self._combo([(k, text, icons.option_icon(k, self.theme))
-                            for k, text in P.TRENDS], d.get("trend_type", "linear"))
-        kind_row = self._row("Trend", kind)
-        order = QSpinBox()
-        order.setRange(2, 6)
-        order.setValue(int(d.get("order", 2)))
-        order.setFixedHeight(self.metrics.control_h)
-        order_row = self._row("Order", order, "The polynomial's order (2: a parabola)")
-        note = self._note("R² measures the fit of a straight line; for this trend it is "
-                          "that of the line on the logarithms, so read it with care.")
-
-        def follow():
-            on = trend.isChecked()
-            kind_row.setEnabled(on)
-            order_row.setVisible(on and kind.currentData() == "polynomial")
-            note.setVisible(on and kind.currentData() in ("exponential", "logarithmic",
-                                                          "power"))
-            size_row.setVisible(bool(d.get("size")))
-
-        follow()
+        for name in names:
+            self._trend_block(trends[name], name if len(names) > 1 else None)
+        if not names:
+            self._note("Choose a Y field for its trend line.")
 
         def field(key, box):
             def changed(*_a):
                 d[key] = box.current_name()
-                follow()
+                size_row.setVisible(bool(d.get("size")))
                 self._changed(True)
             box.currentIndexChanged.connect(changed)
 
         field("x", x)
-        field("y", y)
         field("size", size)
+
+        def set_fields(new, rename=None):
+            """The Y fields changed: a field's trend settings stay with its row."""
+            new = [n for n in new if n]
+            if rename is not None:
+                old_name, new_name = rename
+                if old_name in trends and new_name:
+                    trends[new_name] = trends.pop(old_name)
+            d["fields"] = new
+            d["y"] = new[0] if new else None
+            self._changed(True)
+            self._rebuild()
+
+        def changed_first(*_a):
+            names = P.scatter_fields(d)
+            name = first.current_name()
+            if not name:
+                set_fields(names[1:])
+            else:
+                set_fields([name] + names[1:], (names[0] if names else None, name))
+
+        def changed_extra(k, box):
+            def changed(*_a):
+                names = P.scatter_fields(d)
+                if k < len(names):
+                    old = names[k]
+                    names[k] = box.current_name()
+                    set_fields(names, (old, names[k]))
+            return changed
+
+        def remove_extra(k):
+            def remove():
+                names = P.scatter_fields(d)
+                if k < len(names):
+                    trends.pop(names[k], None)
+                    del names[k]
+                    set_fields(names)
+            return remove
+
+        def add_field():
+            names = P.scatter_fields(d)
+            spare = [self.fields.at(i).name() for i in range(self.fields.count())
+                     if _is_number(F.field_kind(self.fields.at(i)))
+                     and self.fields.at(i).name() not in names
+                     and self.fields.at(i).name() != d.get("x")]
+            if not names or not spare:
+                return
+            set_fields(names + [spare[0]])
+
+        first.currentIndexChanged.connect(changed_first)
+        for k, box, remove in extra:
+            box.currentIndexChanged.connect(changed_extra(k, box))
+            remove.clicked.connect(remove_extra(k))
+        add.clicked.connect(add_field)
 
         def other(*_a):
             d["size_min"] = smin.value()
             d["size_max"] = max(smax.value(), smin.value() + 1)
-            d["trend"] = trend.isChecked()
-            d["trend_type"] = kind.currentData()
-            d["order"] = order.value()
+            self._changed(True)
+
+        for w in (smin, smax):
+            w.valueChanged.connect(other)
+
+    def _trend_block(self, o, name=None):
+        """One Y field's trend line (*o*, its settings), as a spreadsheet
+        trend line's: type, order, forecast forward and backward, a set
+        intercept, and the equation and R² in the legend.  *name* heads
+        the block when the plot has several Y fields."""
+        m = self.metrics
+        if name is not None:
+            self.lay.addWidget(W.label(name, "strong"))
+        on = self._tick("Trend line", o.get("on"),
+                        "The least squares trend of Y on X")
+        kind = self._combo([(k, text, icons.option_icon(k, self.theme))
+                            for k, text in P.TRENDS], o.get("type", "linear"))
+        kind_row = self._row("Trend", kind)
+        order = QSpinBox()
+        order.setRange(2, 6)
+        order.setValue(int(o.get("order", 2) or 2))
+        order.setFixedHeight(m.control_h)
+        order_row = self._row("Order", order, "The polynomial's order (2: a parabola)")
+
+        def units(value):
+            box = QDoubleSpinBox()
+            box.setRange(0, 1e12)
+            box.setDecimals(2)
+            box.setValue(float(value or 0))
+            box.setFixedHeight(m.control_h)
+            box.setMinimumWidth(50)              # its range would widen the card
+            holder = QWidget()
+            hl = QHBoxLayout(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.setSpacing(m.gap)
+            hl.addWidget(box, 1)
+            hl.addWidget(W.label("X units", "dim"))
+            return box, holder
+
+        forward, fw = units(o.get("forward"))
+        forward_row = self._row("Forward", fw, "Forecast: draw the line this far beyond "
+                                "the largest X (in X units; a spreadsheet's periods)")
+        backward, bw = units(o.get("backward"))
+        backward_row = self._row("Backward", bw, "Forecast: draw the line this far before "
+                                 "the smallest X (in X units)")
+        # Set intercept: the tick in place of a label (it is wider than the
+        # label column), its value beside it
+        icpt = QCheckBox("Set intercept")
+        icpt.setChecked(bool(o.get("set_intercept")))
+        value = self._edit(P.nice_number(float(o.get("intercept") or 0.0)))
+        value.setToolTip("The trend's value at X = 0")
+        icpt_row = QWidget()
+        il = QHBoxLayout(icpt_row)
+        il.setContentsMargins(0, 0, 0, 0)
+        il.setSpacing(m.gap)
+        il.addWidget(icpt)
+        il.addWidget(value, 1)
+        self.lay.addWidget(icpt_row)
+        equation = QCheckBox("Equation")
+        equation.setChecked(bool(o.get("equation", True)))
+        r2 = QCheckBox("R²")
+        r2.setChecked(bool(o.get("r2", True)))
+        shows = QWidget()
+        sl = QHBoxLayout(shows)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.setSpacing(12)
+        sl.addWidget(equation)
+        sl.addWidget(r2)
+        sl.addStretch(1)
+        show_row = self._row("Show", shows, "Show the trend's equation and R² in the "
+                             "legend")
+        note = self._note("R² measures the fit of a straight line; for this trend it is "
+                          "that of the line on the logarithms, so read it with care.")
+        icpt_note = self._note("With a set intercept, R² is worked out about the "
+                               "intercept (as spreadsheet trend lines do), not about the "
+                               "mean.")
+
+        def follow():
+            shown = on.isChecked()
+            kt = kind.currentData()
+            for w in (kind_row, forward_row, backward_row, icpt_row, show_row):
+                w.setVisible(shown)
+            order_row.setVisible(shown and kt == "polynomial")
+            can = kt in P.INTERCEPT_TRENDS
+            icpt.setEnabled(can)
+            value.setEnabled(can and icpt.isChecked())
+            icpt.setToolTip("Fix the trend's value at X = 0" if can else
+                            "Logarithmic and power trends have no set intercept (as in "
+                            "spreadsheets)")
+            note.setVisible(shown and kt in ("exponential", "logarithmic", "power"))
+            icpt_note.setVisible(shown and can and icpt.isChecked())
+
+        follow()
+
+        def changed(*_a):
+            o.update(on=on.isChecked(), type=kind.currentData(), order=order.value(),
+                     forward=forward.value(), backward=backward.value(),
+                     set_intercept=icpt.isChecked(), equation=equation.isChecked(),
+                     r2=r2.isChecked())
             follow()
             self._changed(True)
 
-        for w in (smin, smax, order):
-            w.valueChanged.connect(other)
-        kind.currentIndexChanged.connect(other)
-        trend.toggled.connect(other)
+        def changed_value():
+            text = value.text().strip().replace(",", "")
+            try:
+                number = float(text)
+            except ValueError:
+                number = None
+            if number is None or number != number or abs(number) == float("inf"):
+                value.setText(P.nice_number(float(o.get("intercept") or 0.0)))
+                return
+            if number != float(o.get("intercept") or 0.0):
+                o["intercept"] = number
+                self._changed(True)
+
+        on.toggled.connect(changed)
+        kind.currentIndexChanged.connect(changed)
+        order.valueChanged.connect(changed)
+        forward.valueChanged.connect(changed)
+        backward.valueChanged.connect(changed)
+        icpt.toggled.connect(changed)
+        equation.toggled.connect(changed)
+        r2.toggled.connect(changed)
+        value.editingFinished.connect(changed_value)
 
     # ---- Data: line and bar --------------------------------------------
     def _series_data(self):
@@ -1471,11 +1627,12 @@ class PlotProperties(QScrollArea):
         self._row("Y title", y_title, "Y axis title").setVisible(axes)
         desc = self._edit(gen.get("description"), "Shown under the plot")
         self._row("Description", desc)
-        if self.plot["type"] == "scatter":
+        if self.plot["type"] == "scatter" and len(P.scatter_fields(self.plot["data"])) < 2:
             mode = self._combo((("layer", "Layer symbology"), ("single", "One colour")),
                                self.plot["data"].get("colour", "layer"))
             self._row("Points", mode, "Layer symbology: each point in the colour of its "
-                      "legend class, as on the map")
+                      "legend class, as on the map (with several Y fields each field has "
+                      "its own colour)")
 
             def changed_mode(*_a):
                 self.plot["data"]["colour"] = mode.currentData()
@@ -1539,7 +1696,9 @@ class PlotProperties(QScrollArea):
         fmt = self.plot.setdefault("format", {})
         colours = fmt.setdefault("colours", {})
         t = self.plot["type"]
-        if t == "scatter":
+        if t == "scatter" and len(P.scatter_fields(self.plot["data"])) > 1:
+            names = self.series or []                # a colour per Y field
+        elif t == "scatter":
             if self.plot["data"].get("colour", "layer") == "layer":
                 return
             names = [None]
@@ -2304,7 +2463,8 @@ class DataPlotPanel(QWidget):
         wanted = [(n, fields.indexOf(n), F.field_kind(fields.field(n)))
                   for n in P.fields_used(plot)]
         classifier = None
-        if plot["type"] == "scatter" and plot["data"].get("colour", "layer") == "layer":
+        if plot["type"] == "scatter" and plot["data"].get("colour", "layer") == "layer" \
+                and len(P.scatter_fields(plot["data"])) == 1:
             classifier = SymbologyClasses(self.layer)
             if not classifier.usable:
                 classifier = None
@@ -2402,7 +2562,10 @@ class DataPlotPanel(QWidget):
         out = {"mask": mask, "per": None, "per_series": None, "part": None, "count": 0}
         t = plot["type"]
         if t in ("scatter", "qq"):
-            out["count"] = int(mask[data.rows].sum()) if len(data) else 0
+            # a record with several Y fields is several points: count it once
+            rows = np.unique(data.rows) if getattr(data, "series", None) is not None \
+                else data.rows
+            out["count"] = int(mask[rows].sum()) if len(data) else 0
             return out
         if t == "matrix":
             any_value = np.zeros(len(table), dtype=bool)
@@ -2476,6 +2639,8 @@ class DataPlotPanel(QWidget):
         """The names the Appearance colour rows are for (None: one colour)."""
         t = plot["type"]
         if t == "scatter":
+            if len(data.names) > 1:
+                return list(data.names)              # a colour per Y field
             return [None] if plot["data"].get("colour") == "single" else []
         if t in ("qq", "matrix"):
             return [None]
@@ -2517,9 +2682,15 @@ class DataPlotPanel(QWidget):
         m.sel_colour = QColor(colour) if colour.isValid() else QColor("#ffff00")
         m.sel_colour.setAlpha(255)
         if m.kind == "scatter":
+            names = self.data.names or P.scatter_fields(d)
             m.x_title = gen.get("x_title") or d.get("x") or ""
-            m.y_title = gen.get("y_title") or d.get("y") or ""
-            if d.get("colour") == "single" or self.table.classes is None:
+            m.y_title = gen.get("y_title") or ", ".join(names)
+            if len(names) > 1:                       # a colour per Y field
+                colours = fmt.get("colours", {})
+                m.colours = [series_colour(self.theme, i, name, len(names),
+                                           colours.get(str(name)))
+                             for i, name in enumerate(names)]
+            elif d.get("colour") == "single" or self.table.classes is None:
                 m.single = QColor(fmt.get("colour") or self.theme.bar)
             else:
                 m.colours = [QColor(c) for c in self.table.class_colours]
@@ -2605,15 +2776,25 @@ class DataPlotPanel(QWidget):
             return
         parts = [P.TYPE_LABELS[plot["type"]]]
         if plot["type"] == "scatter":
-            parts.append(f"{len(data):,} points")
+            several = len(data.names) > 1
+            parts.append(f"{len(data):,} points" + (f" of {len(data.names)} Y fields"
+                                                    if several else ""))
             if data.missing:
-                parts.append(f"{data.missing:,} records without an X or Y value left out")
+                parts.append(f"{data.missing:,} records without an X or "
+                             f"{'any ' if several else ''}Y value left out")
             if data.not_positive:
-                parts.append(f"{data.not_positive:,} with values of 0 or less left out "
-                             "(log axis)")
-            if data.trend is not None and data.trend.ok and data.trend.left_out:
-                parts.append(f"the trend leaves out {data.trend.left_out:,} values of "
-                             "0 or less")
+                parts.append(f"{data.not_positive:,} "
+                             f"{'points' if several else 'records'} with values of 0 or "
+                             "less left out (log axis)")
+            for k, trend in enumerate(data.trends):
+                if trend is None:
+                    continue
+                whose = f"the trend of {data.names[k]}" if several else "the trend"
+                if trend.problem:
+                    parts.append(f"{whose}: {trend.problem}")
+                elif trend.ok and trend.left_out:
+                    parts.append(f"{whose} leaves out {trend.left_out:,} values of "
+                                 "0 or less")
             from .plot_view import DENSITY_LIMIT
             if len(data) > DENSITY_LIMIT:
                 parts.append("shaded by records per spot")
@@ -2690,7 +2871,7 @@ class DataPlotPanel(QWidget):
         """Records the plot shows."""
         t = plot["type"]
         if t == "scatter":
-            return len(data)
+            return len(np.unique(data.rows)) if data.series is not None else len(data)
         if t == "pie":
             if data.fields is None:
                 return sum(data.records)
@@ -2773,8 +2954,10 @@ class DataPlotPanel(QWidget):
             if left:
                 rows.append(("Left out", F.format_number(left),
                              "No X or Y value, or 0 or less on a log axis"))
-            if data.trend is not None and data.trend.ok and data.trend.r2 is not None:
-                rows.append(("R²", f"{data.trend.r2:.4f}", data.trend.equation))
+            for k, trend in enumerate(data.trends):
+                if trend is not None and trend.ok and trend.r2 is not None:
+                    label = "R²" if len(data.names) < 2 else f"R² {data.names[k]}"
+                    rows.append((label, f"{trend.r2:.4f}", trend.equation))
         else:
             unit = {"bar": "Bars", "line": "Points"}.get(t, "Categories")
             rows.append((unit, F.format_number(len(data))))
@@ -3054,6 +3237,37 @@ class DataPlotPanel(QWidget):
             rows = [[int(fids[k]), float(data.x[k]), float(data.y[k]),
                      "Yes" if sel is not None and sel[data.rows[k]] else ""]
                     for k in range(len(data))]
+            return header, rows
+        if t == "scatter" and data.series is not None:
+            # several Y fields: a row per record, a column per Y field
+            order = np.unique(data.rows)
+            where = np.full(len(self.table), -1, dtype=np.int64)
+            where[order] = np.arange(len(order))
+            n = len(data.names)
+            xs = [None] * len(order)
+            ys = [[None] * n for _ in order]
+            for k in range(len(data)):
+                i = int(where[data.rows[k]])
+                xs[i] = float(data.x[k])
+                ys[i][int(data.series[k])] = float(data.y[k])
+            sizes = self.table.np(d["size"]) if data.size is not None else None
+            fids = self.table.np(None)
+            header = ["Feature id", d["x"]] + list(data.names) + \
+                ([d["size"]] if sizes is not None else []) + ["Selected"]
+            rows = []
+            for i, r in enumerate(order.tolist()):
+                row = [int(fids[r]), xs[i]] + ys[i]
+                if sizes is not None:
+                    v = float(sizes[r])
+                    row.append(None if v != v else v)
+                row.append("Yes" if sel is not None and sel[r] else "")
+                rows.append(row)
+            kinds = [data.x_kind] + list(data.y_kinds)
+            for i, h in enumerate(kinds, 1):
+                if P.role(h) == P.DATE:
+                    for row in rows:
+                        if row[i] is not None:
+                            row[i] = value_text(row[i], h)
             return header, rows
         if t == "scatter":
             fids = self.table.np(None)[data.rows]

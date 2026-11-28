@@ -809,21 +809,31 @@ PLOT = [
         crops=_PLOT_CROP),
 
     Tab("plot_scatter", "Scatter",
-        "The relationship between two number fields: a point per record.",
+        "The relationship between number fields: a point per record and Y field.",
         [
             I("@row:X-axis", "X-axis", "The number field along the bottom."),
             I("@row:Y-axis", "Y-axis", "The number field up the side."),
+            I("@button:Add Y field", "Add Y field",
+              "Another Y field, as in the Line chart: each Y field has its own colour, "
+              "legend entry and trend line settings.", icons.ADD),
             I("@row:Size by", "Size by", "A third number field sizes each point: a bubble "
               "plot."),
-            I("@tick:Trend line", "Trend line", "Fit a trend to the points."),
+            I("@tick:Trend line", "Trend line", "Fit a trend to the points of this Y field."),
             I("@row:Trend", "Trend",
-              "Linear, exponential, logarithmic, power or polynomial, with its equation "
-              "and R² in the legend."),
+              "Linear, exponential, logarithmic, power or polynomial (with its order)."),
+            I("@row:Forward+@row:Backward", "Forward, Backward",
+              "Forecast: draw the line this far beyond the largest X and before the "
+              "smallest, in X units (a spreadsheet's periods); the axis makes room."),
+            I("@tick:Set intercept", "Set intercept",
+              "Fix the trend's value at X = 0 (linear, polynomial and exponential trends, "
+              "as in spreadsheets). R² is then worked out about the intercept."),
+            I("@row:Show", "Show", "The trend's equation and R² in the legend."),
             I("@plot", "The points",
-              "In the colours of the layer's symbology. Hover a point for its record; "
-              "click or drag a box to select. Above 100,000 points each spot is shaded "
-              "by its records."),
-            I("@legend", "Legend", "The legend classes, the trend's equation and R²."),
+              "One Y field: in the colours of the layer's symbology; several: a colour "
+              "per field. Hover a point for its record; click or drag a box to select. "
+              "Above 100,000 points each spot is shaded by its records."),
+            I("@legend", "Legend",
+              "The legend classes or Y fields, each trend with its equation and R²."),
         ],
         crops=_PLOT_CROP),
 

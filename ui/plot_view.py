@@ -706,6 +706,21 @@ class PlotView(QWidget):
             ylo, yhi = float(d.y.min()), float(d.y.max())
         else:
             xlo, xhi, ylo, yhi = 0.0, 1.0, 0.0, 1.0
+        trends = self._trends()
+        for _k, trend in trends:                 # the lines and their forecast in view
+            if trend.lo is None or not len(d):
+                continue
+            xlo, xhi = min(xlo, trend.lo), max(xhi, trend.hi)
+            xs = np.logspace(math.log10(trend.lo), math.log10(trend.hi), 60) \
+                if (x_log and trend.lo > 0) else np.linspace(trend.lo, trend.hi, 60)
+            v = trend.at(xs)
+            v = v[np.isfinite(v)]
+            if y_log:
+                v = v[v > 0]
+            if len(v):
+                span = (yhi - ylo) or abs(yhi) or 1.0
+                ylo = min(ylo, max(float(v.min()), ylo - 2 * span))
+                yhi = max(yhi, min(float(v.max()), yhi + 2 * span))
         if not x_log:
             xlo, xhi = padded(xlo, xhi)
         if not y_log:
@@ -735,11 +750,16 @@ class PlotView(QWidget):
             self._paint_density(p, plot, sx, sy, inside, ratio)
         else:
             self._paint_points(p, sx, sy, inside, ratio, vector)
-        if d.trend is not None and d.trend.ok:
-            xs = np.linspace(xa.lo, xa.hi, 240) if not x_log else \
-                np.logspace(math.log10(xa.lo), math.log10(xa.hi), 240)
-            ys = d.trend.at(xs)
-            pen = QPen(QColor(TREND_COLOUR[t.dark]), 2)
+        for k, trend in trends:
+            # over the data and its forecast, as spreadsheet trend lines are drawn
+            lo = max(xa.lo, trend.lo) if trend.lo is not None else xa.lo
+            hi = min(xa.hi, trend.hi) if trend.hi is not None else xa.hi
+            if not hi > lo or (x_log and lo <= 0):
+                continue
+            xs = np.linspace(lo, hi, 240) if not x_log else \
+                np.logspace(math.log10(lo), math.log10(hi), 240)
+            ys = trend.at(xs)
+            pen = QPen(self._trend_colour(k), 2)
             p.setPen(pen)
             path = QPainterPath()
             started = False
@@ -756,10 +776,34 @@ class PlotView(QWidget):
             p.drawPath(path)
         p.restore()
 
-    def _point_colours(self):
+    def _trends(self):
+        """(Y field index, trend) of the fitted trend lines."""
+        d = self.model.data
+        trends = getattr(d, "trends", None) or \
+            ([d.trend] if getattr(d, "trend", None) is not None else [])
+        return [(k, tr) for k, tr in enumerate(trends) if tr is not None and tr.ok]
+
+    def _trend_colour(self, k):
+        """One Y field: the trend colour; several: the field's own, a little
+        darker, so the line stands out of its points."""
         m, d = self.model, self.model.data
+        if getattr(d, "series", None) is not None and k < len(m.colours):
+            return QColor(m.colours[k]).darker(125)
+        return QColor(TREND_COLOUR[self.theme.dark])
+
+    def _colour_codes(self):
+        """The colour of each point: its Y field (several Y fields) or its
+        legend class (layer symbology); None for one colour."""
+        m, d = self.model, self.model.data
+        if getattr(d, "series", None) is not None:
+            return d.series
         if d.classes is not None and m.single is None:
-            return [QColor(c) for c in m.colours]
+            return d.classes
+        return None
+
+    def _point_colours(self):
+        if self._colour_codes() is not None:
+            return [QColor(c) for c in self.model.colours]
         return None
 
     def _sizes(self):
@@ -837,7 +881,7 @@ class PlotView(QWidget):
         if colours is None:
             draw(plain, default)
         else:
-            cls = d.classes[plain]
+            cls = self._colour_codes()[plain]
             for c in np.unique(cls):
                 colour = colours[c] if 0 <= c < len(colours) else QColor(OTHER_COLOUR[t.dark])
                 draw(plain[cls == c], colour)
@@ -852,7 +896,7 @@ class PlotView(QWidget):
         cx = np.clip(((sx[idx] - plot.left()) / CELL).astype(np.int64), 0, w - 1)
         cy = np.clip(((sy[idx] - plot.top()) / CELL).astype(np.int64), 0, h - 1)
         colours = self._point_colours()
-        classes = d.classes[idx] if colours is not None else None
+        classes = self._colour_codes()[idx] if colours is not None else None
         counts, dominant = P.density(cx, cy, w, h, classes, len(colours or []))
         self._geo["density"] = (w, h, counts, cx, cy, idx)
         top = max(1, int(counts.max()))
@@ -1854,16 +1898,26 @@ class PlotView(QWidget):
         elif m.kind == "matrix":
             pass
         elif m.kind == "scatter":
-            if d.classes is not None and m.single is None and len(m.colours) > 1:
+            several = getattr(d, "series", None) is not None
+            if several:                              # each Y field, in its colour
+                for k, name in enumerate(d.names):
+                    colour = m.colours[k] if k < len(m.colours) else QColor(t.bar)
+                    out.append(("box", colour, str(name), k))
+            elif d.classes is not None and m.single is None and len(m.colours) > 1:
                 for c, colour in enumerate(m.colours):
                     label = m.table.class_labels[c] if c < len(m.table.class_labels) else ""
                     out.append(("box", colour, label or "(no label)", c))
-            if d.trend is not None and d.trend.ok:
-                out.append(("line", QColor(TREND_COLOUR[t.dark]),
-                            f"{P.TREND_LABELS.get(d.trend.kind, '')} trend", None))
-                out.append(("none", None, d.trend.equation, None))
-                if d.trend.r2 is not None:
-                    out.append(("none", None, f"R² = {d.trend.r2:.4f}", None))
+            opts = getattr(d, "trend_options", None) or []
+            for k, trend in self._trends():
+                o = opts[k] if k < len(opts) else {}
+                label = f"{P.TREND_LABELS.get(trend.kind, '')} trend"
+                if several:
+                    label += f" ({d.names[k]})"
+                out.append(("line", self._trend_colour(k), label, None))
+                if o.get("equation", True):
+                    out.append(("none", None, trend.equation, None))
+                if o.get("r2", True) and trend.r2 is not None:
+                    out.append(("none", None, f"R² = {trend.r2:.4f}", None))
             if len(d) > DENSITY_LIMIT:
                 out.append(("density", QColor(m.single or t.bar),
                             "Shade: records per spot", None))
@@ -2149,7 +2203,7 @@ class PlotView(QWidget):
         m, d = self.model, self.model.data
         if m.kind == "scatter":
             hit = self._scatter_hit(pos)
-            return d.rows[hit[0]] if hit is not None else None
+            return np.unique(d.rows[hit[0]]) if hit is not None else None
         if m.kind == "pie":
             i = self._wedge_at(pos)
             return P.pie_rows(d, m.table, [i]) if i is not None else None
@@ -2203,7 +2257,7 @@ class PlotView(QWidget):
             x0, x1 = sorted((xa.value_at(a.x()), xa.value_at(b.x())))
             y0, y1 = sorted((ya.value_at(a.y()), ya.value_at(b.y())))
             mask = (d.x >= x0) & (d.x <= x1) & (d.y >= y0) & (d.y <= y1)
-            return d.rows[mask]
+            return np.unique(d.rows[mask])
         if m.kind == "scatter":
             d = m.data
             x0, x1 = sorted((xa.value_at(a.x()), xa.value_at(b.x())))
@@ -2235,7 +2289,8 @@ class PlotView(QWidget):
     def _legend_rows(self, pick):
         m, d = self.model, self.model.data
         if m.kind == "scatter":
-            return d.rows[d.classes == pick] if d.classes is not None else d.rows[:0]
+            codes = self._colour_codes()
+            return np.unique(d.rows[codes == pick]) if codes is not None else d.rows[:0]
         if m.kind == "pie":
             return P.pie_rows(d, m.table, [pick])
         if getattr(d, "series_of", None) is not None and getattr(d, "group", None) is not None:
@@ -2269,16 +2324,24 @@ class PlotView(QWidget):
         if kind == "points":
             points = a
             rows = d.rows[points]
-            n = len(points)
+            n = len(np.unique(rows))                 # a record may be a point per Y field
             data = m.plot.get("data", {})
             first = int(points[0]) if n else 0
             x_name = getattr(d, "x_name", "") or data.get("x")
             y_name = getattr(d, "y_name", "") or data.get("y")
+            y_kind = d.y_kind
+            several = getattr(d, "series", None) is not None
+            if several:                              # the point's own Y field
+                y_name, y_kind = d.y_name_of(first), d.y_kind_of(first)
             lines = [(None, f"{x_name}: {value_text(float(d.x[first]), d.x_kind)}"),
-                     (None, f"{y_name}: {value_text(float(d.y[first]), d.y_kind)}")]
+                     (None, f"{y_name}: {value_text(float(d.y[first]), y_kind)}")]
             if d.size is not None and data.get("size"):
                 lines.append((None, f"{data['size']}: {value_text(float(d.size[first]))}"))
-            if d.classes is not None and m.single is None and len(m.colours) > 1:
+            if several:
+                k = int(d.series[first])
+                if k < len(m.colours):
+                    lines.append((m.colours[k], str(d.names[k])))
+            elif d.classes is not None and m.single is None and len(m.colours) > 1:
                 c = int(d.classes[first])
                 if 0 <= c < len(m.table.class_labels):
                     lines.append((m.colours[c], m.table.class_labels[c]))

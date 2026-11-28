@@ -577,13 +577,19 @@ series colours, the legend, grid and axis lines. Labels are kept short so
 the boxes line up (<b>Aggregate</b> for Aggregation, <b>Transform</b> for
 Transformation); hover a label for its full name.</p>
 <h4>Scatter Plot</h4>
-<p>The relationship between two number fields. <b>Size by</b> a third number
-field makes a bubble plot (NULL draws the smallest point). The points take
-the colours of the layer's symbology (each in the colour of its legend
-class), or one colour. <b>Show trend line</b>: Linear, Exponential,
-Logarithmic, Power or Polynomial (order 2 to 6), with its equation and R².
-The exponential, logarithmic and power trends are fitted on the logarithms,
-and leave out values of 0 or less. Records with no X or Y value are left
+<p>The relationship between number fields. <b>Add Y field</b> plots more Y
+fields against the same X, as in the Line chart: each Y field has its own
+colour, legend entry and trend line settings. <b>Size by</b> a third number
+field makes a bubble plot (NULL draws the smallest point). With one Y field
+the points take the colours of the layer's symbology (each in the colour of
+its legend class), or one colour. <b>Trend line</b>: Linear, Exponential,
+Logarithmic, Power or Polynomial (order 2 to 6). <b>Forward</b> and
+<b>Backward</b> forecast the line beyond the data, in X units (a
+spreadsheet's periods). <b>Set intercept</b> fixes the trend's value at
+X = 0 for linear, polynomial and exponential trends; R² is then worked out
+about the intercept, as spreadsheet trend lines do. <b>Show</b> puts the
+equation and R² in the legend. The exponential, logarithmic and power trends
+are fitted on the logarithms, and leave out values of 0 or less. Records with no X or Y value are left
 out (counted in the status bar). With many points the plot shades each spot
 by the records on it; every record still counts and can be selected.</p>
 <h4>Line Chart</h4>

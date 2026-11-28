@@ -692,7 +692,8 @@ def plot_pictures(plugin, layer):
     render(tabs["plot_histogram"], panel, plot_special)
     make("box", "Areas by land use", split="LAND_USE", fields=["AREA_M2"])
     render(tabs["plot_box"], panel, plot_special)
-    make("scatter", "Area and land value", x="AREA_M2", y="LAND_VALUE", trend=True)
+    make("scatter", "Area and land value", x="AREA_M2", y="LAND_VALUE",
+         trends={"LAND_VALUE": {"on": True, "type": "linear", "forward": 10000}})
     render(tabs["plot_scatter"], panel, plot_special)
     make("matrix", "Number fields", fields=["AREA_M2", "LAND_VALUE", "STOREYS", "YEAR_BUILT"],
          upper="preview")

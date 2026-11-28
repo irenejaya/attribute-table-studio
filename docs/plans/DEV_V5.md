@@ -438,6 +438,23 @@ Explorer's Data Plot menu. Choices made while building:
   `make_screenshots.py` had stopped at the Explorer selection since 1.3 (an
   array of record ids where QGIS wants a list).
 
+## Additions after Round 4
+
+- **Scatter plot, several Y fields** (asked for after Round 4): Add Y field
+  as in the Line chart; every record gives a point per Y field, each field
+  in its own colour (the layer's symbology colours stay for one Y field),
+  with its own legend entry. A record counts once in the selection, the
+  Records and the CSV (a row per record, a column per Y field).
+- **Trend line controls of a spreadsheet**, per Y field: Forward and
+  Backward forecast the line in X units (the axis makes room), Set intercept
+  fixes the value at X = 0 for linear, polynomial and exponential trends (R²
+  then about the intercept, 1 - residual / sum of (y - intercept)², as
+  spreadsheet trend lines give it; logarithmic and power trends have none),
+  and Show puts the equation and R² in the legend, where the other charts of
+  the tool keep theirs. The line is drawn over the data and its forecast, no
+  longer across the whole axis. Plots saved before keep their one trend on
+  the first Y field.
+
 ## Not in this plan
 
 - Charts on the map (pie or bar symbols per feature).

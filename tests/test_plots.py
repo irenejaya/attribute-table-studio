@@ -284,6 +284,47 @@ class TrendTests(unittest.TestCase):
         self.assertFalse(P.fit_trend(np.array([1.0]), np.array([2.0])).ok)
         self.assertFalse(P.fit_trend(np.array([1.0, 1.0]), np.array([2.0, 3.0])).ok)
 
+    def test_set_intercept_linear_and_polynomial(self):
+        rnd = np.random.default_rng(4)
+        x = rnd.uniform(1, 20, 400)
+        y = 3.0 * x + 7.0 + rnd.normal(0, 2, 400)
+        for b in (0.0, 7.0, 12.5):
+            tr = P.fit_trend(x, y, "linear", intercept=b)
+            slope = float(np.linalg.lstsq(x[:, None], y - b, rcond=None)[0][0])
+            self.assertAlmostEqual(tr.coef[0], b)
+            self.assertAlmostEqual(tr.coef[1], slope, places=9)
+            res = y - (b + slope * x)
+            self.assertAlmostEqual(tr.r2, 1 - (res @ res) / ((y - b) @ (y - b)), places=9)
+        exact = 1.0 + 2.0 * x - 0.5 * x ** 2
+        tr = P.fit_trend(x, exact, "polynomial", order=2, intercept=1.0)
+        np.testing.assert_allclose(tr.coef, [1.0, 2.0, -0.5], rtol=1e-9, atol=1e-9)
+        self.assertAlmostEqual(tr.r2, 1.0)
+        self.assertTrue(tr.equation.startswith("y = −0.5x²"))
+
+    def test_set_intercept_exponential_and_others(self):
+        x = np.linspace(0.5, 6, 50)
+        tr = P.fit_trend(x, 3.0 * np.exp(0.4 * x), "exponential", intercept=3.0)
+        self.assertAlmostEqual(tr.a, 3.0)
+        self.assertAlmostEqual(tr.b, 0.4, places=9)
+        bad = P.fit_trend(x, np.exp(x), "exponential", intercept=0.0)
+        self.assertFalse(bad.ok)
+        self.assertIn("above 0", bad.problem)
+        # logarithmic and power trends have no set intercept (as in spreadsheets)
+        a = P.fit_trend(x, 2 * np.log(x) + 1, "logarithmic", intercept=50.0)
+        self.assertIsNone(a.intercept)
+        self.assertAlmostEqual(a.a, 1.0, places=9)
+
+    def test_forecast_extends_the_line(self):
+        x = np.array([2.0, 4.0, 6.0])
+        tr = P.fit_trend(x, 2 * x, "linear")
+        self.assertEqual((tr.lo, tr.hi), (2.0, 6.0))
+        tr.extend(backward=1.5, forward=4)
+        self.assertEqual((tr.lo, tr.hi), (0.5, 10.0))
+        self.assertAlmostEqual(float(tr.at([10.0])[0]), 20.0)
+        lg = P.fit_trend(x, np.log(x), "logarithmic")
+        lg.extend(backward=5)                       # no logarithm at 0 or below
+        self.assertGreater(lg.lo, 0)
+
 
 class ScatterTests(unittest.TestCase):
     def test_points_size_and_log_axis(self):
@@ -298,6 +339,35 @@ class ScatterTests(unittest.TestCase):
         self.assertEqual(len(p), 2)
         self.assertEqual(p.not_positive, 1)
         self.assertEqual([t.fids[i] for i in p.rows], [1, 2])
+
+    def test_several_y_fields(self):
+        t = make_table(X=(F.REAL, [1, 2, 3, None, 5]),
+                       A=(F.REAL, [10, None, 30, 40, 50]),
+                       B=(F.REAL, [None, None, 3, 4, None]))
+        d = {"x": "X", "y": "A", "fields": ["A", "B"],
+             "trends": {"A": {"on": True}, "B": {"on": False}}}
+        p = P.scatter(t, d)
+        self.assertEqual(p.names, ["A", "B"])
+        self.assertEqual(len(p), 4)                     # A: records 1, 3, 5; B: record 3
+        self.assertEqual(p.series.tolist(), [0, 0, 0, 1])
+        self.assertEqual([t.fids[i] for i in p.rows], [1, 3, 5, 3])
+        self.assertEqual(p.y.tolist(), [10, 30, 50, 3])
+        self.assertEqual(p.missing, 2)                  # record 2 (no Y) and 4 (no X)
+        self.assertTrue(p.trends[0].ok)
+        self.assertIsNone(p.trends[1])
+        self.assertIsNone(p.trend)                      # several fields: see trends
+        self.assertEqual(p.y_name_of(3), "B")
+        self.assertEqual(P.fields_used({"type": "scatter", "data": d}), ["A", "X", "B"])
+        self.assertEqual(P.default_title({"type": "scatter", "data": d}), "A, B and X")
+
+    def test_earlier_plots_keep_their_trend(self):
+        d = {"x": "X", "y": "A", "trend": True, "trend_type": "power", "order": 3}
+        self.assertEqual(P.scatter_fields(d), ["A"])
+        o = P.trend_options(d, "A", first=True)
+        self.assertEqual((o["on"], o["type"], o["order"]), (True, "power", 3))
+        self.assertEqual((o["equation"], o["r2"], o["forward"]), (True, True, 0.0))
+        d["trends"] = {"A": {"on": False}}
+        self.assertFalse(P.trend_options(d, "A", first=True)["on"])
 
     def test_density_counts_and_dominant_class(self):
         px = np.array([0, 0, 1, 1, 1])

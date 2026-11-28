@@ -29,7 +29,7 @@ APP = H.start_qgis()
 PKG = H.plugin_package()
 
 from qgis.PyQt.QtCore import QPoint, QPointF, Qt  # noqa: E402
-from qgis.PyQt.QtWidgets import QMessageBox  # noqa: E402
+from qgis.PyQt.QtWidgets import QAbstractButton, QMessageBox  # noqa: E402
 from qgis.core import (  # noqa: E402
     QgsCategorizedSymbolRenderer, QgsProject, QgsRectangle, QgsRendererCategory,
     QgsSymbol,
@@ -154,6 +154,118 @@ class DataPlotTests(unittest.TestCase):
         zeros = sum(1 for _a, b in pairs if b <= 0)
         self.assertGreater(zeros, 0)
         self.assertEqual(panel.data.not_positive, zeros)
+
+    def test_02b_scatter_several_y_fields_and_trend_settings(self):
+        """Several Y fields: a colour, a legend entry and trend settings each;
+        forecast, set intercept and the equation and R² in the legend."""
+        panel = self.panel()
+        self.make(panel, "scatter", x="SCORE_MAX", y="SCORE_MIN")
+        props = panel.props
+        add = next(b for b in props.widget().findChildren(QAbstractButton)
+                   if b.text().strip() == "Add Y field")
+        add.click()                                   # a second Y field, as in the Line chart
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        d = panel.current_plot()["data"]
+        self.assertEqual(len(P.scatter_fields(d)), 2)
+        d["fields"] = ["SCORE_MIN", "SCORE_2Y"]
+        d["trends"] = {"SCORE_MIN": {"on": True, "type": "linear", "forward": 50,
+                                     "backward": 0},
+                       "SCORE_2Y": {"on": True, "type": "linear", "set_intercept": True,
+                                    "intercept": 3.0, "equation": True, "r2": False}}
+        plot = panel.current_plot()
+        plot["data"] = d
+        panel._write(plot)
+        panel._show_plot(plot["id"])
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        data = panel.data
+        self.assertEqual(data.names, ["SCORE_MIN", "SCORE_2Y"])
+        expected = sum(1 for a, b in zip(self.values("SCORE_MAX"), self.values("SCORE_MIN"))
+                       if a is not None and b is not None) + \
+            sum(1 for a, b in zip(self.values("SCORE_MAX"), self.values("SCORE_2Y"))
+                if a is not None and b is not None)
+        self.assertEqual(len(data), expected)
+        # the second trend goes through (0, 3), its slope fitted to y - 3
+        xs, ys = [], []
+        for a, b in zip(self.values("SCORE_MAX"), self.values("SCORE_2Y")):
+            if a is not None and b is not None:
+                xs.append(a)
+                ys.append(b - 3.0)
+        slope = sum(x * y for x, y in zip(xs, ys)) / sum(x * x for x in xs)
+        tr = data.trends[1]
+        self.assertAlmostEqual(tr.coef[0], 3.0)
+        self.assertAlmostEqual(tr.coef[1], slope, places=9)
+        # the first trend is drawn 50 X units beyond the largest X: the axis follows
+        self.assertAlmostEqual(data.trends[0].hi, max(self.values("SCORE_MAX") or [0],
+                                                      key=lambda v: v or 0) + 50)
+        H.settle(0.3)
+        self.assertGreaterEqual(panel.view._geo["x"].hi, data.trends[0].hi)
+        # one colour per Y field, each in the legend with its trend; R² hidden for one
+        model = panel.model
+        self.assertEqual(len(model.colours), 2)
+        texts = [e[2] for e in panel.view._legend_entries()]
+        for text in ("SCORE_MIN", "SCORE_2Y", "Linear trend (SCORE_MIN)",
+                     "Linear trend (SCORE_2Y)", tr.equation):
+            self.assertIn(text, texts)
+        r2_lines = [i for i, text in enumerate(texts) if text.startswith("R² =")]
+        self.assertEqual(len(r2_lines), 1)            # SCORE_2Y's R² is hidden
+        self.assertLess(r2_lines[0], texts.index("Linear trend (SCORE_2Y)"))
+        # the card: a trend block per Y field, the Points row gone
+        labels = [lbl.text() for lbl in props._labels]
+        self.assertEqual(labels.count("Forward"), 2)
+        self.assertNotIn("Points", labels)
+        self.assertEqual(panel._colour_names(plot, data), ["SCORE_MIN", "SCORE_2Y"])
+        # a record of both fields counts once in the selection and the CSV
+        both = [i for i, (a, b, c) in enumerate(zip(self.values("SCORE_MAX"),
+                                                    self.values("SCORE_MIN"),
+                                                    self.values("SCORE_2Y")))
+                if a is not None and b is not None and c is not None]
+        fid = self.feats[both[0]].id()
+        self.layer.selectByIds([fid])
+        self.assertTrue(H.wait_for(lambda: ready(panel) and panel.model.sel_count == 1))
+        header, rows = panel.csv_rows(panel.current_plot(), panel.data)
+        self.assertEqual(header, ["Feature id", "SCORE_MAX", "SCORE_MIN", "SCORE_2Y",
+                                  "Selected"])
+        self.assertEqual(len({r[0] for r in rows}), len(rows))
+        self.assertEqual(sum(1 for r in rows if r[-1] == "Yes"), 1)
+        self.layer.removeSelection()
+
+    def test_02c_trend_controls_in_the_card(self):
+        """The card's trend controls, as a spreadsheet's: Trend line, Forward,
+        Set intercept, Equation and R²; logarithmic trends have no intercept."""
+        from qgis.PyQt.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QLineEdit
+        panel = self.panel()
+        self.make(panel, "scatter", x="SCORE_MAX", y="SCORE_MIN")
+
+        def tick(text):
+            return next(w for w in panel.props.widget().findChildren(QCheckBox)
+                        if w.text() == text)
+        tick("Trend line").click()
+        self.assertTrue(H.wait_for(lambda: ready(panel) and panel.data.trend is not None))
+        forward = panel.props.widget().findChildren(QDoubleSpinBox)[0]
+        forward.setValue(25)
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        tick("Set intercept").click()
+        edit = next(w for w in panel.props.widget().findChildren(QLineEdit)
+                    if w.toolTip() == "The trend's value at X = 0")
+        edit.setText("2.5")
+        edit.editingFinished.emit()
+        self.assertTrue(H.wait_for(lambda: ready(panel) and panel.data.trend is not None
+                                   and panel.data.trend.intercept == 2.5))
+        o = panel.current_plot()["data"]["trends"]["SCORE_MIN"]
+        self.assertEqual((o["on"], o["forward"], o["set_intercept"], o["intercept"]),
+                         (True, 25.0, True, 2.5))
+        self.assertTrue(panel.data.trend.equation.endswith("+ 2.5"))
+        tick("R²").click()
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        texts = [e[2] for e in panel.view._legend_entries()]
+        self.assertIn(panel.data.trend.equation, texts)
+        self.assertFalse(any(t.startswith("R² =") for t in texts))
+        kind = next(w for w in panel.props.widget().findChildren(QComboBox)
+                    if w.findData("logarithmic") >= 0)
+        kind.setCurrentIndex(kind.findData("logarithmic"))
+        self.assertTrue(H.wait_for(lambda: ready(panel)))
+        self.assertFalse(tick("Set intercept").isEnabled())
+        self.assertIsNone(panel.data.trend.intercept)
 
     def test_03_line_by_month(self):
         panel = self.panel()
