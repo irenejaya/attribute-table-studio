@@ -10,7 +10,7 @@ stay as they are.
 | 1 | The Data Plot window, plus Scatter Plot, Line Chart and Bar Chart | Built |
 | 2 | Combo Chart, Pie Chart, Histogram, Box Plot | Built |
 | 3 | Scatter Plot Matrix, QQ Plot, Matrix Heat Chart, Calendar Heat Chart, Data Clock | Built |
-| 4 | Help, README, screenshots, 1.4 changelog | Planned |
+| 4 | Help, README, screenshots, 1.4 changelog | In progress: README text, changelog, metadata done; Help pictures and screenshots wait for the layout choice |
 
 Each round is tested on QGIS 4.4.0 and then QGIS 3.44.14, committed and pushed to
 dev-v5, and shown with screenshots before the next round starts. The version
@@ -379,12 +379,13 @@ Explorer's Data Plot menu. Choices made while building:
   that pair in it. Small plots draw up to 4,000 points one by one (the
   preview up to 20,000) and shade above that.
 - **QQ Plot**: the field's sorted values against the standard normal
-  quantiles at the proportions (i - 0.5) / n (worked out without SciPy, which
-  QGIS does not always have), or two fields' values at the same proportions
+  quantiles at the proportions (i - 0.5) / n, or two fields' values at the same proportions
   (each point is then a record of the field with fewer values). The reference
   line runs through the first and third quartiles. Box-Cox's lambda is the
   one between -2 and 2 that makes the field most normal (largest
-  log-likelihood, on at most 100,000 values). The boxes are named **Field**
+  log-likelihood, on at most 100,000 values). Both come from SciPy when QGIS
+  has it (QGIS 3.44.16 and later ship it) and from the plugin's own
+  calculation otherwise; the tests check that the two agree. The boxes are named **Field**
   and **Compare with**, as the plot has no X field and Y field of its own.
 - **Matrix Heat Chart**, **Calendar Heat Chart**, **Data Clock**: the cell
   colours come from a **Classification** section: Equal interval, Geometric
@@ -393,6 +394,24 @@ Explorer's Data Plot menu. Choices made while building:
   colour ramp of the QGIS default style (Viridis to start). Cells without
   records stay empty. A sequential calendar draws at most 60 grids (the
   latest), a data clock at most 200 rings.
+
+## Polish after Round 3
+
+- **One label column per card**: the labels of a settings card share one
+  width (the widest label), so every box and dropdown starts and ends at the
+  same place; done in Data Plot, Visualize Statistics and the Pivot Table
+  chart. Long labels are shortened, the full wording in the tooltip:
+  Aggregation → Aggregate, Transformation → Transform, Calendar type →
+  Calendar, Rings and wedges → Rings, Grouping threshold → Threshold, Mini
+  charts per row → Per row, Colour ramp → Ramp, X / Y axis title → X / Y
+  title, Right Y min / max → Right min / max, Compare with → Compare. Colour
+  buttons are as wide as the boxes above them.
+- **Option icons**: trend line types, transformations and the Bars choices
+  (side by side, stacked, 100% stacked) show a small painted picture of their
+  shape, also in Visualize Statistics and the Pivot Table chart.
+- **Layout of the plot list**: two mock-ups shown (A: a Plot box in the top
+  row with the list's actions in a menu; B: a Plots button that hides the
+  list card); the choice is open.
 
 ## Not in this plan
 

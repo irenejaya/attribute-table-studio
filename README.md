@@ -1,25 +1,27 @@
 # Attribute Table Studio
 
-One QGIS plugin, one toolbar, three tools for working with attribute tables:
+One QGIS plugin, one toolbar, four tools for working with attribute tables:
 
 | | Tool | What it does |
 |---|---|---|
 | <img src="icons/attribute_explorer.svg" width="24"> | **Attribute Explorer** | A fast attribute table with exact statistics attached above every column, a typed filter under every heading and a full editing mode. |
 | <img src="icons/pivot_table.svg" width="24"> | **Pivot Table** | Grouped summaries and cross tabs with correct totals, an explicit input scope and drill-through to the contributing records. |
+| <img src="icons/data_plot.svg" width="24"> | **Data Plot** | Plots of a layer's records: the twelve chart types of ArcGIS Pro (bar, line, combo, pie, histogram, box, scatter, scatter matrix, data clock, calendar heat, matrix heat, QQ) with their options. |
 | <img src="icons/geometry_compare.svg" width="24"> | **Geometry and Table Compare** | OLD → NEW comparison of two dataset versions: added, deleted, modified and unchanged features, field-level changes, geometry review points. |
 
 Supports **QGIS 3.40 LTR+ (Qt5) and QGIS 4.x (Qt6)**, light and dark themes.
 
-**New in version 1.3**: **Freeze Column** in Attribute Explorer (frozen
-columns stay at the left while the others scroll), a **chart of the Pivot
-Table** (one bar per row, the pivot's columns as colours), Compare's
-**changed fields** (which fields changed, and only their changes at a
-click), and an Attribute Explorer much lighter and faster on big layers:
-all column statistics come from one read, filters reuse the values already
-read and sorting never freezes QGIS. With 10 million records the statistics
-are ready in 78 s instead of 185 s, a filter takes 14 s instead of 125 s and
-memory peaks at 1.0 GB instead of 3.1 GB. The full list of changes is in
-the changelog of `metadata.txt`.
+**New in version 1.4**: **Data Plot**, a fourth tool for plots of a layer's
+records: bar, line, combo and pie charts, histograms, box plots, scatter
+plots and scatter plot matrices, data clocks, calendar and matrix heat
+charts and QQ plots, with ArcGIS Pro's options for each, live records
+(all, Explorer filtered, selected or the map extent) and selection both
+ways. Attribute Explorer opens it from a new **Data Plot** button in its
+top bar. The settings cards of Visualize Statistics and the Pivot Table
+chart now line their boxes up. Version 1.3 brought Freeze Column, the Pivot
+Table chart, Compare's changed fields and a much faster Attribute Explorer
+on big layers. The full list of changes is in the changelog of
+`metadata.txt`.
 
 Inspired by Microsoft's [Data Wrangler](https://marketplace.visualstudio.com/items?itemName=ms-toolsai.datawrangler)
 extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
@@ -28,7 +30,7 @@ extension for Visual Studio Code — see [Acknowledgements](#acknowledgements).
 
 ## Install
 
-1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.3.zip`
+1. Build the zip: `python scripts/package.py` → `dist/attribute_table_studio-1.4.zip`
 2. QGIS → *Plugins › Manage and Install Plugins › Install from ZIP*.
 3. If the standalone *Geometry and Table Compare* plugin is installed, disable
    it — Attribute Table Studio includes it (the plugin warns when both are enabled).
@@ -47,7 +49,8 @@ Every tool has its own **Help**: the ? button at the top right (in Attribute
 Explorer, *☰ › Help*). It has a tab for each part of the tool — Attribute
 Explorer: Overview, Statistics & filters, Selection, Editing, Quick update &
 Find; Visualize Statistics: Chart, Settings; Pivot Table: Overview, Build your
-table, Result, Chart; Compare: Setup, Results, Review. Each tab shows a picture
+table, Result, Chart; Data Plot: Overview and one tab per plot type; Compare:
+Setup, Results, Review. Each tab shows a picture
 of that part with red numbered badges and, beside it, what every number does.
 Drag the divider (or make the window bigger) to enlarge the picture. The last
 tab, **More details**, keeps the full written help.
@@ -158,11 +161,12 @@ by the records shown in the table when that is different: **9,434 (484)**.
   already shown or is not a vector layer or table).
 - The top row, right aligned: *View ▾*, *Zoom to selection*, *Selected only*
   and *Deselect features from the current layer* (icons), *Select ▾*, *Go to
-  field*, *Summary*, *Pivot Table*, then *Clear filters*, *Columns* and
-  *Export ▾* (icons), *Find and Replace*, the map filter and *Dock*.
+  field*, *Summary*, *Visualize Statistics* and *Data Plot ▾* (icons),
+  *Pivot Table*, then *Clear filters*, *Columns* and *Export ▾* (icons),
+  *Find and Replace*, the map filter and *Dock*.
 - *Export ▾* to Excel or CSV with the scope recorded, or copy the selected
   rows (*Ctrl+Shift+C*); *Pivot Table* hands the filtered records to the Pivot
-  Table.
+  Table, and *Data Plot ▾* (a plot type, or *Open Data Plot*) to Data Plot.
 - Menus are written the way QGIS writes them (Title Case; "…" when the entry
   opens a dialog).
 - **View ▾** (before *Select ▾*): *Table View* or *Form View*; the scopes with
@@ -346,6 +350,63 @@ the profiles afterwards; stale results are never shown.
 - Save / load layouts (recipes only) in the project or a JSON file; export to
   Excel, CSV or a non-spatial GeoPackage table with the layout and scope.
 
+## Data Plot
+
+Plots of a layer's records, with the twelve chart types of ArcGIS Pro and the
+options it gives each. Open it from the **Data Plot** button of the toolbar
+(after Pivot Table), the plugin menu, or Attribute Explorer's **Data Plot**
+button: its menu lists the plot types, and the plot opens with the
+Explorer's filtered records. Data Plot is separate from Visualize Statistics
+(one column of an Attribute Explorer) and from the Pivot Table chart.
+
+- **Records**: all records, the Attribute Explorer's filtered records,
+  selected records or the visible map extent (*Change scope*). The plot
+  follows them live: a new filter, selection, map extent or edit draws it
+  again. Big layers are read in the background (progress and Cancel in the
+  status bar) and only the fields a plot uses are kept.
+- **Plots**: every layer keeps a list of plots, saved in the QGIS project.
+  New plot, rename, duplicate, delete, move, *Open in new window* (two plots
+  side by side), *Save plot to file* and *Load plot from file*.
+- **Settings** in one card, as in Visualize Statistics: *Data* (an
+  **X-axis** and a **Y-axis** box wherever the type has both), *Time
+  binning* (dates in intervals of a chosen size, aligned to the first or
+  last record or a reference time, incomplete intervals trimmed),
+  *Statistics on the chart*, *Axes* (bounds, logarithmic axes), *Guides*
+  (lines or ranges at a value, with a label), *Summary* and *Appearance*
+  (titles, description, colours, legend).
+- **Selection both ways**: click a point, bar, slice, box, bin or cell to
+  select its records (Ctrl+click adds; drag for a box or a range); records
+  selected on the map or in Attribute Explorer show in the plot in the
+  selection colour. Right-click for *Inspect in Attribute Explorer*.
+- **Plot types**:
+  - *Bar Chart*, *Line Chart*: Count of records or the sum, mean, median,
+    minimum or maximum of one or more fields per category, interval or
+    value; Split by a field; bars side by side, stacked or 100% stacked;
+    empty intervals as zero, connected or broken.
+  - *Combo Chart*: bar and line series on a left and a right axis.
+  - *Pie Chart*: the categories of a field or several number fields;
+    grouping threshold (an exact Other) and donut hole.
+  - *Histogram*: bins (the square root of the records by default), mean,
+    median and standard deviation lines, normal curve, logarithmic and square
+    root transformations, small histograms per category with a preview.
+  - *Box Plot*: quartiles, whiskers and outliers (1.5 × the interquartile
+    range) of one or more fields per category, z-scores for several fields.
+  - *Scatter Plot*: Size by, the layer's symbology colours, linear,
+    exponential, logarithmic, power and polynomial trend lines with R².
+  - *Scatter Plot Matrix*: every pair of several fields, R² values, a
+    preview plot, histograms on the diagonal.
+  - *QQ Plot*: a field against the normal distribution or a second field,
+    with a reference line and five transformations (SciPy when QGIS has it).
+  - *Matrix Heat Chart*, *Calendar Heat Chart*, *Data Clock*: cells
+    coloured by class (equal interval, geometric interval, natural breaks or
+    quantile) in any QGIS colour ramp.
+- **Export**: PNG or SVG image, copy the image, or the plotted values as CSV.
+- **Big layers**: a scatter plot draws every point up to 100,000 points and
+  shades each spot by its records above that (5 million points take about
+  0.3 s). In tests on a made-up table of 1 million records each plot was
+  ready in 3 to 5 s; with 10 million in 37 to 68 s, and QGIS never paused
+  for more than 0.13 s meanwhile.
+
 ## Geometry and Table Compare
 
 ![Geometry and Table Compare](docs/screenshots/dark_compare.png)
@@ -408,6 +469,8 @@ core/                  UI-free engines (pure Python where possible)
   stats.py             column profiles
   filters.py           column filters → QGIS expressions
   pivot.py             pivot engine; pivot_chart.py its chart's bars
+  plots.py             Data Plot: compact reading, binning, aggregation, trends,
+                       quartiles, classes, the numbers of all twelve plot types
   scan.py              background feature scans (geometry only when needed)
   charts.py            Visualize Statistics: compact columns, bins, periods
   constraints.py       field constraint checks (failing records scope)
@@ -429,10 +492,11 @@ ui/
   explorer_ops.py, explorer_dialogs.py, explorer_form.py
                        calculator, field and form dialogs, form view
   pivot_table.py       Pivot Table window; pivot_chart.py its chart window
+  data_plot.py         Data Plot window, plot list, settings card; plot_view.py draws
   geotable_compare.py
   settings_dialog.py
   help_dialog.py       Help window of each tool; help_pages.py its tabs and numbered items
-icons/                 toolbar icons
+icons/                 toolbar icons; icons/plots/ the plot type icons
 help/                  pictures of the Help tabs (made by tests/qgis/make_help_images.py)
 tests/                 unit tests + headless QGIS tests
 ```
@@ -443,7 +507,8 @@ tests/                 unit tests + headless QGIS tests
 python -m unittest discover -s tests          # engines, no QGIS needed
 # with QGIS' Python (QT_QPA_PLATFORM=offscreen for headless):
 python tests/qgis/test_filters_qgis.py        # expressions on memory + GeoPackage layers
-python tests/qgis/test_suite_qgis.py          # end-to-end: all three tools
+python tests/qgis/test_suite_qgis.py          # end-to-end: the tools together
+python tests/qgis/test_data_plot_qgis.py      # Data Plot: every type's numbers, selection, saving
 python tests/qgis/test_compare_regression.py  # Compare exports == v1.1
 python tests/qgis/test_editing_qgis.py        # Explorer editing, forms, scopes, menus
 python tests/qgis/make_screenshots.py docs/screenshots dark   # README images (made-up data)
@@ -451,7 +516,7 @@ python tests/qgis/make_screenshots.py docs/screenshots light
 python tests/qgis/make_help_images.py         # Help pictures in help/ (made-up data)
 ```
 
-All suites pass on QGIS 4.2 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).
+All suites pass on QGIS 4.4 (Qt 6.11) and QGIS 3.44 LTR (Qt 5.15).
 
 ## Acknowledgements
 

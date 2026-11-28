@@ -528,13 +528,15 @@ PLOT_HELP = """
 <h3>Data Plot</h3>
 <p>Plots made from a layer's records, with the options ArcGIS Pro gives its
 charts. Open it from the <b>Data Plot</b> button of the Attribute Table
-Studio toolbar or the plugin menu. Data Plot is separate from Visualize
+Studio toolbar, the plugin menu or the <b>Data Plot</b> button of Attribute
+Explorer's top bar (its menu lists the plot types; the plot opens with the
+Explorer's filtered records). Data Plot is separate from Visualize
 Statistics (one column of an Attribute Explorer) and from the Pivot Table
 chart.</p>
 <h4>The window</h4>
 <ul>
 <li><b>Layer</b>: any vector layer, with or without geometry.</li>
-<li><b>Records</b>: All records, the Attribute Explorer's filtered records
+<li><b>Records</b> (<b>Change scope</b>): All records, the Attribute Explorer's filtered records
 (open the layer in Attribute Explorer first), Selected records or the
 Visible map extent. The plot follows them: a new filter, selection, map
 extent or edit draws it again. Big layers are read in the background
@@ -557,13 +559,20 @@ legend entry selects that category or legend class. Records selected
 anywhere show in the plot in the project's selection colour (for a Count or
 Sum bar, the selected part of the bar). Right-click for <b>Inspect in
 Attribute Explorer</b>.</p>
-<h4>Properties</h4>
-<p><b>Data</b> holds the plot type's own options; <b>Axes</b> the bounds
-(empty for the data's range) and log axes (values of 0 or less cannot be
-shown on a log axis); <b>Guides</b> horizontal or vertical lines at a value,
-or ranges with a second value, with an optional label; <b>Format</b> the
-series colours, grid and axis lines; <b>General</b> the title, axis titles,
-a description under the plot and the legend.</p>
+<h4>Settings</h4>
+<p>The card on the right holds the plot's settings. <b>Data</b>: the fields
+(an <b>X-axis</b> and a <b>Y-axis</b> box wherever the plot type has both)
+and the type's own options; <b>Time binning</b> for dates; <b>Statistics on
+the chart</b> (trend lines, mean, median and similar lines);
+<b>Classification</b> for the heat charts and the data clock; <b>Axes</b>
+the bounds (empty for the data's range) and log axes (values of 0 or less
+cannot be shown on a log axis); <b>Guides</b> horizontal or vertical lines
+at a value, or ranges with a second value, with an optional label;
+<b>Summary</b> the numbers of the plot (records, left out, R² and so on);
+<b>Appearance</b> the title, axis titles, a description under the plot, the
+series colours, the legend, grid and axis lines. Labels are kept short so
+the boxes line up (<b>Aggregate</b> for Aggregation, <b>Transform</b> for
+Transformation); hover a label for its full name.</p>
 <h4>Scatter Plot</h4>
 <p>The relationship between two number fields. <b>Size by</b> a third number
 field makes a bubble plot (NULL draws the smallest point). The points take
@@ -575,7 +584,7 @@ and leave out values of 0 or less. Records with no X or Y value are left
 out (counted in the status bar). With many points the plot shades each spot
 by the records on it; every record still counts and can be selected.</p>
 <h4>Line Chart</h4>
-<p>Values along a date or number field. <b>Aggregation</b>: Count (records),
+<p>Values along a date or number field. <b>Aggregate</b>: Count (records),
 or the Sum, Mean, Median, Minimum or Maximum of one or more numeric fields
 (one line each), or <b>Split by</b> a category field (one line per category,
 with one numeric field). Dates are grouped by <b>Time binning</b>: an
@@ -585,8 +594,8 @@ incomplete interval</b>. <b>Empty bins</b>: Treat as zero, Connect line or
 Break line.</p>
 <h4>Bar Chart</h4>
 <p>A value per category (text, yes / no or whole numbers; dates are grouped
-by Time binning). Aggregation and Split by as for the Line Chart; several
-series side by side, stacked or 100% stacked; sorted by category or by
+by Time binning). Aggregate and Split by as for the Line Chart; <b>Bars</b>:
+several series side by side, stacked or 100% stacked; sorted by category or by
 value. Split by gives the 8 categories with the most records their own
 colour; the rest form an exact <b>Other</b> (a mean of Other is the mean of
 its records).</p>
@@ -599,17 +608,17 @@ a bar series starts at 0. <b>Empty bins</b>: Treat as zero or Treat as null.</p>
 <h4>Pie Chart</h4>
 <p>Shares of a whole: the slices are the categories of a field (records
 counted, or a number field summarised) or several number fields (one slice
-each), largest first from 12 o'clock. <b>Grouping threshold</b> puts the
+each), largest first from 12 o'clock. <b>Threshold</b> (grouping threshold) puts the
 slices under that share together as an exact Other; <b>Donut hole</b> makes
 a donut. A slice must be above 0 to be drawn.</p>
 <h4>Histogram</h4>
 <p>The distribution of one number field. <b>Bins</b>: Auto is the square
 root of the number of records (at most 64), as in ArcGIS Pro. <b>Mean</b>,
 <b>Median</b>, <b>± 1 Std. Dev.</b> lines (each with its colour) and the
-<b>Normal Distribution Curve</b>. <b>Transformation</b>: Logarithmic (natural
+<b>Normal Distribution Curve</b>. <b>Transform</b>: Logarithmic (natural
 logarithm; values of 0 or less left out) or Square root. <b>Split by</b>
-draws one small histogram per category on the same bins (<b>Mini charts per
-row</b>); <b>Show preview chart</b> adds a larger one: click a small
+draws one small histogram per category on the same bins (<b>Per row</b>:
+mini charts per row); <b>Show preview chart</b> adds a larger one: click a small
 histogram's title to show it there.</p>
 <h4>Box Plot</h4>
 <p>The spread of one or more number fields (the Y axis), per category of the
@@ -630,28 +639,30 @@ records.</p>
 <h4>QQ Plot</h4>
 <p>Whether a number field follows the normal distribution (its sorted values
 against the standard normal quantiles), or whether two fields share a
-distribution (<b>Compare with</b> a second field: each field's values at the
-same proportions). The <b>Reference line</b> runs through the first and third
+distribution (<b>Compare</b> with a second field: each field's values at
+the same proportions). The <b>Reference line</b> runs through the first and third
 quartiles: the points follow it when the distributions agree.
-<b>Transformation</b>: Logarithmic, Square root, Inverse or Box-Cox (its lambda
-worked out to make the field most normal). Each point is a record: click or
+<b>Transform</b>: Logarithmic, Square root, Inverse or Box-Cox (its lambda
+worked out to make the field most normal). The normal quantiles and the
+Box-Cox lambda come from SciPy when QGIS has it, and from the plugin's own
+calculation otherwise (the same numbers). Each point is a record: click or
 drag to select.</p>
 <h4>Matrix Heat Chart</h4>
 <p>A grid of two fields: the <b>X-axis</b> field gives the columns, the
 <b>Y-axis</b> field the rows (text, whole numbers, or dates grouped by their
 own Time binning); each cell is coloured by its Count of records or the
 aggregation of a number field. <b>Classification</b>: Equal interval,
-Geometric interval, Natural breaks (Jenks) or Quantile, the number of classes
-and a QGIS colour ramp. Cells without records stay empty.</p>
+Geometric interval, Natural breaks (Jenks) or Quantile, the number of
+<b>Classes</b> and a QGIS colour <b>Ramp</b>. Cells without records stay empty.</p>
 <h4>Calendar Heat Chart</h4>
-<p>A date field on a calendar: <b>Year by month and day of month</b> or
+<p>A date field on a calendar (<b>Calendar</b>): <b>Year by month and day of month</b> or
 <b>Week by day of week and hour of day</b>; <b>Single</b> pools every year
 (or week) into one grid, <b>Sequential</b> draws one per year (or week).
 <b>Include leap day</b> keeps 29 February. Colours as in the Matrix Heat
 Chart.</p>
 <h4>Data Clock</h4>
 <p>A date field as a clock: each ring is a longer period (oldest inside),
-cut into wedges of a shorter one from 12 o'clock: Years and Months, Years and
+cut into wedges of a shorter one from 12 o'clock (<b>Rings</b>): Years and Months, Years and
 Weeks, Years and Days, Weeks and Days, or Days and Hours (the last week of a
 year holds its extra day, two in a leap year). Colours as in the Matrix Heat
 Chart.</p>
