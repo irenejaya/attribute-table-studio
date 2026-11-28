@@ -662,7 +662,7 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(panel.scope, "all")
         panel._fill_list(first)
         self.assertEqual(panel.scope, "selected")
-        self.assertIn("Selected", panel.scope_label.fullText())
+        self.assertIn("selected records", panel.scope_btn.toolTip())
         panel.set_scope("all")
         # the Layer row of Data moves the plot; fields of the same names stay
         self.assertIs(panel.props.layer_combo.currentLayer(), self.layer)
@@ -971,6 +971,214 @@ class DataPlotTests(unittest.TestCase):
         self.assertEqual(len(self.layer.selectedFeatureIds()), int(data.records[k]))
         self.layer.removeSelection()
 
+
+    # ------------------------------------------------------------------
+    # Edit plot
+    # ------------------------------------------------------------------
+    def _click(self, view, x, y):
+        from qgis.PyQt.QtTest import QTest
+        QTest.mouseClick(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         QPoint(int(x), int(y)))
+        H.settle(0.1)
+
+    def _drag(self, view, a, b):
+        from qgis.PyQt.QtTest import QTest
+        QTest.mousePress(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                         QPoint(int(a[0]), int(a[1])))
+        QTest.mouseMove(view, QPoint(int(b[0]), int(b[1])))
+        QTest.mouseRelease(view, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                           QPoint(int(b[0]), int(b[1])))
+        H.settle(0.1)
+
+    def test_19_edit_plot_mode_and_look(self):
+        """The top row: Plots | Edit plot, Save edits, Undo, Redo | Add, no
+        records line; Edit plot freezes the plot and its settings, picks
+        parts of the canvas and changes their look; undo, redo, save."""
+        from qgis.PyQt.QtWidgets import QDoubleSpinBox, QFrame, QSpinBox
+        panel = self.panel()
+        self.make(panel, "bar", x="LAND_USE", fields=["SCORE_MAX"], agg="sum")
+        self.assertFalse(hasattr(panel, "scope_label"))
+        x = lambda w: w.mapTo(panel, QPoint(0, 0)).x()
+        order = [panel.plots_btn, panel.edit_btn, panel.save_edits_btn, panel.undo_btn,
+                 panel.redo_btn, panel.add_btn, panel.scope_btn]
+        self.assertEqual(sorted(order, key=x), order)
+        seps = [w for w in panel.findChildren(QFrame) if w.objectName() == "gtsVSep"
+                and x(panel.plots_btn) < x(w) < x(panel.add_btn)]
+        self.assertEqual(len(seps), 2)                       # Plots | edit group | Add
+        self.assertTrue(x(seps[0]) < x(panel.edit_btn) and x(panel.redo_btn) < x(seps[1]))
+        for b in (panel.save_edits_btn, panel.undo_btn, panel.redo_btn, panel.add_btn):
+            self.assertFalse(b.isEnabled())
+        self.assertTrue(panel.edit_btn.isEnabled())
+        # on: frozen
+        panel.edit_btn.click()
+        self.assertTrue(panel._editing)
+        for w in (panel.plot_list, panel.new_btn, panel.scope_btn):
+            self.assertFalse(w.isEnabled())
+        self.assertTrue(panel.add_btn.isEnabled())
+        self.assertIsNone(panel.props.plot)                  # the usual settings: frozen
+        before = panel.model.sel_count
+        self.layer.selectByIds([f.id() for f in self.feats[:40]])
+        H.settle(0.5)
+        self.assertTrue(panel._stale)
+        self.assertEqual(panel.model.sel_count, before)      # the plot does not follow
+        # pick the horizontal grid lines; their width, colour
+        view = panel.view
+        y, a, b = view._geo["grid_h"][1]
+        self._click(view, (a + b) / 2, y)
+        self.assertEqual(view.selected["kind"], "grid_h")
+        width = panel.props.widget().findChildren(QDoubleSpinBox)[0]
+        width.setValue(3.0)
+        self.assertEqual(panel._edit_plot["canvas"]["style"]["grid_h"]["width"], 3.0)
+        self.assertNotIn("canvas", panel.current_plot())    # not saved yet
+        self.assertTrue(panel.undo_btn.isEnabled() and panel.save_edits_btn.isEnabled())
+        # a bar: transparency of that series, bar width of all
+        rect, _i, s = view._geo["items"][0]
+        self._click(view, rect.center().x(), rect.center().y())
+        self.assertEqual(view.selected["kind"], "series")
+        self.assertEqual(view.selected["what"], "bar")
+        spins = panel.props.widget().findChildren(QSpinBox)
+        spins[0].setValue(40)                                 # Transparency
+        spins[1].setValue(60)                                 # Bar width
+        style = panel._edit_plot["canvas"]["style"]
+        self.assertEqual(style[view.selected["key"]]["alpha"], 60)
+        self.assertEqual(style["bars"]["bar_width"], 60)
+        # the canvas
+        plot = view._geo["plot"]
+        self._click(view, plot.right() - 4, plot.top() + 4)
+        self.assertEqual(view.selected["kind"], "background")
+        # undo and redo (Ctrl+Z, Ctrl+Y in the plot)
+        from qgis.PyQt.QtTest import QTest
+        steps = panel._hist_i
+        self.assertGreaterEqual(steps, 3)
+        view.setFocus()
+        QTest.keyClick(view, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(panel._hist_i, steps - 1)
+        self.assertNotIn("bars", panel._edit_plot["canvas"]["style"])
+        QTest.keyClick(view, Qt.Key.Key_Y, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(panel._edit_plot["canvas"]["style"]["bars"]["bar_width"], 60)
+        # save, then leave: the plot keeps its look and follows its records again
+        panel.save_edits_btn.click()
+        self.assertEqual(panel.current_plot()["canvas"]["style"]["grid_h"]["width"], 3.0)
+        self.assertFalse(panel.save_edits_btn.isEnabled())
+        panel.edit_btn.click()
+        self.assertFalse(panel._editing)
+        self.assertTrue(H.wait_for(lambda: ready(panel) and panel.model.sel_count == 40))
+        self.assertIsNotNone(panel.props.plot)
+        self.layer.removeSelection()
+        # unsaved edits: Discard leaves the plot as it was, Cancel keeps editing
+        panel.edit_btn.click()
+        y, a, b = view._geo["grid_h"][1]
+        self._click(view, (a + b) / 2, y)
+        panel.props.widget().findChildren(QDoubleSpinBox)[0].setValue(5.0)
+        orig = QMessageBox.question
+        try:
+            QMessageBox.question = staticmethod(
+                lambda *a, **k: QMessageBox.StandardButton.Cancel)
+            self.assertFalse(panel.confirm_close())          # closing the window asks too
+            self.assertTrue(panel._editing)
+            QMessageBox.question = staticmethod(
+                lambda *a, **k: QMessageBox.StandardButton.Discard)
+            panel.edit_btn.click()
+        finally:
+            QMessageBox.question = orig
+        self.assertFalse(panel._editing)
+        self.assertEqual(panel.current_plot()["canvas"]["style"]["grid_h"]["width"], 3.0)
+
+    def test_20_edit_plot_objects_and_files(self):
+        """Text box, horizontal and vertical lines, arrow and picture: placed,
+        set in the card, moved, deleted; drawn in exports, kept in plot files."""
+        from qgis.PyQt.QtGui import QImage
+        from qgis.PyQt.QtTest import QTest
+        from qgis.PyQt.QtWidgets import QDoubleSpinBox, QFileDialog, QPlainTextEdit
+        panel = self.panel()
+        self.make(panel, "scatter", x="SCORE_MAX", y="SCORE_MIN")
+        panel.edit_btn.click()
+        view = panel.view
+        plot = view._geo["plot"]
+        at = lambda fx, fy: (plot.left() + plot.width() * fx, plot.top() + plot.height() * fy)
+        objects = lambda: panel._edit_plot["canvas"]["objects"]
+        # a text box where you click, its text from the card
+        panel.add_object("text")
+        self._click(view, *at(0.3, 0.2))
+        self.assertEqual([o["kind"] for o in objects()], ["text"])
+        text = objects()[0]
+        self.assertAlmostEqual(text["x"], 0.3, places=2)
+        self.assertEqual(view.selected["id"], text["id"])
+        panel.props.widget().findChildren(QPlainTextEdit)[0].setPlainText("Two groups")
+        self.assertEqual(text["text"], "Two groups")
+        self.assertIn("Fill transparency", [l.text() for l in panel.props._labels])
+        # moved by a drag, nudged by the arrow keys
+        r = view._geo["objects"][0][1]
+        self._drag(view, (r.center().x(), r.center().y()),
+                   (r.center().x() + plot.width() * 0.2, r.center().y()))
+        self.assertAlmostEqual(text["x"], 0.5, places=2)
+        x0 = text["x"]
+        view.setFocus()
+        QTest.keyClick(view, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+        self.assertAlmostEqual(text["x"], x0 - 10 / plot.width(), places=4)
+        # lines across the whole canvas, an arrow by a drag
+        panel.add_object("hline")
+        self._click(view, *at(0.5, 0.75))
+        panel.add_object("vline")
+        self._click(view, *at(0.8, 0.5))
+        panel.add_object("arrow")
+        self._drag(view, at(0.2, 0.5), at(0.6, 0.3))
+        kinds = [o["kind"] for o in objects()]
+        self.assertEqual(kinds, ["text", "hline", "vline", "arrow"])
+        hline, vline, arrow = objects()[1:]
+        self.assertAlmostEqual(hline["y"], 0.75, places=2)
+        self.assertAlmostEqual(vline["x"], 0.8, places=2)
+        self.assertAlmostEqual(arrow["x2"], 0.6, places=2)
+        # a picture from a file, kept inside the plot
+        folder = tempfile.mkdtemp(prefix="gts_pic_")
+        pic = os.path.join(folder, "mark.png")
+        img = QImage(40, 20, QImage.Format.Format_ARGB32)
+        img.fill(QColor("#3aa76d"))
+        img.save(pic)
+        orig = QFileDialog.getOpenFileName
+        QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (pic, ""))
+        try:
+            panel.add_object("picture")
+        finally:
+            QFileDialog.getOpenFileName = orig
+        self._click(view, *at(0.05, 0.05))
+        picture = objects()[-1]
+        self.assertEqual(picture["kind"], "picture")
+        self.assertAlmostEqual(picture["ratio"], 0.5)
+        self.assertTrue(picture["data"])
+        # the arrow's width from the card; Delete removes the vertical line
+        rect = next(r for oid, r in view._geo["objects"] if oid == vline["id"])
+        self._click(view, rect.center().x(), plot.top() + plot.height() * 0.9)
+        self.assertEqual(view.selected["id"], vline["id"])
+        view.setFocus()
+        QTest.keyClick(view, Qt.Key.Key_Delete)
+        self.assertNotIn(vline["id"], [o["id"] for o in objects()])
+        # objects stay inside the canvas
+        hline_obj = next(o for o in objects() if o["kind"] == "hline")
+        from attribute_table_studio.ui import plot_edit as PE
+        PE.move_object(hline_obj, 0, 5)
+        self.assertEqual(hline_obj["y"], 1.0)
+        panel.save_edits()
+        panel.edit_btn.click()
+        saved = panel.current_plot()["canvas"]["objects"]
+        self.assertEqual([o["kind"] for o in saved], ["text", "hline", "arrow", "picture"])
+        # exports draw them; plot files keep them
+        svg = os.path.join(folder, "plot.svg")
+        panel.export_image("svg", svg)
+        with open(svg, encoding="utf-8") as fh:
+            self.assertIn("Two groups", fh.read())
+        file_path = os.path.join(folder, "plot.json")
+        orig = QFileDialog.getSaveFileName
+        QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (file_path, ""))
+        try:
+            panel.save_to_file()
+        finally:
+            QFileDialog.getSaveFileName = orig
+        panel.load_from_file(file_path)
+        again = panel.current_plot()["canvas"]
+        self.assertEqual([o["kind"] for o in again["objects"]],
+                         ["text", "hline", "arrow", "picture"])
+        self.assertEqual(again["objects"][3]["data"], saved[3]["data"])
 
 if __name__ == "__main__":
     H.run_tests(APP)

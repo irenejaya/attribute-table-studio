@@ -18,17 +18,20 @@ the plot stays responsive with millions of points.  Past
 on it instead of drawing every point.
 """
 
+import copy
 import datetime
 import math
 
-from qgis.PyQt.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
+from qgis.PyQt.QtCore import QEvent, QPointF, QRectF, QSize, Qt, pyqtSignal
 from qgis.PyQt.QtGui import (
-    QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QPainterPath, QPen, QPixmap,
+    QColor, QFont, QFontMetrics, QIcon, QImage, QPainter, QPainterPath, QPainterPathStroker,
+    QPen, QPixmap,
 )
-from qgis.PyQt.QtWidgets import QSizePolicy, QWidget
+from qgis.PyQt.QtWidgets import QMenu, QSizePolicy, QWidget
 
 from ..core import fields as F
 from ..core import plots as P
+from . import plot_edit as PE
 from .chart_view import MEAN_COLOUR, MEDIAN_COLOUR, OTHER_COLOUR, SERIES, nice_step
 
 try:
@@ -65,9 +68,10 @@ POINT_SHAPES = (("circle", "Circle"), ("square", "Square"), ("triangle", "Triang
 SHAPE_LABELS = dict(POINT_SHAPES)
 
 
-def draw_marker(p, shape, c, dia, colour):
+def draw_marker(p, shape, c, dia, colour, outline=None):
     """A scatter point of *shape* centred on *c*, *dia* wide: filled shapes
-    with a darker outline, the cross and the x as strokes."""
+    with an outline (*outline*: a colour, "" for none, None for a darker
+    shade of the point), the cross and the x as strokes."""
     colour = QColor(colour)
     r = dia / 2.0
     if shape in ("cross", "x"):
@@ -82,7 +86,13 @@ def draw_marker(p, shape, c, dia, colour):
             p.drawLine(QPointF(c.x() - a, c.y() - a), QPointF(c.x() + a, c.y() + a))
             p.drawLine(QPointF(c.x() - a, c.y() + a), QPointF(c.x() + a, c.y() - a))
         return
-    p.setPen(QPen(colour.darker(150), 1.2))
+    if outline == "":
+        p.setPen(Qt.PenStyle.NoPen)
+    else:
+        line = QColor(outline) if outline else colour.darker(150)
+        if not outline:
+            line.setAlpha(colour.alpha())
+        p.setPen(QPen(line, 1.2))
     p.setBrush(colour)
     if shape == "square":
         side = dia * 0.88
@@ -373,6 +383,10 @@ class PlotView(QWidget):
     rowsPicked = pyqtSignal(object, bool)          # numpy row indexes, add
     rowsMenu = pyqtSignal(object, object)          # numpy row indexes, global pos
     previewPicked = pyqtSignal(str)                # histogram: category to preview
+    partSelected = pyqtSignal(object)              # Edit plot: the part clicked (or None)
+    canvasEdited = pyqtSignal(str)                 # Edit plot: objects added, moved, removed
+    editKey = pyqtSignal(str)                      # Edit plot: "undo" or "redo"
+    toolChanged = pyqtSignal(object)               # Edit plot: the object kind to place
 
     def __init__(self, theme, metrics, parent=None):
         super().__init__(parent)
@@ -386,6 +400,12 @@ class PlotView(QWidget):
         self._press = None
         self._drag = None
         self._sprites = {}
+        self.editing = False                 # Edit plot: clicks pick parts, not records
+        self.tool = None                     # an object kind to place, or None
+        self.pending_picture = None          # the picture to place (Add > Picture…)
+        self.selected = None                 # the part of the canvas selected
+        self._legend_job = None              # the legend, drawn above the objects
+        self._edit_drag = None               # (what, object id, start pos, object before)
         self.setMouseTracking(True)
         self.setMinimumSize(QSize(360, 260))
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
@@ -452,14 +472,40 @@ class PlotView(QWidget):
             pm.setDevicePixelRatio(ratio)
             pm.fill(Qt.GlobalColor.transparent)
             q = QPainter(pm)
-            self.paint_plot(q, QRectF(self.rect()), ratio)
+            # while editing, the objects and the legend are drawn on each
+            # paint, so moving an object never draws the plot again
+            self.paint_plot(q, QRectF(self.rect()), ratio, overlays=not self.editing)
             q.end()
             self._cache = pm
         p.drawPixmap(0, 0, self._cache)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        self._paint_drag(p)
-        self._paint_hover(p)
+        if self.editing:
+            self._paint_overlays(p)
+            self._paint_selection(p)
+        else:
+            self._paint_drag(p)
+            self._paint_hover(p)
         p.end()
+
+    def refresh(self, base=True):
+        """Draw again: everything (*base*), or only the objects and the
+        legend above the plot (Edit plot)."""
+        if base:
+            self._cache = None
+        self.update()
+
+    def _paint_overlays(self, p):
+        """Objects, then the legend above them (Edit plot)."""
+        plot = self._geo.get("plot") if self._geo else None
+        if plot is None or self.model is None or self.message:
+            return
+        base = QFont(self.font())
+        self._geo["objects"] = PE.paint_objects(p, plot, PE.objects_of(self.model.plot), base)
+        if self._legend_job is not None:
+            box, legend, bottom = self._legend_job
+            self._geo["legend"] = []
+            p.setFont(base)
+            self._paint_legend(p, box, legend, QFontMetrics(base), bottom)
 
     def _ratio(self):
         try:
@@ -467,7 +513,7 @@ class PlotView(QWidget):
         except AttributeError:
             return 1.0
 
-    def paint_plot(self, p, rect, ratio=1.0, vector=False):
+    def paint_plot(self, p, rect, ratio=1.0, vector=False, overlays=True):
         t = self.theme
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = rect.adjusted(0.5, 0.5, -0.5, -0.5)
@@ -475,7 +521,9 @@ class PlotView(QWidget):
         p.setBrush(QColor(t.base))
         p.drawRoundedRect(r, 4, 4)
         self._geo = {"plot": None, "items": [], "legend": [], "x": None, "y": None,
-                     "points": None, "wedges": [], "minis": []}
+                     "points": None, "wedges": [], "minis": [], "objects": [],
+                     "lines": [], "grid_h": [], "grid_v": [], "series_paths": []}
+        self._legend_job = None
         base = QFont(self.font())
         p.setFont(base)
         fm = QFontMetrics(base)
@@ -529,6 +577,8 @@ class PlotView(QWidget):
                 inside_w = widest
         area = QRectF(r.left() + 10, top, r.width() - 20 - (lw + 12 if lw else 0),
                       bottom - top - (lh + 8 if lh else 0))
+        if m.kind in ("pie", "calendar", "clock", "matrix"):      # no axes: the area
+            self._paint_background(p, area)
         if m.kind == "scatter":
             self._paint_scatter(p, area, fm, ratio, vector)
         elif m.kind == "line":
@@ -554,6 +604,11 @@ class PlotView(QWidget):
             self._paint_clock(p, area, fm)
         elif m.kind == "matrix":
             self._paint_matrix(p, area, fm, ratio)
+        if self._geo["plot"] is None:
+            self._geo["plot"] = area
+        objects = PE.objects_of(m.plot)
+        if overlays and objects:                 # the added objects, under the legend
+            self._geo["objects"] = PE.paint_objects(p, self._geo["plot"], objects, base)
         if show_legend:
             plot = self._geo["plot"] or area
             if place == "bottom":
@@ -563,7 +618,9 @@ class PlotView(QWidget):
             else:
                 box = self._inside_box(plot, min(inside_w, plot.width() * 0.6),
                                        10 + 20 * len(legend))
-            self._paint_legend(p, box, legend, fm, place == "bottom")
+            self._legend_job = (box, legend, place == "bottom")
+            if overlays:
+                self._paint_legend(p, box, legend, fm, place == "bottom")
 
     # ---- frame: axes, grid, guides --------------------------------------
     def _frame(self, p, area, fm, xa, ya, x_title, y_title, rotate_x=False, ya2=None,
@@ -603,17 +660,21 @@ class PlotView(QWidget):
         fmt = m.plot.get("format", {})
         if grid is None:
             grid = fmt.get("grid", True)
-        p.setPen(QPen(QColor(t.border_soft), 1))
-        if grid:
+        self._paint_background(p, plot)
+        if grid:                                 # on or off in Appearance, the look edited
+            p.setPen(PE.styled_pen(PE.style_of(m.plot, "grid_h"), t.border_soft, 1))
             for v, _s in yt:
                 y = ya.map(v)
                 if plot.top() - 0.5 <= y <= plot.bottom() + 0.5:
                     p.drawLine(QPointF(plot.left(), y), QPointF(plot.right(), y))
+                    self._geo["grid_h"].append((y, plot.left(), plot.right()))
             if xa.role != P.CATEGORY:
+                p.setPen(PE.styled_pen(PE.style_of(m.plot, "grid_v"), t.border_soft, 1))
                 for v, _s in xt:
                     x = xa.map(v)
                     if plot.left() - 0.5 <= x <= plot.right() + 0.5:
                         p.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
+                        self._geo["grid_v"].append((x, plot.top(), plot.bottom()))
         # tick labels
         p.setPen(QColor(t.text_dim))
         for v, s in yt:
@@ -674,8 +735,10 @@ class PlotView(QWidget):
     def _paint_guides(self, p, plot, fm):
         t, m = self.theme, self.model
         xa, ya = self._geo["x"], self._geo["y"]
-        colour = QColor(t.danger)
-        for g in m.plot.get("guides", []):
+        for n, g in enumerate(m.plot.get("guides", [])):
+            pen = PE.styled_pen(PE.style_of(m.plot, f"guide:{n}"), t.danger, 1.6, "dash")
+            colour = QColor(pen.color())
+            colour.setAlpha(255)
             vertical = g.get("axis") == "vertical"
             axis = xa if vertical else ya
             if axis.role == P.CATEGORY:
@@ -694,14 +757,18 @@ class PlotView(QWidget):
                 else:
                     rect = QRectF(plot.left(), min(a, b), plot.width(), abs(b - a))
                 p.fillRect(rect.intersected(plot), band)
-            pen = QPen(colour, 1.6)
-            pen.setStyle(Qt.PenStyle.DashLine)
             p.setPen(pen)
+            line = QPainterPath()
             if vertical:
                 if plot.left() <= a <= plot.right():
-                    p.drawLine(QPointF(a, plot.top()), QPointF(a, plot.bottom()))
+                    line.moveTo(a, plot.top())
+                    line.lineTo(a, plot.bottom())
             elif plot.top() <= a <= plot.bottom():
-                p.drawLine(QPointF(plot.left(), a), QPointF(plot.right(), a))
+                line.moveTo(plot.left(), a)
+                line.lineTo(plot.right(), a)
+            p.drawPath(line)
+            what = g.get("label") or g.get("value") or ""
+            self._geo["lines"].append((line, f"guide:{n}", f"Guide {what}".strip(), "guide"))
             label = g.get("label") or ""
             if label:
                 p.setPen(colour)
@@ -816,7 +883,9 @@ class PlotView(QWidget):
             xs = np.linspace(lo, hi, 240) if not x_log else \
                 np.logspace(math.log10(lo), math.log10(hi), 240)
             ys = trend.at(xs)
-            pen = QPen(self._trend_colour(k), 2)
+            name = d.names[k] if getattr(d, "names", None) and k < len(d.names) else ""
+            pen = PE.styled_pen(PE.style_of(m.plot, f"line:trend:{name}"),
+                                self._trend_colour(k), 2)
             p.setPen(pen)
             path = QPainterPath()
             started = False
@@ -831,7 +900,35 @@ class PlotView(QWidget):
                     started = True
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(path)
+            label = f"Trend line ({name})" if getattr(d, "series", None) is not None \
+                else "Trend line"
+            self._geo["lines"].append((path, f"line:trend:{name}", label, "line"))
         p.restore()
+
+    def _series_name(self, s=None):
+        """The name of series *s* (a scatter plot: Y field *s*; None: the
+        plot's one series)."""
+        m, d = self.model, self.model.data
+        if m.kind in ("scatter", "qq"):
+            names = getattr(d, "names", None) or []
+            if not names:
+                return ""
+            return str(names[s]) if s is not None and s < len(names) else str(names[0])
+        series = getattr(d, "series", None)
+        if isinstance(series, (list, tuple)) and s is not None and s < len(series):
+            return str(series[s])
+        return ""
+
+    def _series_style(self, s=None):
+        """Edit plot settings of series *s* (never its colour: Appearance)."""
+        st = dict(PE.style_of(self.model.plot, f"series:{self._series_name(s)}"))
+        st.pop("colour", None)
+        return st
+
+    def _paint_background(self, p, rect):
+        st = PE.style_of(self.model.plot, "background")
+        if st.get("colour"):
+            p.fillRect(rect, PE.with_alpha(st["colour"], st.get("alpha", 100)))
 
     def _trends(self):
         """(Y field index, trend) of the fitted trend lines."""
@@ -878,11 +975,11 @@ class PlotView(QWidget):
             return smin + (s - lo) / (hi - lo) * (smax - smin)
         return np.full(len(s), (smin + smax) / 2.0)
 
-    def _sprite(self, colour, dia, ratio, shape="circle"):
+    def _sprite(self, colour, dia, ratio, shape="circle", outline=None):
         """A point (a filled shape with a darker outline, or a cross) drawn
         once, at the painter's scale, then copied to every point of that
         colour, size and shape: about 20 times faster than drawing each."""
-        key = (colour.rgba(), float(dia), float(ratio), shape)
+        key = (colour.rgba(), float(dia), float(ratio), shape, outline)
         sprite = self._sprites.get(key)
         if sprite is None:
             side = int(math.ceil(dia + 3))
@@ -892,7 +989,7 @@ class PlotView(QWidget):
             img.fill(Qt.GlobalColor.transparent)
             q = QPainter(img)
             q.setRenderHint(QPainter.RenderHint.Antialiasing)
-            draw_marker(q, shape, QPointF(side / 2.0, side / 2.0), dia, colour)
+            draw_marker(q, shape, QPointF(side / 2.0, side / 2.0), dia, colour, outline)
             q.end()
             sprite = (QPixmap.fromImage(img), side / 2.0)
             if len(self._sprites) > 400:
@@ -907,22 +1004,32 @@ class PlotView(QWidget):
         default = QColor(m.single) if m.single is not None else QColor(t.bar)
         idx = np.nonzero(inside)[0]
         sel = m.sel_mask[d.rows] if m.sel_mask is not None and len(m.sel_mask) else None
-        if sizes is None:
-            dia = np.full(len(d), 7.0)
+        multi = getattr(d, "series", None) is not None
+        if sizes is None:                        # the point size: Edit plot, per Y field
+            if multi:
+                per = np.array([float(self._series_style(k).get("point_size", 7.0))
+                                for k in range(len(d.names))])
+                dia = per[d.series]
+            else:
+                dia = np.full(len(d), float(self._series_style(None).get("point_size", 7.0)))
         else:
             dia = np.round(sizes * 2) / 2.0
         self._geo["dia"] = dia
 
-        def draw(ids, colour, shape):
+        def draw(ids, colour, shape, st=None):
             if not len(ids):
                 return
+            st = st or {}
+            if st.get("alpha") is not None:
+                colour = PE.with_alpha(colour, st["alpha"])
+            outline = st.get("outline")
             for size in np.unique(dia[ids]):
                 part = ids[dia[ids] == size]
                 if vector:                       # SVG: true shapes
                     for a, b in zip(sx[part].tolist(), sy[part].tolist()):
-                        draw_marker(p, shape, QPointF(a, b), float(size), colour)
+                        draw_marker(p, shape, QPointF(a, b), float(size), colour, outline)
                     continue
-                pm, half = self._sprite(colour, float(size), ratio, shape)
+                pm, half = self._sprite(colour, float(size), ratio, shape, outline)
                 for a, b in zip((sx[part] - half).tolist(), (sy[part] - half).tolist()):
                     p.drawPixmap(QPointF(a, b), pm)
 
@@ -935,13 +1042,16 @@ class PlotView(QWidget):
             idx = idx[np.argsort(-dia[idx], kind="stable")]       # small ones on top
         plain = idx if sel is None else idx[~sel[idx]]
         codes = self._colour_codes()
+        def style(c):
+            return self._series_style(int(c) if multi else None)
+
         if colours is None:
-            draw(plain, default, m.shape or "circle")
+            draw(plain, default, m.shape or "circle", style(0))
         else:
             cls = codes[plain]
             for c in np.unique(cls):
                 colour = colours[c] if 0 <= c < len(colours) else QColor(OTHER_COLOUR[t.dark])
-                draw(plain[cls == c], colour, shape_of(int(c)))
+                draw(plain[cls == c], colour, shape_of(int(c)), style(c))
         if sel is not None:
             picked = idx[sel[idx]]
             if not shapes:
@@ -1090,12 +1200,14 @@ class PlotView(QWidget):
                     path.moveTo(pt)
                     started = True
                 self._geo["items"].append((QRectF(pt.x() - 5, pt.y() - 5, 10, 10), i, s))
-            p.setPen(QPen(colour, 2))
+            st = self._series_style(s)
+            p.setPen(PE.styled_pen(st, colour, 2, cap=Qt.PenCapStyle.RoundCap))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(path)
+            self._geo["series_paths"].append((path, s))
             p.setBrush(colour)
             p.setPen(QPen(QColor(t.base), 1))
-            dot = 2.6 if n <= 400 else 0
+            dot = 2.6 if n <= 400 and st.get("markers", True) else 0
             sel_row = None
             if m.sel_per_series is not None and s < len(m.sel_per_series):
                 sel_row = m.sel_per_series[s]
@@ -1122,7 +1234,8 @@ class PlotView(QWidget):
         n = len(d)
         k = len(values)
         band = plot.width() / max(1, n)
-        gap = band * 0.18 if band > 6 else 0
+        share = float(PE.style_of(m.plot, "bars").get("bar_width", 82)) / 100.0
+        gap = band * (1.0 - share) if band > 6 else 0
         base_v = ya.lo if ya.log else 0.0
         base_y = ya.map(max(base_v, ya.lo)) if not ya.log else plot.bottom()
         part = m.sel_part
@@ -1158,9 +1271,19 @@ class PlotView(QWidget):
                 rect = QRectF(x, min(y_hi, y_lo), max(w - (1 if multi == "side" and k > 1
                                                           else 0), 1.0),
                               max(abs(y_lo - y_hi), 0.8))
-                p.fillRect(rect, colour)
+                self._fill_bar(p, rect, colour, self._series_style(s))
                 self._geo["items"].append((rect, i, s))
                 self._paint_bar_selection(p, rect, i, s, v, multi, part)
+
+    @staticmethod
+    def _fill_bar(p, rect, colour, st):
+        """A bar in its colour, with the transparency and outline of Edit plot."""
+        fill = PE.with_alpha(colour, st["alpha"]) if st.get("alpha") is not None else colour
+        p.fillRect(rect, fill)
+        if st.get("outline") and float(st.get("outline_width", 1)) > 0:
+            p.setPen(QPen(QColor(st["outline"]), float(st.get("outline_width", 1))))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(rect)
 
     def _paint_bar_selection(self, p, rect, i, s, v, multi, part):
         """The selected part of a bar: its selected records (Count) or their
@@ -1238,7 +1361,8 @@ class PlotView(QWidget):
         if not n:
             return
         band = plot.width() / max(1, n)
-        gap = band * 0.18 if band > 6 else 0
+        share = float(PE.style_of(m.plot, "bars").get("bar_width", 82)) / 100.0
+        gap = band * (1.0 - share) if band > 6 else 0
         bar_series = [s for s in range(len(d.series)) if d.kinds[s] == "bar"]
         line_series = [s for s in range(len(d.series)) if d.kinds[s] == "line"]
         p.save()
@@ -1256,7 +1380,7 @@ class PlotView(QWidget):
                 top = axis.map(v)
                 rect = QRectF(x, min(top, base), max(w - (1 if len(bar_series) > 1 else 0), 1),
                               max(abs(base - top), 0.8))
-                p.fillRect(rect, colour)
+                self._fill_bar(p, rect, colour, self._series_style(s))
                 self._geo["items"].append((rect, i, s))
                 self._paint_bar_selection(p, rect, i, s, v, "side",
                                           m.sel_part if m.sel_part else None)
@@ -1279,13 +1403,16 @@ class PlotView(QWidget):
                     path.moveTo(pt)
                     started = True
                 self._geo["items"].append((QRectF(pt.x() - 5, pt.y() - 5, 10, 10), i, s))
-            p.setPen(QPen(colour, 2))
+            st = self._series_style(s)
+            p.setPen(PE.styled_pen(st, colour, 2, cap=Qt.PenCapStyle.RoundCap))
             p.setBrush(Qt.BrushStyle.NoBrush)
             p.drawPath(path)
+            self._geo["series_paths"].append((path, s))
             for i, pt in pts:
-                p.setBrush(colour)
-                p.setPen(QPen(QColor(t.base), 1))
-                p.drawEllipse(pt, 2.8, 2.8)
+                if st.get("markers", True):
+                    p.setBrush(colour)
+                    p.setPen(QPen(QColor(t.base), 1))
+                    p.drawEllipse(pt, 2.8, 2.8)
                 if m.sel_per is not None and i < len(m.sel_per) and m.sel_per[i]:
                     p.setBrush(Qt.BrushStyle.NoBrush)
                     p.setPen(QPen(QColor(m.sel_colour), 2.4))
@@ -1306,12 +1433,18 @@ class PlotView(QWidget):
         hole = QRectF(rect.center().x() - side * donut / 2, rect.center().y() - side * donut / 2,
                       side * donut, side * donut)
         start = 90.0                                   # 12 o'clock, clockwise
+        st = PE.style_of(m.plot, "slices")             # Edit plot: outline, transparency
         for i, v in enumerate(d.values):
             span = -360.0 * v / d.total
             colour = m.colours[i] if i < len(m.colours) else QColor(t.bar)
             path = self._wedge(rect, hole, start, span, donut)
-            p.setPen(QPen(QColor(t.base), 1.5))
-            p.setBrush(colour)
+            if st.get("outline") == "" or float(st.get("outline_width", 1.5)) <= 0:
+                p.setPen(Qt.PenStyle.NoPen)
+            else:
+                p.setPen(QPen(QColor(st.get("outline") or t.base),
+                              float(st.get("outline_width", 1.5))))
+            p.setBrush(PE.with_alpha(colour, st["alpha"]) if st.get("alpha") is not None
+                       else colour)
             p.drawPath(path)
             self._geo["wedges"].append((path, i, start, span))
             sel = m.sel_per[i] if m.sel_per is not None and i < len(m.sel_per) else 0
@@ -1437,7 +1570,7 @@ class PlotView(QWidget):
                 continue
             x0, x1 = xa.map(edges[i]), xa.map(edges[i + 1])
             rect = QRectF(x0 + 0.5, ya.map(c), max(x1 - x0 - 1, 0.8), base - ya.map(c))
-            p.fillRect(rect, colour)
+            self._fill_bar(p, rect, colour, self._series_style(series))
             self._geo["items"].append((rect, i, series))
             if sel is not None and i < len(sel) and sel[i]:
                 h = rect.height() * sel[i] / c
@@ -1451,22 +1584,27 @@ class PlotView(QWidget):
         # statistics on the chart
         if stats.get("n"):
             lines = []
+            fmt = m.plot.get("format", {})
             if data.get("mean", True) and stats.get("mean") is not None:
-                lines.append((stats["mean"], QColor(m.plot.get("format", {}).get(
-                    "mean_colour") or MEAN_COLOUR), Qt.PenStyle.DashLine))
+                lines.append((stats["mean"], QColor(fmt.get("mean_colour") or MEAN_COLOUR),
+                              "dash", "mean", "Mean line"))
             if data.get("median", True) and stats.get("median") is not None:
-                lines.append((stats["median"], QColor(m.plot.get("format", {}).get(
-                    "median_colour") or MEDIAN_COLOUR), Qt.PenStyle.DashLine))
+                lines.append((stats["median"], QColor(fmt.get("median_colour") or MEDIAN_COLOUR),
+                              "dash", "median", "Median line"))
             if data.get("std") and stats.get("std"):
-                colour = QColor(m.plot.get("format", {}).get("std_colour") or STD_COLOUR)
-                lines.append((stats["mean"] - stats["std"], colour, Qt.PenStyle.DotLine))
-                lines.append((stats["mean"] + stats["std"], colour, Qt.PenStyle.DotLine))
-            for v, colour, style in lines:
+                colour = QColor(fmt.get("std_colour") or STD_COLOUR)
+                for v in (stats["mean"] - stats["std"], stats["mean"] + stats["std"]):
+                    lines.append((v, colour, "dot", "std", "± 1 Std. Dev. lines"))
+            for v, colour, dash, key, label in lines:
                 x = xa.map(v)
-                pen = QPen(colour, 1.6)
-                pen.setStyle(style)
-                p.setPen(pen)
-                p.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()))
+                st = dict(PE.style_of(m.plot, f"line:{key}"))
+                st.pop("colour", None)           # its colour is set in the card
+                p.setPen(PE.styled_pen(st, colour, 1.6, dash))
+                line = QPainterPath()
+                line.moveTo(x, plot.top())
+                line.lineTo(x, plot.bottom())
+                p.drawPath(line)
+                self._geo["lines"].append((line, f"line:{key}", label, "line"))
             if data.get("normal") and stats.get("std"):
                 width = edges[1] - edges[0] if len(edges) > 1 else 1.0
                 xs = np.linspace(xa.lo, xa.hi, 200)
@@ -1477,9 +1615,12 @@ class PlotView(QWidget):
                         path.lineTo(a, b)
                     else:
                         path.moveTo(a, b)
-                p.setPen(QPen(QColor(TREND_COLOUR[t.dark]), 1.8))
+                p.setPen(PE.styled_pen(PE.style_of(m.plot, "line:normal"),
+                                       TREND_COLOUR[t.dark], 1.8))
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.drawPath(path)
+                self._geo["lines"].append((path, "line:normal", "Normal distribution curve",
+                                           "line"))
         p.restore()
 
     # ---- box plot ------------------------------------------------------
@@ -1564,10 +1705,12 @@ class PlotView(QWidget):
         x0, x1 = xa.lo, xa.hi
         p.save()
         p.setClipRect(plot)
-        pen = QPen(QColor(self.theme.danger), 1.8)
-        p.setPen(pen)
-        p.drawLine(QPointF(xa.map(x0), ya.map(slope * x0 + icpt)),
-                   QPointF(xa.map(x1), ya.map(slope * x1 + icpt)))
+        p.setPen(PE.styled_pen(PE.style_of(m.plot, "line:reference"), self.theme.danger, 1.8))
+        line = QPainterPath()
+        line.moveTo(xa.map(x0), ya.map(slope * x0 + icpt))
+        line.lineTo(xa.map(x1), ya.map(slope * x1 + icpt))
+        p.drawPath(line)
+        self._geo["lines"].append((line, "line:reference", "Reference line", "line"))
         p.restore()
 
     # ---- cell colours (heat charts) -------------------------------------
@@ -2178,6 +2321,9 @@ class PlotView(QWidget):
 
     def mouseMoveEvent(self, event):
         pos = event.position() if hasattr(event, "position") else QPointF(event.pos())
+        if self.editing:
+            self._edit_move(pos)
+            return
         if self._press is not None:
             self._drag = pos
             self.update()
@@ -2220,11 +2366,18 @@ class PlotView(QWidget):
         if event.button() != Qt.MouseButton.LeftButton or self.model is None:
             return super().mousePressEvent(event)
         pos = event.position() if hasattr(event, "position") else QPointF(event.pos())
+        if self.editing:
+            self._edit_press(pos)
+            return
         self._press = pos
         self._drag = None
         self.update()
 
     def mouseReleaseEvent(self, event):
+        if self.editing and event.button() == Qt.MouseButton.LeftButton:
+            pos = event.position() if hasattr(event, "position") else QPointF(event.pos())
+            self._edit_release(pos)
+            return
         if event.button() != Qt.MouseButton.LeftButton or self._press is None:
             return super().mouseReleaseEvent(event)
         add = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -2261,6 +2414,14 @@ class PlotView(QWidget):
             self.rowsPicked.emit(rows, add)
 
     def contextMenuEvent(self, event):
+        if self.editing:
+            part = self._edit_hit(QPointF(event.pos()))
+            if part and part["kind"] == "object":
+                self.selected = part
+                self.partSelected.emit(part)
+                self.update()
+                self._object_menu(part["id"], event.globalPos())
+            return
         rows = self._rows_at(QPointF(event.pos()))
         if rows is None or not len(rows):
             return super().contextMenuEvent(event)
@@ -2365,6 +2526,359 @@ class PlotView(QWidget):
         if getattr(d, "series_of", None) is not None and getattr(d, "group", None) is not None:
             return np.nonzero((d.series_of == pick) & (d.group >= 0))[0]
         return np.zeros(0, dtype=np.int64)
+
+
+    # ------------------------------------------------------------------
+    # Edit plot: picking parts of the canvas, placing and moving objects
+    # ------------------------------------------------------------------
+    def set_editing(self, on):
+        self.editing = bool(on)
+        self.tool = None
+        self.pending_picture = None
+        self.selected = None
+        self._edit_drag = None
+        self._hover = None
+        self._press = self._drag = None
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus if on else Qt.FocusPolicy.NoFocus)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        self.refresh()
+
+    def set_tool(self, kind, picture=None):
+        """The next click places an object of *kind* (None: no tool)."""
+        self.tool = kind
+        self.pending_picture = picture
+        self.setCursor(Qt.CursorShape.CrossCursor if kind else Qt.CursorShape.ArrowCursor)
+        self.toolChanged.emit(kind)
+
+    def select(self, part):
+        self.selected = part
+        self.update()
+
+    def _objects(self):
+        return PE.objects_of(self.model.plot) if self.model is not None else []
+
+    def _object(self, oid):
+        return next((o for o in self._objects() if o.get("id") == oid), None)
+
+    def _share(self, pos):
+        plot = self._geo["plot"]
+        return (max(0.0, min(1.0, (pos.x() - plot.left()) / max(1.0, plot.width()))),
+                max(0.0, min(1.0, (pos.y() - plot.top()) / max(1.0, plot.height()))))
+
+    @staticmethod
+    def _stroke(path, width=8.0):
+        stroker = QPainterPathStroker()
+        stroker.setWidth(width)
+        return stroker.createStroke(path)
+
+    def _edit_hit(self, pos):
+        """The part of the canvas under *pos*: an object, a line, a series,
+        a grid line or the canvas itself (None outside it)."""
+        geo, m = self._geo, self.model
+        if not geo or geo.get("plot") is None or m is None or m.data is None or self.message:
+            return None
+        plot, font = geo["plot"], QFont(self.font())
+        for obj in reversed(self._objects()):
+            if PE.object_hit(obj, plot, font, pos):
+                return {"kind": "object", "id": obj.get("id"),
+                        "label": PE.KIND_LABELS.get(obj.get("kind"), "Object")}
+        for path, key, label, kind in reversed(geo.get("lines", [])):
+            if self._stroke(path).contains(pos):
+                return {"kind": kind, "key": key, "label": label}
+        d = m.data
+
+        def series(s, what):
+            name = self._series_name(s)
+            noun = {"points": "Points", "line": "Line", "bar": "Bars"}[what]
+            return {"kind": "series", "key": f"series:{name}", "s": s, "what": what,
+                    "label": f"{noun}: {name}" if name else noun}
+
+        if m.kind in ("scatter", "qq"):
+            hit = self._scatter_hit(pos)
+            if hit is not None:
+                first = int(hit[0][0])
+                codes = getattr(d, "series", None)
+                return series(int(codes[first]) if codes is not None else None, "points")
+        elif m.kind == "pie":
+            if self._wedge_at(pos) is not None:
+                return {"kind": "slices", "key": "slices", "label": "Slices"}
+        elif m.kind in ("line", "bar", "combo", "histogram"):
+            for path, s in reversed(geo.get("series_paths", [])):
+                if self._stroke(path).contains(pos):
+                    return series(s, "line")
+            for rect, _i, s in reversed(geo.get("items", [])):
+                if rect.contains(pos):
+                    what = "line" if m.kind == "line" else "bar"
+                    if m.kind == "combo" and s is not None:
+                        what = d.kinds[s]
+                    return series(s, what)
+        for y, a, b in geo.get("grid_h", []):
+            if abs(pos.y() - y) <= 3 and a <= pos.x() <= b:
+                return {"kind": "grid_h", "key": "grid_h", "label": "Horizontal grid lines"}
+        for x, a, b in geo.get("grid_v", []):
+            if abs(pos.x() - x) <= 3 and a <= pos.y() <= b:
+                return {"kind": "grid_v", "key": "grid_v", "label": "Vertical grid lines"}
+        if plot.contains(pos):
+            return {"kind": "background", "key": "background", "label": "Canvas"}
+        return None
+
+    def _handle_at(self, pos):
+        sel = self.selected
+        if not sel or sel.get("kind") != "object" or not self._geo.get("plot"):
+            return None
+        obj = self._object(sel["id"])
+        if obj is None:
+            return None
+        for name, pt in PE.handles(obj, self._geo["plot"], QFont(self.font())):
+            if abs(pos.x() - pt.x()) <= PE.HANDLE and abs(pos.y() - pt.y()) <= PE.HANDLE:
+                return name
+        return None
+
+    def _edit_press(self, pos):
+        if not self._geo or self._geo.get("plot") is None:
+            return
+        self.setFocus()
+        if self.tool:
+            self._edit_drag = ["place", None, pos, None, False]
+            return
+        handle = self._handle_at(pos)
+        if handle:
+            obj = self._object(self.selected["id"])
+            self._edit_drag = [f"handle:{handle}", obj["id"], pos, copy.deepcopy(obj), False]
+            return
+        part = self._edit_hit(pos)
+        self.selected = part
+        self.partSelected.emit(part)
+        if part and part["kind"] == "object":
+            obj = self._object(part["id"])
+            self._edit_drag = ["move", part["id"], pos, copy.deepcopy(obj), False]
+        self.update()
+
+    def _edit_move(self, pos):
+        drag, plot = self._edit_drag, (self._geo or {}).get("plot")
+        if drag is None or plot is None:
+            if self.tool:
+                cursor = Qt.CursorShape.CrossCursor
+            elif self._handle_at(pos):
+                cursor = Qt.CursorShape.SizeFDiagCursor
+            else:
+                part = self._edit_hit(pos)
+                cursor = Qt.CursorShape.SizeAllCursor if part and part["kind"] == "object" \
+                    else (Qt.CursorShape.PointingHandCursor if part else
+                          Qt.CursorShape.ArrowCursor)
+            self.setCursor(cursor)
+            return
+        what, oid, start = drag[0], drag[1], drag[2]
+        if abs(pos.x() - start.x()) > 1 or abs(pos.y() - start.y()) > 1:
+            drag[4] = True
+        if what == "place":
+            self._drag = pos
+            self.update()
+            return
+        obj = self._object(oid)
+        if obj is None:
+            return
+        before = drag[3]
+        dx = (pos.x() - start.x()) / max(1.0, plot.width())
+        dy = (pos.y() - start.y()) / max(1.0, plot.height())
+        obj.clear()
+        obj.update(copy.deepcopy(before))
+        if what == "move":
+            PE.move_object(obj, dx, dy)
+        elif what in ("handle:w", "handle:size"):
+            obj["w"] = before.get("w", 0.3) + dx
+        elif what == "handle:start":
+            obj["x1"], obj["y1"] = before["x1"] + dx, before["y1"] + dy
+        elif what == "handle:end":
+            obj["x2"], obj["y2"] = before["x2"] + dx, before["y2"] + dy
+        PE.clamp(obj)
+        self.update()
+
+    def _edit_release(self, pos):
+        if self._edit_drag is not None and self._edit_drag[0] != "place":
+            self._edit_move(pos)                 # the drag ends where the button is let go
+        drag, self._edit_drag = self._edit_drag, None
+        self._drag = None
+        if drag is None or not self._geo or self._geo.get("plot") is None:
+            return
+        if drag[0] == "place":
+            kind = self.tool
+            fx, fy = self._share(drag[2])
+            fx2, fy2 = self._share(pos)
+            obj = PE.new_object(kind, self.theme, fx, fy, fx2, fy2, self.pending_picture)
+            PE.canvas_of(self.model.plot)["objects"].append(obj)
+            self.set_tool(None)
+            self.selected = {"kind": "object", "id": obj["id"],
+                             "label": PE.KIND_LABELS.get(kind, "Object")}
+            self.canvasEdited.emit("add")
+            self.partSelected.emit(self.selected)
+            self.update()
+            return
+        if drag[4]:
+            self.canvasEdited.emit("move")
+
+    def remove_object(self, oid):
+        canvas = PE.canvas_of(self.model.plot)
+        canvas["objects"] = [o for o in canvas["objects"] if o.get("id") != oid]
+        self.selected = None
+        self.canvasEdited.emit("delete")
+        self.partSelected.emit(None)
+        self.update()
+
+    def _object_menu(self, oid, global_pos):
+        canvas = PE.canvas_of(self.model.plot)
+        obj = self._object(oid)
+        if obj is None:
+            return
+        menu = QMenu(self)
+
+        def duplicate():
+            twin = PE.duplicate(obj)
+            canvas["objects"].append(twin)
+            self.selected = {"kind": "object", "id": twin["id"],
+                             "label": PE.KIND_LABELS.get(twin.get("kind"), "Object")}
+            self.canvasEdited.emit("add")
+            self.partSelected.emit(self.selected)
+            self.update()
+
+        def order(front):
+            rest = [o for o in canvas["objects"] if o.get("id") != oid]
+            canvas["objects"] = rest + [obj] if front else [obj] + rest
+            self.canvasEdited.emit("order")
+            self.update()
+
+        menu.addAction("Duplicate").triggered.connect(duplicate)
+        menu.addAction("Bring to Front").triggered.connect(lambda: order(True))
+        menu.addAction("Send to Back").triggered.connect(lambda: order(False))
+        menu.addSeparator()
+        menu.addAction(icons.native(icons.DELETE), "Delete").triggered.connect(
+            lambda: self.remove_object(oid))
+        menu.exec(global_pos)
+
+    _EDIT_KEYS = (Qt.Key.Key_Escape, Qt.Key.Key_Delete, Qt.Key.Key_Backspace, Qt.Key.Key_Left,
+                  Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_Z, Qt.Key.Key_Y)
+
+    def event(self, event):
+        # while editing, these keys are the plot's, not shortcuts of QGIS
+        if self.editing and event.type() == QEvent.Type.ShortcutOverride \
+                and event.key() in self._EDIT_KEYS:
+            event.accept()
+            return True
+        return super().event(event)
+
+    def keyPressEvent(self, event):
+        if not self.editing:
+            return super().keyPressEvent(event)
+        key = event.key()
+        ctrl = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+        if ctrl and key == Qt.Key.Key_Z:
+            shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+            self.editKey.emit("redo" if shift else "undo")
+            return
+        if ctrl and key == Qt.Key.Key_Y:
+            self.editKey.emit("redo")
+            return
+        if key == Qt.Key.Key_Escape:
+            if self.tool:
+                self.set_tool(None)
+            else:
+                self.selected = None
+                self.partSelected.emit(None)
+                self.update()
+            return
+        sel = self.selected
+        obj = self._object(sel["id"]) if sel and sel.get("kind") == "object" else None
+        if obj is None or not self._geo.get("plot"):
+            return super().keyPressEvent(event)
+        if key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self.remove_object(obj["id"])
+            return
+        step = 10.0 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1.0
+        plot = self._geo["plot"]
+        moves = {Qt.Key.Key_Left: (-step, 0), Qt.Key.Key_Right: (step, 0),
+                 Qt.Key.Key_Up: (0, -step), Qt.Key.Key_Down: (0, step)}
+        if key in moves:
+            dx, dy = moves[key]
+            PE.move_object(obj, dx / max(1.0, plot.width()), dy / max(1.0, plot.height()))
+            self.canvasEdited.emit("nudge")
+            self.update()
+            return
+        super().keyPressEvent(event)
+
+    def _paint_selection(self, p):
+        """The part selected (Edit plot): an accent outline, handles on an
+        object; the arrow being drawn."""
+        t, geo = self.theme, self._geo
+        if not geo or geo.get("plot") is None:
+            return
+        plot = geo["plot"]
+        accent = QColor(t.accent)
+        drag = self._edit_drag
+        if drag and drag[0] == "place" and self.tool == "arrow" and self._drag is not None:
+            PE.paint_arrow(p, drag[2], self._drag, accent, 2, "dash", "end", 10)
+        sel = self.selected
+        if not sel:
+            return
+        glow = QColor(accent)
+        glow.setAlpha(110)
+        k = sel.get("kind")
+        p.save()
+        if k == "object":
+            obj = self._object(sel.get("id"))
+            if obj is not None:
+                font = QFont(self.font())
+                pen = QPen(accent, 1.2)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                p.setPen(pen)
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                if obj.get("kind") == "arrow":
+                    a, b = PE.arrow_points(obj, plot)
+                    p.setPen(QPen(glow, 6))
+                    p.drawLine(a, b)
+                else:
+                    p.drawRect(PE.object_rect(obj, plot, font).adjusted(-3, -3, 3, 3))
+                p.setPen(QPen(accent, 1.2))
+                p.setBrush(QColor(t.base))
+                h = PE.HANDLE
+                for _name, pt in PE.handles(obj, plot, font):
+                    p.drawRect(QRectF(pt.x() - h / 2, pt.y() - h / 2, h, h))
+        elif k in ("line", "guide"):
+            for path, key, _label, _kind in geo.get("lines", []):
+                if key == sel.get("key"):
+                    p.setPen(QPen(glow, 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                    p.setBrush(Qt.BrushStyle.NoBrush)
+                    p.drawPath(path)
+        elif k == "series":
+            p.setPen(QPen(accent, 1.6))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            for path, s in geo.get("series_paths", []):
+                if s == sel.get("s"):
+                    p.setPen(QPen(glow, 6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                    p.drawPath(path)
+            if sel.get("what") == "bar":
+                p.setPen(QPen(accent, 1.6))
+                for rect, _i, s in geo.get("items", []):
+                    if s == sel.get("s"):
+                        p.drawRect(rect.adjusted(-1, -1, 1, 1))
+            if sel.get("what") == "points":
+                pen = QPen(accent, 1.2)
+                pen.setStyle(Qt.PenStyle.DashLine)
+                p.setPen(pen)
+                p.drawRect(plot.adjusted(-2, -2, 2, 2))
+        elif k in ("grid_h", "grid_v"):
+            p.setPen(QPen(glow, 3))
+            for c, a, b in geo.get(k, []):
+                if k == "grid_h":
+                    p.drawLine(QPointF(a, c), QPointF(b, c))
+                else:
+                    p.drawLine(QPointF(c, a), QPointF(c, b))
+        else:                                    # the canvas, the slices
+            pen = QPen(accent, 1.4)
+            pen.setStyle(Qt.PenStyle.DashLine)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(plot.adjusted(-2, -2, 2, 2))
+        p.restore()
 
     # ---- overlays ------------------------------------------------------
     def _paint_drag(self, p):

@@ -656,7 +656,12 @@ PLOT = [
             I("plots_btn", "Plots",
               "Hide the list of plots, so the plot takes its width; click again to show "
               "it. Every window opens with the list shown.", icons.LIST_VIEW),
-            I("scope_label", "Records", "Which records the plots show, and how many."),
+            I("edit_btn+redo_btn", "Edit plot",
+              "Edit plot, Save edits, Undo and Redo: change the look of what is inside the "
+              "plot (see the Edit plot tab).", icons.TOGGLE_EDIT),
+            I("add_btn", "Add",
+              "While editing: a text box, a horizontal or vertical line, an arrow or a "
+              "picture on the plot.", icons.ADD),
             I("scope_btn", "Change scope",
               "All records, the Attribute Explorer's filtered records, the selected "
               "records or the visible map extent. The plot follows them as they change.",

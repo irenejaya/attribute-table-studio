@@ -23,15 +23,16 @@ plot in the project's selection colour.
 
 import copy
 import json
+import time
 import uuid
 
 from qgis.PyQt.QtCore import QObject, QRect, QSize, Qt, QTimer, pyqtSignal
-from qgis.PyQt.QtGui import QColor, QGuiApplication, QIcon
+from qgis.PyQt.QtGui import QColor, QFont, QGuiApplication, QIcon
 from qgis.PyQt.QtWidgets import (
-    QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-    QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMenu, QMessageBox,
-    QApplication, QPushButton, QScrollArea, QSizePolicy, QSpinBox, QSplitter, QStyle,
-    QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QFontComboBox, QFrame,
+    QGridLayout, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget, QListWidgetItem,
+    QMenu, QMessageBox, QPlainTextEdit, QPushButton, QScrollArea, QSizePolicy, QSpinBox,
+    QSplitter, QStyle, QStyledItemDelegate, QStyleOptionViewItem, QVBoxLayout, QWidget,
 )
 from qgis.core import (
     QgsCoordinateTransform, QgsExpressionContext, QgsMessageLog, QgsProject,
@@ -48,6 +49,7 @@ from ..core.compat import SELECT_ADD, SELECT_SET, VECTOR_LAYER_FILTER
 from ..core.jobs import JobRunner
 from ..core.scan import ScanSpec
 from . import icons
+from . import plot_edit as PE
 from . import widgets as W
 from .plot_view import (
     POINT_SHAPES, SHAPE_LABELS, PlotModel, PlotView, fill_type_menu, marker_icon, series_colour,
@@ -86,6 +88,12 @@ def _is_split(kind):
     return kind in (F.TEXT, F.BOOL, F.INTEGER, F.OTHER)
 
 
+def self_type(plot):
+    return plot.get("type") if plot else None
+
+
+EDITING_HINT = ("Editing the look of the plot: the plot and its settings are frozen. "
+                "Click a part of the plot, or Add an object.")
 LAYER_ROLE = Qt.ItemDataRole.UserRole + 1        # the plot's layer, shown after its name
 
 
@@ -1849,6 +1857,280 @@ class PlotProperties(QScrollArea):
         grid.toggled.connect(changed)
         axis.toggled.connect(changed)
 
+    # ---- Edit plot: the card of the part selected -------------------------
+    def show_edit(self, part, plot, on_change):
+        """The card while the plot is edited: the settings of the part of
+        the canvas selected (*part*, from the plot view), or how to pick
+        one.  Changes go into *plot*'s canvas; *on_change(base, tag)* is
+        called after each (*base*: the plot is drawn again, not only its
+        objects)."""
+        m = self.metrics
+        self.plot = None                         # the usual settings are frozen
+        self._quiet = True
+        self._card()
+        self._labels = []
+        self.title_edit = self.colour_lay = self.summary_grid = self.layer_combo = None
+        self._layer_pending = False
+        self.edit_part = part
+        canvas = PE.canvas_of(plot)
+        t = self.theme
+        if part is None:
+            self._header("Edit plot")
+            self._note("Click a part of the plot to change its look: the canvas, the grid "
+                       "lines, a series, a trend or reference line, a guide, or an object "
+                       "added with Add.")
+            self._note("Add puts a text box, a horizontal or vertical line, an arrow or a "
+                       "picture on the plot. Drag an object to move it; Delete removes it.")
+            self._note("Titles, axes, the legend, colours and point shapes are set outside "
+                       "Edit plot: turn it off to change them.")
+            self.lay.addStretch(1)
+            self._label_width = W.align_labels(self._labels)
+            self._quiet = False
+            return
+        self._header(PE.describe(part))
+        kind = part.get("kind")
+        if kind == "object":
+            target = next((o for o in canvas["objects"] if o.get("id") == part.get("id")), {})
+            tag_base, base = part.get("id"), False
+        else:
+            key = part.get("key")
+            tag_base, base = key, True
+
+            def target_style(k=key):
+                return canvas["style"].setdefault(k, {})
+            target = dict(canvas["style"].get(key) or {})
+
+        def get(name, default=None, store=None):
+            if kind == "object":
+                return target.get(name, default)
+            st = canvas["style"].get(store or part.get("key")) or {}
+            return st.get(name, default)
+
+        def put(name, value, store=None):
+            if kind == "object":
+                target[name] = value
+            else:
+                canvas["style"].setdefault(store or part.get("key"), {})[name] = value
+            if not self._quiet:
+                on_change(base, f"{tag_base}:{name}")
+
+        def colour_row(label, name, default, null_text=None, tip="", store=None):
+            btn = QgsColorButton()
+            btn.setFixedHeight(m.control_h)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setAllowOpacity(False)
+            btn.setDefaultColor(QColor(default))
+            btn.setShowNull(bool(null_text), null_text or "")
+            current = get(name, None, store)
+            if current:
+                btn.setColor(QColor(current))
+            elif null_text and current == "":
+                btn.setToNull()
+            elif null_text and current is None and not default:
+                btn.setToNull()
+            else:
+                btn.setColor(QColor(default))
+            btn.colorChanged.connect(
+                lambda c: put(name, c.name() if c.isValid() else "", store))
+            self._row(label, btn, tip)
+            return btn
+
+        def number_row(label, name, default, lo, hi, step=0.5, decimals=1, suffix="",
+                       tip="", store=None):
+            box = QDoubleSpinBox()
+            box.setRange(lo, hi)
+            box.setDecimals(decimals)
+            box.setSingleStep(step)
+            box.setSuffix(suffix)
+            box.setFixedHeight(m.control_h)
+            box.setMinimumWidth(50)
+            box.setValue(float(get(name, default, store)))
+            box.valueChanged.connect(lambda v: put(name, float(v), store))
+            self._row(label, box, tip)
+            return box
+
+        def transparency_row(name="alpha", label="Transparency", store=None):
+            box = QSpinBox()
+            box.setRange(0, 100)
+            box.setSuffix(" %")
+            box.setFixedHeight(m.control_h)
+            box.setValue(100 - int(round(float(get(name, 100, store)))))
+            box.valueChanged.connect(lambda v: put(name, 100 - int(v), store))
+            self._row(label, box, "0 %: solid; 100 %: invisible")
+            return box
+
+        def dash_row(name="dash", default="solid", label="Dash", store=None):
+            box = self._combo([(k, text, PE.dash_icon(k, t.text)) for k, text in PE.DASHES],
+                              get(name, default, store))
+            box.setIconSize(QSize(32, 16))
+            box.currentIndexChanged.connect(lambda _i: put(name, box.currentData(), store))
+            self._row(label, box)
+            return box
+
+        def choice_row(label, name, items, default):
+            box = self._combo(items, get(name, default))
+            box.currentIndexChanged.connect(lambda _i: put(name, box.currentData()))
+            self._row(label, box)
+            return box
+
+        def tick(text, name, default, store=None):
+            box = self._tick(text, get(name, default, store))
+            box.toggled.connect(lambda on: put(name, bool(on), store))
+            return box
+
+        if kind == "background":
+            colour_row("Colour", "colour", "", null_text="No fill",
+                       tip="The canvas behind the data")
+            transparency_row()
+        elif kind in ("grid_h", "grid_v"):
+            colour_row("Colour", "colour", t.border_soft)
+            number_row("Width", "width", 1.0, 0.2, 10, 0.2, 1, " px")
+            dash_row()
+            self._note("Grid lines in Appearance shows or hides them.")
+        elif kind == "series" and part.get("what") == "line":
+            number_row("Width", "width", 2.0, 0.2, 12, 0.2, 1, " px")
+            dash_row()
+            tick("Point markers", "markers", True)
+            self._note("Its colour is set in Appearance.")
+        elif kind == "series" and part.get("what") == "bar":
+            colour_row("Outline", "outline", "", null_text="No outline")
+            number_row("Outline width", "outline_width", 1.0, 0.2, 8, 0.2, 1, " px")
+            transparency_row()
+            if self_type(plot) in ("bar", "combo"):
+                box = QSpinBox()
+                box.setRange(10, 100)
+                box.setSuffix(" %")
+                box.setFixedHeight(m.control_h)
+                box.setValue(int(get("bar_width", 82, "bars")))
+                box.valueChanged.connect(lambda v: put("bar_width", int(v), "bars"))
+                self._row("Bar width", box, "The share of each category's space the bars "
+                          "take (every series)")
+            self._note("Its colour is set in Appearance.")
+        elif kind == "series" and part.get("what") == "points":
+            number_row("Size", "point_size", 7.0, 1, 60, 0.5, 1, " px",
+                       "The points' size (Size by in Data sizes them instead)")
+            transparency_row()
+            colour_row("Outline", "outline", "", null_text="Automatic",
+                       tip="Automatic: a darker shade of the point")
+            box = self._tick("No outline", get("outline") == "")
+            box.toggled.connect(lambda on: put("outline", "" if on else None))
+            self._note("Its colour and shape are set in Appearance.")
+        elif kind == "slices":
+            colour_row("Outline", "outline", t.base)
+            number_row("Outline width", "outline_width", 1.5, 0, 8, 0.5, 1, " px",
+                       "0: no outline")
+            transparency_row()
+            self._note("The slices' colours are set in Appearance.")
+        elif kind in ("line", "guide"):
+            key = part.get("key", "")
+            fixed_colour = key in ("line:mean", "line:median", "line:std")
+            width = {"line:normal": 1.8, "line:reference": 1.8}.get(key, 1.6)
+            if key.startswith("line:trend"):
+                width = 2.0
+            dash = "dot" if key == "line:std" else ("dash" if fixed_colour or kind == "guide"
+                                                    else "solid")
+            if not fixed_colour:
+                default = t.danger if kind == "guide" or key == "line:reference" \
+                    else ("#ECEFF1" if t.dark else "#37474F")
+                colour_row("Colour", "colour", default)
+            number_row("Width", "width", width, 0.2, 12, 0.2, 1, " px")
+            dash_row(default=dash)
+            if fixed_colour:
+                self._note("Its colour is set beside its tick under Statistics on the "
+                           "chart.")
+            elif kind == "guide":
+                self._note("Its value and label are set under Guides.")
+        elif kind == "object":
+            self._object_rows(target, put, get, colour_row, number_row, transparency_row,
+                              dash_row, choice_row, on_change)
+        self.lay.addStretch(1)
+        self._label_width = W.align_labels(self._labels)
+        self._quiet = False
+
+    def _object_rows(self, obj, put, get, colour_row, number_row, transparency_row,
+                     dash_row, choice_row, on_change):
+        """The settings of an added object (Edit plot)."""
+        m, t = self.metrics, self.theme
+        k = obj.get("kind")
+        if k == "text":
+            edit = QPlainTextEdit(obj.get("text", ""))
+            edit.setFixedHeight(m.control_h * 3)
+            edit.textChanged.connect(lambda: put("text", edit.toPlainText()))
+            self._row("Text", edit)
+            fonts = QFontComboBox()
+            fonts.setFixedHeight(m.control_h)
+            fonts.setMinimumWidth(80)
+            if obj.get("font"):
+                fonts.setCurrentFont(QFont(obj["font"]))
+            fonts.currentFontChanged.connect(lambda f: put("font", f.family()))
+            self._row("Font", fonts)
+            number_row("Size", "size", 10.0, 4, 96, 1, 1, " pt")
+            colour_row("Colour", "colour", t.text_strong)
+            styles = QWidget()
+            sl = QHBoxLayout(styles)
+            sl.setContentsMargins(0, 0, 0, 0)
+            sl.setSpacing(10)
+            for name, text in (("bold", "Bold"), ("italic", "Italic"),
+                               ("underline", "Underline")):
+                box = QCheckBox(text)
+                box.setChecked(bool(obj.get(name)))
+                box.toggled.connect(lambda on, n=name: put(n, bool(on)))
+                sl.addWidget(box)
+            sl.addStretch(1)
+            self._row("Style", styles)
+            choice_row("Align", "align", PE.ALIGNS, "left")
+            self.lay.addWidget(W.section_header("Box"))
+            colour_row("Fill", "fill", t.base, null_text="No fill")
+            transparency_row("fill_alpha", "Fill transparency")
+            colour_row("Border", "border", t.border, null_text="No border")
+            number_row("Border width", "border_width", 1.0, 0, 10, 0.5, 1, " px")
+            dash_row("border_dash", "solid", "Border dash")
+            number_row("Corners", "radius", 4.0, 0, 40, 1, 0, " px", "Rounded corners")
+            number_row("Padding", "padding", 6.0, 0, 40, 1, 0, " px",
+                       "Room between the border and the text")
+            self._note("Drag the box to move it, its right edge to set its width.")
+        elif k in ("hline", "vline"):
+            colour_row("Colour", "colour", t.text_strong)
+            number_row("Width", "width", 1.6, 0.2, 12, 0.2, 1, " px")
+            dash_row()
+            transparency_row()
+            self._note("It crosses the whole plot; drag it to move it.")
+        elif k == "arrow":
+            colour_row("Colour", "colour", t.text_strong)
+            number_row("Width", "width", 2.0, 0.2, 12, 0.2, 1, " px")
+            dash_row()
+            choice_row("Head", "head", PE.HEADS, "end")
+            number_row("Head size", "head_size", 10.0, 4, 40, 1, 0, " px")
+            transparency_row()
+            self._note("Drag the arrow to move it, its ends to point it.")
+        elif k == "picture":
+            transparency_row()
+            colour_row("Border", "border", t.border, null_text="No border")
+            number_row("Border width", "border_width", 1.0, 0, 10, 0.5, 1, " px")
+            replace = W.button(m, "Replace picture…", icons.native(icons.OPEN),
+                               "Choose another picture file")
+
+            def choose():
+                path, _f = QFileDialog.getOpenFileName(
+                    self, "Picture", "", "Pictures (*.png *.jpg *.jpeg *.svg *.bmp *.gif)")
+                if not path:
+                    return
+                data, error = PE.picture_data(path)
+                if data is None:
+                    QMessageBox.warning(self, "Picture", error)
+                    return
+                obj.update(data)
+                on_change(False, f"{obj.get('id')}:picture")
+
+            replace.clicked.connect(choose)
+            holder = QWidget()
+            hl = QHBoxLayout(holder)
+            hl.setContentsMargins(0, 0, 0, 0)
+            hl.addWidget(replace)
+            hl.addStretch(1)
+            self.lay.addWidget(holder)
+            self._note("Drag the picture to move it, its corner to size it.")
+
     def set_series(self, names):
         """The series of the last build, for the colour rows."""
         if names == self.series:
@@ -2023,6 +2305,11 @@ class DataPlotPanel(QWidget):
         self.reader = JobRunner(self)
         self.builder = JobRunner(self)
         self.selector = JobRunner(self)
+        self._editing = False                # Edit plot is on (the plot frozen)
+        self._edit_plot = None               # the plot being edited (saved on Save edits)
+        self._stale = False                  # its records changed while frozen
+        self._history, self._hist_i, self._saved_i = [], 0, 0
+        self._last_tag, self._last_time = None, 0.0
         self.layer = None                    # the layer of the plot shown
         self._new_layer = None               # where New plot starts when no plot is shown
         self.plot_id = None
@@ -2063,7 +2350,8 @@ class DataPlotPanel(QWidget):
         root.setContentsMargins(m.margin, m.margin, m.margin, m.margin)
         root.setSpacing(8)
 
-        # top row, as the Pivot Table's: Layer, the records, the actions
+        # top row: Plots | the Edit plot group | Add, then the records and
+        # the actions at the right
         top = QHBoxLayout()
         top.setSpacing(m.gap)
         # hides the Plots card for a wider plot; every window opens with it shown
@@ -2071,12 +2359,31 @@ class DataPlotPanel(QWidget):
                                   "Show or hide the list of plots", checkable=True)
         self.plots_btn.setChecked(True)
         top.addWidget(self.plots_btn)
-        top.addSpacing(m.gap)
-        self.scope_label = W.ElideLabel()
-        self.scope_label.setMinimumWidth(110)
-        self.scope_label.setSizePolicy(QSizePolicy.Policy.Preferred,
-                                       QSizePolicy.Policy.Preferred)
-        top.addWidget(self.scope_label)
+        top.addWidget(W.vseparator(m))
+        # Edit plot, as the editing buttons of Attribute Explorer
+        self.edit_btn = W.button(m, "Edit plot", icons.native(icons.TOGGLE_EDIT),
+                                 "Edit the look of what is inside the plot and add text, "
+                                 "lines, arrows and pictures; the plot and its settings "
+                                 "are frozen meanwhile", checkable=True)
+        self.edit_btn.toggled.connect(self._on_edit_toggled)
+        self.save_edits_btn = W.button(m, "Save edits", icons.native(icons.SAVE_EDITS),
+                                       "Keep the changes made in Edit plot")
+        self.save_edits_btn.clicked.connect(self.save_edits)
+        self.undo_btn = W.square_button(m, icons.native(icons.UNDO), "Undo (Ctrl+Z)")
+        self.undo_btn.clicked.connect(self.undo_edit)
+        self.redo_btn = W.square_button(m, icons.native(icons.REDO), "Redo (Ctrl+Y)")
+        self.redo_btn.clicked.connect(self.redo_edit)
+        for b in (self.edit_btn, self.save_edits_btn, self.undo_btn, self.redo_btn):
+            top.addWidget(b)
+        top.addWidget(W.vseparator(m))
+        self.add_menu = QMenu(self)
+        for kind, text in PE.ADD_KINDS:
+            self.add_menu.addAction(PE.kind_icon(kind, self.theme.text), text).triggered.connect(
+                lambda _c=False, k=kind: self.add_object(k))
+        self.add_btn = W.button(m, "Add", icons.native(icons.ADD),
+                                "Add a text box, a horizontal or vertical line, an arrow "
+                                "or a picture to the plot", menu=self.add_menu)
+        top.addWidget(self.add_btn)
         row = W.ButtonRow(m)
         row.add_stretch()
         self.scope_menu = QMenu(self)
@@ -2121,6 +2428,11 @@ class DataPlotPanel(QWidget):
         self.view.rowsPicked.connect(self._on_rows_picked)
         self.view.rowsMenu.connect(self._on_rows_menu)
         self.view.previewPicked.connect(self._on_preview)
+        self.view.partSelected.connect(self._on_part_selected)
+        self.view.toolChanged.connect(
+            lambda kind: self.status.set_status(EDITING_HINT)
+            if kind is None and self._editing else None)
+        self.view.canvasEdited.connect(self._on_canvas_edited)
         split.addWidget(self.view)
         self.props = PlotProperties(self.theme, m)
         self.props.edited.connect(self._on_edited)
@@ -2137,6 +2449,9 @@ class DataPlotPanel(QWidget):
         self.status = W.StatusStrip(m)
         self.status.cancelRequested.connect(self._cancel)
         root.addWidget(self.status)
+        # Ctrl+Z and Ctrl+Y go to the plot while it is edited (not QGIS's undo)
+        self.view.editKey.connect(lambda k: self.undo_edit() if k == "undo"
+                                  else self.redo_edit())
         self.view.set_message("Choose a layer")
         self._update_scope_label()
 
@@ -2273,6 +2588,8 @@ class DataPlotPanel(QWidget):
     def layers_removed(self, layer_ids):
         """Layers left the project: their plots stay in the list, marked."""
         shown = self.layer is not None and self.layer.id() in layer_ids
+        if shown and self._editing:              # keep the edits made so far
+            self.stop_editing(ask=False)
         if shown:
             self._attach(None)
         if self._new_layer is not None and self._new_layer.id() in layer_ids:
@@ -2389,16 +2706,24 @@ class DataPlotPanel(QWidget):
     def _update_buttons(self):
         has_plot = self.current_plot() is not None
         has_layer = self.layer is not None
-        self.new_btn.setEnabled(has_layer or self._default_layer() is not None)
-        for b in (self.dup_btn, self.del_btn, self.up_btn, self.down_btn, self.window_btn,
-                  self.export_btn):
-            b.setEnabled(has_plot)
-        self.scope_btn.setEnabled(has_plot and has_layer)
-        self.clear_btn.setEnabled(has_layer)
-        self.more_btn.setEnabled(True)
+        editing = self._editing
+        free = not editing                       # frozen while the plot is edited
+        self.new_btn.setEnabled(free and (has_layer or self._default_layer() is not None))
+        for b in (self.dup_btn, self.del_btn, self.up_btn, self.down_btn, self.window_btn):
+            b.setEnabled(free and has_plot)
+        self.export_btn.setEnabled(has_plot)
+        self.scope_btn.setEnabled(free and has_plot and has_layer)
+        self.clear_btn.setEnabled(free and has_layer)
+        self.more_btn.setEnabled(free)
+        self.plot_list.setEnabled(free)
+        self.edit_btn.setEnabled(editing or (has_plot and has_layer))
+        self.save_edits_btn.setEnabled(editing and self._hist_i != self._saved_i)
+        self.undo_btn.setEnabled(editing and self._hist_i > 0)
+        self.redo_btn.setEnabled(editing and self._hist_i < len(self._history) - 1)
+        self.add_btn.setEnabled(editing)
 
     def _on_store_changed(self, _layer_id, plot_id):
-        if self._writing or self._closing:
+        if self._writing or self._closing or self._editing:
             return
         if plot_id and plot_id == self.plot_id:
             self._fill_list(plot_id)              # edited in another window
@@ -2579,6 +2904,171 @@ class DataPlotPanel(QWidget):
                                    + ": choose others in Data", "warning")
 
     # ====================================================================
+    # EDIT PLOT
+    # ====================================================================
+
+    def _on_edit_toggled(self, on):
+        if on and not self._editing:
+            if not self._start_editing():
+                self.edit_btn.blockSignals(True)
+                self.edit_btn.setChecked(False)
+                self.edit_btn.blockSignals(False)
+        elif not on and self._editing:
+            if not self.stop_editing():
+                self.edit_btn.blockSignals(True)
+                self.edit_btn.setChecked(True)
+                self.edit_btn.blockSignals(False)
+
+    def _start_editing(self):
+        """Freeze the plot and its settings; the canvas can be edited."""
+        plot = self.current_plot()
+        if plot is None or self.layer is None or self.data is None or self.model is None:
+            return False
+        self._editing = True
+        self._stale = False
+        self._edit_plot = copy.deepcopy(plot)
+        PE.canvas_of(self._edit_plot)
+        self._history = [copy.deepcopy(self._edit_plot["canvas"])]
+        self._hist_i = self._saved_i = 0
+        self._last_tag, self._last_time = None, 0.0
+        self.model.plot = self._edit_plot
+        self.view.set_model(self.model)
+        self.view.set_editing(True)
+        self.props.show_edit(None, self._edit_plot, self._on_canvas_card)
+        self._update_buttons()
+        self.status.set_status(EDITING_HINT)
+        return True
+
+    def stop_editing(self, ask=True):
+        """Leave Edit plot (asking about unsaved edits); False when the
+        user cancels."""
+        if not self._editing:
+            return True
+        if ask and self._hist_i != self._saved_i:
+            answer = QMessageBox.question(
+                self, "Edit plot", "Save the changes made to the plot?",
+                QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Save)
+            if answer == QMessageBox.StandardButton.Cancel:
+                return False
+            if answer == QMessageBox.StandardButton.Save:
+                self.save_edits()
+        elif not ask and self._hist_i != self._saved_i:
+            self.save_edits()
+        self._editing = False
+        self._edit_plot = None
+        self.view.set_editing(False)
+        self.edit_btn.blockSignals(True)
+        self.edit_btn.setChecked(False)
+        self.edit_btn.blockSignals(False)
+        stale = self._stale
+        self._stale = False
+        self._update_buttons()
+        if stale:                                # the records changed meanwhile
+            self._show_plot(self.plot_id)
+        else:
+            plot = self.current_plot()
+            self.props.set_plot(copy.deepcopy(plot) if plot else None,
+                                self.layer.fields() if self.layer is not None else None)
+            self._redraw(plot)
+        return True
+
+    def confirm_close(self, _reason="close"):
+        """The window closes: ask about unsaved edits of Edit plot."""
+        return self.stop_editing(ask=True)
+
+    def save_edits(self):
+        if not self._editing:
+            return
+        self._write(copy.deepcopy(self._edit_plot))
+        self._saved_i = self._hist_i
+        self._update_buttons()
+        self.status.set_status("Edits saved: the plot keeps its new look", "success")
+
+    def undo_edit(self):
+        if self._editing and self._hist_i > 0:
+            self._hist_i -= 1
+            self._restore_edit()
+
+    def redo_edit(self):
+        if self._editing and self._hist_i < len(self._history) - 1:
+            self._hist_i += 1
+            self._restore_edit()
+
+    def _restore_edit(self):
+        self._edit_plot["canvas"] = copy.deepcopy(self._history[self._hist_i])
+        self._last_tag = None
+        sel = self.view.selected
+        if sel and sel.get("kind") == "object" and \
+                not any(o.get("id") == sel.get("id")
+                        for o in self._edit_plot["canvas"].get("objects", [])):
+            sel = None
+        self.view.selected = sel
+        self.view.refresh(base=True)
+        self.props.show_edit(sel, self._edit_plot, self._on_canvas_card)
+        self._update_buttons()
+
+    def _record(self, tag):
+        """A change to the canvas: a step to undo (quick changes of one
+        setting are one step)."""
+        now = time.monotonic()
+        snap = copy.deepcopy(self._edit_plot["canvas"])
+        same = (tag is not None and tag == self._last_tag and now - self._last_time < 1.5
+                and self._hist_i == len(self._history) - 1 and self._hist_i > self._saved_i)
+        if same:
+            self._history[self._hist_i] = snap
+        else:
+            del self._history[self._hist_i + 1:]
+            self._history.append(snap)
+            self._hist_i += 1
+        self._last_tag, self._last_time = tag, now
+        self._update_buttons()
+
+    def _on_canvas_card(self, base, tag):
+        """A setting changed in the Edit plot card."""
+        if not self._editing:
+            return
+        self._record(tag)
+        self.view.refresh(base=base)
+
+    def _on_canvas_edited(self, reason):
+        """An object added, moved, removed or reordered in the plot."""
+        if not self._editing:
+            return
+        sel = self.view.selected
+        tag = f"{reason}:{sel.get('id')}" if reason == "nudge" and sel else None
+        self._record(tag)
+        if reason in ("add", "delete"):
+            self.props.show_edit(self.view.selected, self._edit_plot, self._on_canvas_card)
+            self.status.set_status(EDITING_HINT)
+
+    def _on_part_selected(self, part):
+        if self._editing:
+            self.props.show_edit(part, self._edit_plot, self._on_canvas_card)
+
+    def add_object(self, kind):
+        """Add > a kind: the next click (a drag for an arrow) places it."""
+        if not self._editing:
+            return
+        picture = None
+        if kind == "picture":
+            path, _f = QFileDialog.getOpenFileName(
+                self, "Add picture", "", "Pictures (*.png *.jpg *.jpeg *.svg *.bmp *.gif)")
+            if not path:
+                return
+            picture, error = PE.picture_data(path)
+            if picture is None:
+                QMessageBox.warning(self, "Add picture", error)
+                return
+        self.view.set_tool(kind, picture)
+        self.view.setFocus()
+        hint = {"arrow": "Drag in the plot from where the arrow starts to where it points",
+                "hline": "Click in the plot where the horizontal line goes",
+                "vline": "Click in the plot where the vertical line goes"}.get(
+                    kind, f"Click in the plot where the {PE.KIND_LABELS[kind].lower()} goes")
+        self.status.set_status(hint + " (Esc: cancel)")
+
+    # ====================================================================
     # RECORDS
     # ====================================================================
 
@@ -2618,13 +3108,14 @@ class DataPlotPanel(QWidget):
         self.load()
 
     def _update_scope_label(self):
-        text = f"Records: {SCOPE_LABELS[self.scope]}"
+        """The records of the plot shown, in Change scope's tooltip (its menu
+        ticks them too)."""
+        text = SCOPE_LABELS[self.scope]
         if self.table is not None and self.layer is not None:
             text += f" ({len(self.table):,})"
-        self.scope_label.setText(text)
-        self.scope_label.setToolTip("The plot shows these records and follows them as "
-                                    "they change; Change scope picks others (kept with "
-                                    "the plot)")
+        self.scope_btn.setToolTip("Change scope\nThe plot shows " + text.lower()
+                                  + " and follows them as they change; the choice is kept "
+                                    "with the plot")
 
     def _update_scope_button(self):
         self._update_scope_label()
@@ -2722,6 +3213,9 @@ class DataPlotPanel(QWidget):
         """Read the records the current plot needs (only when the records
         or its fields changed), then build it."""
         if self._closing or self.layer is None:
+            return
+        if self._editing:                        # frozen: read again after Edit plot
+            self._stale = True
             return
         plot = self.current_plot()
         if plot is None:
@@ -2946,6 +3440,8 @@ class DataPlotPanel(QWidget):
         return list(data.series)
 
     def _redraw(self, plot=None):
+        if self._editing:                        # the plot being edited stays as it is
+            return
         plot = plot or self.current_plot()
         if plot is None or self.data is None:
             return
@@ -3345,6 +3841,9 @@ class DataPlotPanel(QWidget):
             return []
 
     def _update_selection(self):
+        if self._editing:                        # frozen: drawn again after Edit plot
+            self._stale = True
+            return
         plot, data, table = self.current_plot(), self.data, self.table
         if plot is None or data is None or table is None or self._closing:
             return
