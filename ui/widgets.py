@@ -301,7 +301,8 @@ class FieldCombo(QComboBox):
             QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.setMinimumContentsLength(10)
 
-    def set_fields(self, fields, numeric_only=False, keep=True):
+    def set_fields(self, fields, numeric_only=False, keep=True, accept=None):
+        """*accept* (optional) takes a field kind and says whether to list it."""
         previous = self.current_name() if keep else None
         self.blockSignals(True)
         self.clear()
@@ -312,6 +313,8 @@ class FieldCombo(QComboBox):
             fld = fields.at(i)
             kind = F.field_kind(fld)
             if numeric_only and kind not in F.NUMERIC:
+                continue
+            if accept is not None and not accept(kind):
                 continue
             self._kinds[fld.name()] = kind
             self.addItem(icons.field(kind, self._theme), fld.name(), fld.name())
@@ -332,6 +335,18 @@ class FieldCombo(QComboBox):
 
     def kind(self, name=None):
         return self._kinds.get(name if name is not None else self.current_name())
+
+
+def align_labels(labels):
+    """One label column in a settings card: every label of *labels* as wide
+    as the widest, so the boxes beside them start (and end) together."""
+    labels = [lbl for lbl in labels if lbl is not None]
+    if not labels:
+        return 0
+    width = max(lbl.sizeHint().width() for lbl in labels)
+    for lbl in labels:
+        lbl.setFixedWidth(width)
+    return width
 
 
 def section_header(text):

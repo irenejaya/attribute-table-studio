@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Box Plot</title>
+  <path d="M5 4v23h24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M12 6v4M12 20v4M10 6h4M10 24h4M22 9v3M22 19v3M20 9h4M20 22h4" fill="none" stroke="#1E5AA0" stroke-width="1.6" stroke-linecap="round"/>
+  <rect x="9" y="10" width="6" height="10" fill="#7DB1EE" stroke="#1E5AA0" stroke-width="1.4"/>
+  <path d="M9 14h6" stroke="#1E3A8A" stroke-width="2"/>
+  <rect x="19" y="12" width="6" height="7" fill="#7DB1EE" stroke="#1E5AA0" stroke-width="1.4"/>
+  <path d="M19 16h6" stroke="#1E3A8A" stroke-width="2"/>
+</svg>

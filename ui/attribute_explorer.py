@@ -118,6 +118,7 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
     """Attribute Explorer for one layer."""
 
     openPivotRequested = pyqtSignal(object, object)     # layer, scope dict
+    openPlotRequested = pyqtSignal(object, str)         # layer, plot type ("" to open)
     layerChangeRequested = pyqtSignal(object, object)   # panel, new layer
     scopeChanged = pyqtSignal()
     titleChanged = pyqtSignal()
@@ -222,7 +223,8 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         top.addSpacing(m.group_gap)
 
         # right aligned: View | Zoom | Selected only | Deselect | Select |
-        # Go to field | Summary | Pivot Table | Clear filters | Columns |
+        # Go to field | Summary | Visualize Statistics | Data Plot | Pivot Table |
+        # Clear filters | Columns |
         # Export, then query and dock
         row = W.ButtonRow(m)
         row.add_stretch()
@@ -248,6 +250,15 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         self.chart_btn = row.add(W.square_button(
             m, icons.native(icons.CHART), "Visualize Statistics\nA full chart of the "
             "selected column (or of the column of the current cell)"))
+        from .plot_view import fill_type_menu
+        plot_menu = fill_type_menu(QMenu(self), self._open_plot)
+        plot_menu.addSeparator()
+        plot_menu.addAction(icons.tool(icons.PLOT), "Open Data Plot").triggered.connect(
+            lambda: self._open_plot(""))
+        self.plot_btn = row.add(W.menu_square(
+            m, icons.tool(icons.PLOT),
+            "Data Plot\nPlot the filtered records: choose a plot type (it opens in "
+            "Data Plot with the records of this table)", plot_menu))
         self.pivot_btn = row.add(W.button(
             m, "Pivot Table", icons.tool(icons.PIVOT),
             "Summarise the filtered records in a Pivot Table"))
@@ -2155,6 +2166,12 @@ class ExplorerPanel(EditingMixin, BrowseMixin, QWidget):
         if self.layer is None or not self._has_result:
             return
         self.openPivotRequested.emit(self.layer, self.current_scope())
+
+    def _open_plot(self, ptype):
+        """Data Plot on this layer, with the records of this table (and a
+        new plot of *ptype*, unless it is "")."""
+        if self.layer is not None:
+            self.openPlotRequested.emit(self.layer, ptype)
 
     def _wire_table(self, view):
         """The table's (and the frozen strip's) clicks and keys."""

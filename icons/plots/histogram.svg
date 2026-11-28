@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Histogram</title>
+  <path d="M5 4v23h24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M7.5 26v-5h3.5v-7h3.5v-6h3.5v4h3.5v7h3.5v7z" fill="#2A78D6" stroke="#FFFFFF" stroke-width="0.6"/>
+</svg>

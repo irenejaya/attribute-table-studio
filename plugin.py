@@ -5,9 +5,10 @@
 """
 Attribute Table Studio - plugin shell.
 
-Owns the single "Attribute Table Studio" toolbar with exactly three actions
-(Attribute Explorer, Pivot Table, Geometry and Table Compare), the plugin
-menu (the three tools and Settings; each tool has its own Help), the keyboard-shortcut registration,
+Owns the single "Attribute Table Studio" toolbar with exactly four actions
+(Attribute Explorer, Pivot Table, Data Plot, Geometry and Table Compare), the
+plugin menu (the four tools and Settings; each tool has its own Help), the
+keyboard-shortcut registration,
 the layer context-menu entry and the open tool windows.  The tools
 themselves live in ``ui/``; each is shown by a ``ToolHost`` as a window or
 a dock.
@@ -42,6 +43,7 @@ class AttributeTableStudioPlugin:
         self.context_action = None
         self.explorers = {}          # layer id -> ToolHost
         self.pivot_host = None
+        self.plot_hosts = []         # Data Plot windows (the first is the main one)
         self.compare_host = None
         self._signals = []
         self.table_keys = []         # F6 / Shift+F6 / Ctrl+F6 when opted in
@@ -62,6 +64,9 @@ class AttributeTableStudioPlugin:
              "the active layer", self.open_explorer),
             ("pivot", icons.PIVOT, "Pivot Table",
              "Pivot Table\nGrouped summaries and cross tabs", self.open_pivot),
+            ("plot", icons.PLOT, "Data Plot",
+             "Data Plot\nPlots of a layer's records: scatter plots, line and bar "
+             "charts and more", self.open_data_plot),
             ("compare", icons.COMPARE, "Geometry and Table Compare",
              "Geometry and Table Compare\nCompare OLD → NEW vector layers / "
              "tables: change detection, geometry comparison, validation and "
@@ -114,7 +119,7 @@ class AttributeTableStudioPlugin:
         self._signals.append((signal, slot))
 
     def _register_shortcuts(self):
-        """Register the three actions with QGIS' shortcut manager (so they
+        """Register the four actions with QGIS' shortcut manager (so they
         appear in Settings > Keyboard Shortcuts and custom keys persist).
         The proposed Explorer key is only used when nothing else owns it."""
         default = EXPLORER_SHORTCUT
@@ -133,6 +138,7 @@ class AttributeTableStudioPlugin:
                 PLUGIN_NAME, MSG_INFO)
         self.iface.registerMainWindowAction(self.actions["explorer"], default)
         self.iface.registerMainWindowAction(self.actions["pivot"], "")
+        self.iface.registerMainWindowAction(self.actions["plot"], "")
         self.iface.registerMainWindowAction(self.actions["compare"], "")
 
     def _warn_standalone_compare(self):
@@ -185,10 +191,11 @@ class AttributeTableStudioPlugin:
         for host in list(self.explorers.values()):
             host.close()
         self.explorers = {}
-        for host in (self.pivot_host, self.compare_host):
+        for host in [self.pivot_host, self.compare_host] + list(self.plot_hosts):
             if host is not None:
                 host.close()
         self.pivot_host = None
+        self.plot_hosts = []
         self.compare_host = None
 
     # ====================================================================
@@ -296,6 +303,9 @@ class AttributeTableStudioPlugin:
         host = ToolHost(self.iface, panel, "explorer", icons.tool(icons.EXPLORER),
                         QSize(1600, 820))
         panel.openPivotRequested.connect(self.open_pivot)
+        panel.openPlotRequested.connect(
+            lambda lyr, ptype: self.open_data_plot(lyr, scope="explorer",
+                                                   new_type=ptype or None))
         panel.layerChangeRequested.connect(self._switch_explorer_layer)
         panel.titleChanged.connect(host.refresh_title)
         host.closed.connect(self._on_explorer_closed)
@@ -367,6 +377,57 @@ class AttributeTableStudioPlugin:
             panel.set_external_scope(fids, label)
 
     # ====================================================================
+    # DATA PLOT
+    # ====================================================================
+
+    def open_data_plot(self, layer=None, plot_id=None, new_window=False, scope=None,
+                       new_type=None):
+        """Show Data Plot (the main window, or another one with
+        *new_window*) on *layer* (the active layer by default); *scope*
+        picks its records ("explorer": an Attribute Explorer's filtered
+        records) and *new_type* makes a new plot of that type."""
+        if self.plot_hosts and not new_window:
+            host = self.plot_hosts[0]
+            host.show_and_raise()
+            panel = host.panel
+            if layer is not None and (layer is not panel.layer or plot_id):
+                panel.set_layer(layer, plot_id)
+            self._plot_request(panel, scope, new_type)
+            return panel
+        from .ui.data_plot import DataPlotPanel
+        from .ui.tool_host import ToolHost
+        panel = DataPlotPanel(self.iface, explorer_lookup=self.explorer_for)
+        host = ToolHost(self.iface, panel, "plot", icons.tool(icons.PLOT), QSize(1400, 800))
+        panel.drillRequested.connect(self._drill_through)
+        panel.titleChanged.connect(host.refresh_title)
+        panel.newWindowRequested.connect(
+            lambda lyr, pid: self.open_data_plot(lyr, pid, new_window=True))
+        host.closed.connect(self._on_plot_closed)
+        self.plot_hosts.append(host)
+        host.open(cascade=len(self.plot_hosts) - 1)
+        if layer is None:
+            active = self.iface.activeLayer()
+            layer = active if isinstance(active, QgsVectorLayer) else None
+        if layer is not None:
+            panel.set_layer(layer, plot_id)
+        self._plot_request(panel, scope, new_type)
+        host.refresh_title()
+        return panel
+
+    @staticmethod
+    def _plot_request(panel, scope, new_type):
+        if panel.layer is None:
+            return
+        if scope:
+            panel.set_scope(scope)
+        if new_type:
+            panel.new_plot(new_type)
+
+    def _on_plot_closed(self, host):
+        if host in self.plot_hosts:
+            self.plot_hosts.remove(host)
+
+    # ====================================================================
     # GEOMETRY AND TABLE COMPARE
     # ====================================================================
 
@@ -401,6 +462,10 @@ class AttributeTableStudioPlugin:
             panel = self.pivot_host.panel
             if panel.layer is not None and panel.layer.id() in layer_ids:
                 panel.set_layer(None)
+        for host in self.plot_hosts:
+            panel = host.panel
+            if panel.layer is not None and panel.layer.id() in layer_ids:
+                panel.set_layer(None)
 
     def _restore_forgotten_filters(self, layers):
         """Projects saved by earlier versions while an explorer's map filter
@@ -419,6 +484,8 @@ class AttributeTableStudioPlugin:
         self.explorers = {}
         if self.pivot_host is not None:
             self.pivot_host.panel.set_layer(None)
+        for host in self.plot_hosts:
+            host.panel.set_layer(None)
 
     # ====================================================================
     # MENU

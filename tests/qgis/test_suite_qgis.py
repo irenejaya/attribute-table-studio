@@ -96,10 +96,10 @@ class SuiteTests(unittest.TestCase):
     def test_01_toolbar_menu_shortcuts(self):
         tb = self.plugin.toolbar
         texts = [a.text() for a in tb.actions()]
-        self.assertEqual(texts, ["Attribute Explorer", "Pivot Table",
+        self.assertEqual(texts, ["Attribute Explorer", "Pivot Table", "Data Plot",
                                  "Geometry and Table Compare"])
         menu = [a.text() for _n, a in self.iface.menu_actions if not a.isSeparator()]
-        self.assertEqual(menu, ["Attribute Explorer", "Pivot Table",
+        self.assertEqual(menu, ["Attribute Explorer", "Pivot Table", "Data Plot",
                                 "Geometry and Table Compare", "Settings…"])
         shortcuts = {a.text(): s for a, s in self.iface.registered}
         self.assertEqual(shortcuts["Attribute Explorer"], "Ctrl+Alt+T")
@@ -2265,7 +2265,7 @@ class SuiteTests(unittest.TestCase):
         from attribute_table_studio.core import pivot as P
         from attribute_table_studio.ui.help_dialog import HelpDialog, picture_path
         from attribute_table_studio.ui.help_pages import PAGES
-        self.assertEqual(set(PAGES), {"explorer", "chart", "pivot", "compare"})
+        self.assertEqual(set(PAGES), {"explorer", "chart", "pivot", "plot", "compare"})
         for topic, tabs in PAGES.items():
             for tab in tabs:
                 self.assertFalse(QPixmap(picture_path(tab.key)).isNull(), tab.key)
@@ -2698,17 +2698,20 @@ class SuiteTests(unittest.TestCase):
         def x(widget):
             return widget.mapTo(panel, QPoint(0, 0)).x()
         # top row, right aligned: View | Zoom | Selected only | Deselect |
-        # Select | Go to field | Summary | Pivot Table | Clear filters |
-        # Columns | Export | query | dock
+        # Select | Go to field | Summary | Visualize Statistics | Data Plot |
+        # Pivot Table | Clear filters | Columns | Export | query | dock
         order = [panel.view_btn, panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
-                 panel.select_btn, panel.field_box, panel.summary_btn, panel.pivot_btn,
+                 panel.select_btn, panel.field_box, panel.summary_btn, panel.chart_btn,
+                 panel.plot_btn, panel.pivot_btn,
                  panel.clear_btn, panel.columns_btn, panel.export_btn, btn, panel.dock_btn]
         xs = [x(w) for w in order]
         self.assertEqual(xs, sorted(xs))
         for icon_only in (panel.zoom_btn, panel.selected_btn, panel.deselect_btn,
-                          panel.clear_btn, panel.columns_btn, panel.export_btn):
+                          panel.chart_btn, panel.plot_btn, panel.clear_btn,
+                          panel.columns_btn, panel.export_btn):
             self.assertEqual(icon_only.text().strip(), "")
         self.assertEqual(panel.pivot_btn.text().strip(), "Pivot Table")
+        self.assertTrue(panel.plot_btn.toolTip().startswith("Data Plot"))
         self.assertEqual([a.text() for a in panel.export_btn.menu().actions()
                           if not a.isSeparator()],
                          ["Excel (.xlsx)…", "CSV (.csv)…", "Copy Selected Rows"])
@@ -3013,7 +3016,7 @@ class SuiteTests(unittest.TestCase):
         QgsProject.instance().removeMapLayer(other_id)
         H.settle(0.2)
         self.assertNotIn(other_id, self.plugin.explorers)
-        # unload / reload leaves exactly one toolbar with three actions
+        # unload / reload leaves exactly one toolbar with four actions
         self.plugin.unload()
         H.settle(0.2)
         self.assertEqual(self.iface.registered, [])
@@ -3022,7 +3025,7 @@ class SuiteTests(unittest.TestCase):
         bars = [tb for tb in self.iface.mainWindow().findChildren(
             type(self.plugin.toolbar)) if tb.objectName() == "AttributeTableStudioToolbar"]
         self.assertEqual(len(bars), 1)
-        self.assertEqual(len(bars[0].actions()), 3)
+        self.assertEqual(len(bars[0].actions()), 4)
 
 
 if __name__ == "__main__":

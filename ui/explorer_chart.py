@@ -229,6 +229,7 @@ class ChartPanel(QWidget):
         row = QHBoxLayout()
         row.setSpacing(self.metrics.gap)
         lbl = W.label(text, "dim")
+        self._card_labels.append(lbl)            # one label column (align_labels)
         row.addWidget(lbl)
         row.addWidget(widget, stretch)
         holder = QWidget()
@@ -264,6 +265,7 @@ class ChartPanel(QWidget):
 
     def _build_settings(self):
         t, m = self.theme, self.metrics
+        self._card_labels = []
         card = QFrame()
         card.setObjectName("gtsCard")
         pl = QVBoxLayout(card)
@@ -275,7 +277,9 @@ class ChartPanel(QWidget):
         bl = QHBoxLayout(bins_row)
         bl.setContentsMargins(0, 0, 0, 0)
         bl.setSpacing(m.gap)
-        bl.addWidget(W.label("Bins", "dim"))
+        bins_label = W.label("Bins", "dim")
+        self._card_labels.append(bins_label)
+        bl.addWidget(bins_label)
         self.bins_slider = QSlider(Qt.Orientation.Horizontal)
         self.bins_slider.setRange(C.MIN_BINS, C.MAX_BINS)
         bl.addWidget(self.bins_slider, 1)
@@ -320,7 +324,9 @@ class ChartPanel(QWidget):
         sl = QHBoxLayout(split_row)
         sl.setContentsMargins(0, 0, 0, 0)
         sl.setSpacing(m.gap)
-        sl.addWidget(W.label("Split by", "dim"))
+        split_label = W.label("Split by", "dim")
+        self._card_labels.append(split_label)
+        sl.addWidget(split_label)
         self.split_combo = W.FieldCombo(m, t, none_label="None")
         self.split_combo.setMinimumContentsLength(4)
         self.split_combo.setMinimumWidth(80)
@@ -338,6 +344,9 @@ class ChartPanel(QWidget):
         pl.addWidget(split_row)
         self._split_expr = None
         self.split_mode = self._combo((("Stacked", "stacked"), ("Side by side", "side")))
+        self.split_mode.setIconSize(QSize(m.icon, m.icon))
+        for i in range(self.split_mode.count()):          # the bars' shape beside each
+            self.split_mode.setItemIcon(i, icons.option_icon(self.split_mode.itemData(i), t))
         self.split_mode.currentIndexChanged.connect(self._redraw)
         self.split_mode_row = self._row(pl, "Bars", self.split_mode)
 
@@ -376,6 +385,8 @@ class ChartPanel(QWidget):
         self.colour_btn.setDefaultColor(QColor(t.bar))
         self.colour_btn.setShowNull(False)
         self.colour_btn.setFixedHeight(m.control_h)
+        # as wide as the boxes above it (the label column lines them up)
+        self.colour_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.colour_btn.setToolTip("Colour of the bars")
         self.colour_btn.colorChanged.connect(self._redraw)
         self.colour_row = self._row(pl, "Bar colour", self.colour_btn)
@@ -384,6 +395,7 @@ class ChartPanel(QWidget):
         for box in (self.labels_tick, self.grid_tick):
             box.toggled.connect(self._redraw)
         pl.addStretch(1)
+        W.align_labels(self._card_labels)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

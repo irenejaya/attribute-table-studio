@@ -29,9 +29,9 @@ OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "
 APP = H.start_qgis(None)
 H.plugin_package()
 
-from qgis.PyQt.QtCore import QPoint, QRect, QRectF, Qt  # noqa: E402
+from qgis.PyQt.QtCore import QPoint, QPointF, QRect, QRectF, Qt  # noqa: E402
 from qgis.PyQt.QtGui import QColor, QFont, QImage, QPainter, QPen, QPixmap  # noqa: E402
-from qgis.PyQt.QtWidgets import QFrame, QWidget  # noqa: E402
+from qgis.PyQt.QtWidgets import QAbstractButton, QCheckBox, QFrame, QWidget  # noqa: E402
 
 from attribute_table_studio import classFactory  # noqa: E402
 from attribute_table_studio.core import fields as F  # noqa: E402
@@ -554,6 +554,172 @@ def pivot_pictures(plugin, layer):
 
 
 # ----------------------------------------------------------------------------
+# Data Plot
+# ----------------------------------------------------------------------------
+
+def plot_special(panel, win, name):
+    head, _sep, arg = name.partition(":")
+    view, props = panel.view, panel.props
+    geo = view._geo
+
+    def on_view(r):
+        r = r.toRect() if hasattr(r, "toRect") else r
+        return QRect(view.mapTo(win, r.topLeft()), r.size())
+
+    def shown(widgets):
+        out = []
+        for w in widgets:
+            try:
+                if w.isVisibleTo(win):
+                    out.append(w)
+            except RuntimeError:                 # a row of an earlier card
+                continue
+        return out
+    if head in ("row", "tick", "button"):
+        text, _h, nth = arg.partition("#")
+        nth = int(nth or 1)
+        if head == "row":
+            found = [lbl.parentWidget() for lbl in shown(props._labels) if lbl.text() == text]
+        elif head == "tick":
+            found = [w for w in shown(props.widget().findChildren(QCheckBox))
+                     if w.text() == text]
+        else:
+            found = [w for w in shown(props.widget().findChildren(QAbstractButton))
+                     if not isinstance(w, QCheckBox)
+                     and w.text().replace("&", "").strip() == text]
+        if len(found) < nth:
+            raise ValueError(f"no {head} {arg!r}")
+        return widget_rect(win, found[nth - 1])
+    if head == "item":                       # the largest; of equal ones the middle
+        items = [r for r, _i, _s in geo["items"]]
+        if not items:
+            raise ValueError("no plot items")
+        big = max(r.width() * r.height() for r in items)
+        same = [r for r in items if r.width() * r.height() >= 0.99 * big]
+        return on_view(same[len(same) // 2])
+    if head == "wedge":                      # a spot inside the largest slice
+        path = max(geo["wedges"], key=lambda w: abs(w[3]))[0]
+        box = path.boundingRect()
+        inside = [QPointF(box.left() + box.width() * i / 10, box.top() + box.height() * j / 10)
+                  for i in range(1, 10) for j in range(1, 10)]
+        inside = [pt for pt in inside if path.contains(pt)]
+        cx = sum(pt.x() for pt in inside) / len(inside)
+        cy = sum(pt.y() for pt in inside) / len(inside)
+        pt = min(inside, key=lambda q: (q.x() - cx) ** 2 + (q.y() - cy) ** 2)
+        return on_view(QRectF(pt.x() - 8, pt.y() - 8, 16, 16))
+    if head == "disclosure":                 # the first Y field's trend section header
+        heads = [b for b in shown(props.widget().findChildren(QAbstractButton))
+                 if b.objectName() == "gtsDisclosure"]
+        if not heads:
+            raise ValueError("no trend section")
+        return widget_rect(win, heads[0])
+    if head == "legend":
+        return on_view(geo["legend_box"])
+    if head == "plot":
+        return on_view(geo["plot"])
+    if head == "cell":
+        cell = next(c for c in geo["cells"] if c[3] == arg)
+        return on_view(cell[0])
+    raise ValueError(f"unknown target @{name}")
+
+
+def plot_pictures(plugin, layer):
+    from qgis.core import QgsCategorizedSymbolRenderer, QgsRendererCategory, QgsSymbol
+    cats = []                                # the points in the layer's colours
+    for value, colour in (("Residential", "#4c9be8"), ("Commercial", "#e8833a"),
+                          ("Industrial", "#7b5ea7"), ("Rural", "#3aa76d"),
+                          ("Open space", "#9aa64b"), ("Community", "#d45d8a")):
+        sym = QgsSymbol.defaultSymbol(layer.geometryType())
+        sym.setColor(QColor(colour))
+        cats.append(QgsRendererCategory(value, sym, value))
+    renderer = layer.renderer().clone()
+    layer.setRenderer(QgsCategorizedSymbolRenderer("LAND_USE", cats))
+    panel = plugin.open_data_plot(layer)
+    win = panel.window()
+
+    def ready():
+        return (panel.data is not None and not panel.reader.busy and not panel.builder.busy
+                and not panel.selector.busy)
+
+    def tidy(height):
+        """The window *height* or a little less, so that the settings card
+        ends between two rows instead of cutting one."""
+        win.resize(win.width(), height)
+        H.settle(0.3)
+        panel.props.verticalScrollBar().setValue(0)
+        room = panel.props.viewport().height()
+        lay = panel.props.widget().layout()
+        for i in range(lay.count()):
+            w = lay.itemAt(i).widget()
+            if w is not None and w.isVisible() and w.y() < room < w.y() + w.height():
+                win.resize(win.width(), height - (room - w.y()) + 2)
+                H.settle(0.3)
+                break
+
+    def make(kind, name, title=None, **data):
+        panel.new_plot(kind)
+        plot = panel.current_plot()
+        plot["name"] = name
+        if title:
+            plot.setdefault("general", {})["title"] = title
+        plot["data"].update(data)
+        panel._write(plot)
+        panel._fill_list(plot["id"])
+        panel._show_plot(plot["id"])
+        H.wait_for(ready, 60)
+        H.settle(0.5)
+        if not panel.list_card.isVisible():
+            tidy(860)
+
+    tabs = {t.key: t for t in PAGES["plot"]}
+    win.resize(1000, 700)
+    make("scatter", "Area and land value", x="AREA_M2", y="LAND_VALUE")
+    make("line", "Mean land value per month", x="SURVEY_DATE", fields=["LAND_VALUE"],
+         agg="mean", unit="months")
+    make("bar", "Area by land use", title="Area by land use", x="LAND_USE",
+         fields=["AREA_M2"], agg="sum", split="OWNER_TYPE", multi="stacked",
+         sort="value_desc")
+    render(tabs["plot_overview"], panel, plot_special)
+
+    panel.plots_btn.click()                  # the type pictures: the plot and its card
+    tidy(860)
+    render(tabs["plot_bar"], panel, plot_special)
+    make("line", "Mean land value per month", x="SURVEY_DATE", fields=["LAND_VALUE"],
+         agg="mean", unit="months")
+    render(tabs["plot_line"], panel, plot_special)
+    make("combo", "Records and land value per quarter", x="SURVEY_DATE", unit="months",
+         interval=3, series=[
+             {"field": None, "agg": "count", "kind": "bar", "axis": "left"},
+             {"field": "LAND_VALUE", "agg": "mean", "kind": "line", "axis": "right"}])
+    render(tabs["plot_combo"], panel, plot_special)
+    make("pie", "Parcels by land use", category="LAND_USE", donut=35)
+    render(tabs["plot_pie"], panel, plot_special)
+    make("histogram", "Parcel areas", x="AREA_M2", transform="log", std=True, normal=True)
+    render(tabs["plot_histogram"], panel, plot_special)
+    make("box", "Areas by land use", split="LAND_USE", fields=["AREA_M2"])
+    render(tabs["plot_box"], panel, plot_special)
+    make("scatter", "Area and land value", x="AREA_M2", y="LAND_VALUE",
+         trends={"LAND_VALUE": {"on": True, "type": "linear", "forward": 10000}})
+    render(tabs["plot_scatter"], panel, plot_special)
+    make("matrix", "Number fields", fields=["AREA_M2", "LAND_VALUE", "STOREYS", "YEAR_BUILT"],
+         upper="preview")
+    render(tabs["plot_matrix"], panel, plot_special)
+    make("qq", "Land value against the normal distribution", x="LAND_VALUE")
+    render(tabs["plot_qq"], panel, plot_special)
+    make("heat", "Land use and owner type", x="LAND_USE", y="OWNER_TYPE", field=None)
+    render(tabs["plot_heat"], panel, plot_special)
+    make("calendar", "Surveys per day", x="SURVEY_DATE", field=None)
+    render(tabs["plot_calendar"], panel, plot_special)
+    make("clock", "Surveys per month", x="SURVEY_DATE", field=None)
+    render(tabs["plot_clock"], panel, plot_special)
+    panel.plots_btn.click()
+    layer.setRenderer(renderer)
+    for host in list(plugin.plot_hosts):
+        host.close()
+    H.settle(0.3)
+
+
+# ----------------------------------------------------------------------------
 # Geometry and Table Compare
 # ----------------------------------------------------------------------------
 
@@ -688,6 +854,7 @@ def main():
     explorer = explorer_pictures(plugin, layer)
     chart_pictures(explorer)
     pivot_pictures(plugin, layer)
+    plot_pictures(plugin, layer)
     compare_pictures(plugin)
     plugin.unload()
     shrink(SAVED)

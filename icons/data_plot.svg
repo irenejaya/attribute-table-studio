@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Data Plot</title>
+  <desc>A plot card with axes, scattered points and a trend line: plots of a layer's records.</desc>
+
+  <!-- card -->
+  <rect x="5" y="8" width="54" height="48" rx="4" fill="#FFFFFF"/>
+  <!-- axes -->
+  <path d="M14 16v32h38" fill="none" stroke="#475569" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- trend line -->
+  <path d="M17 44L50 19" fill="none" stroke="#1E3A8A" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- points -->
+  <circle cx="21" cy="38" r="3.2" fill="#3B82F6"/>
+  <circle cx="27" cy="41" r="3.2" fill="#60A5FA"/>
+  <circle cx="30" cy="31" r="3.2" fill="#3B82F6"/>
+  <circle cx="37" cy="33" r="3.2" fill="#60A5FA"/>
+  <circle cx="41" cy="24" r="3.2" fill="#3B82F6"/>
+  <circle cx="47" cy="27" r="3.2" fill="#60A5FA"/>
+  <!-- outline -->
+  <rect x="5" y="8" width="54" height="48" rx="4" fill="none" stroke="#475569" stroke-width="2.5"/>
+</svg>
