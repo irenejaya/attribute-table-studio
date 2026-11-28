@@ -545,6 +545,22 @@ class MatrixQQTests(unittest.TestCase):
                         (0.999, 3.090232306)):
             self.assertAlmostEqual(float(P.norm_ppf(np.array([prob]))[0]), z, places=6)
 
+    def test_without_scipy_too(self):
+        """The QQ numbers are the same with SciPy and with the own
+        calculation (QGIS before 3.44.16, installs without SciPy)."""
+        rnd = random.Random(9)
+        probs = np.array([0.001, 0.02, 0.3, 0.5, 0.77, 0.99, 0.9999])
+        lognormal = np.exp(np.array([rnd.gauss(0.3, 0.8) for _ in range(3000)]))
+        results = []
+        for use in (True, False):
+            P.USE_SCIPY = use
+            try:
+                results.append((P.norm_ppf(probs), P.boxcox_lambda(lognormal)))
+            finally:
+                P.USE_SCIPY = True
+        self.assertTrue(np.allclose(results[0][0], results[1][0], atol=1e-8))
+        self.assertAlmostEqual(results[0][1], results[1][1], delta=0.06)
+
     def test_qq_normal_and_two_fields(self):
         rnd = random.Random(2)
         vals = [rnd.gauss(50, 10) for _ in range(500)]

@@ -1880,9 +1880,31 @@ QQ_TRANSFORMS = (("none", "None"), ("log", "Logarithmic"), ("sqrt", "Square root
                  ("inverse", "Inverse"), ("boxcox", "Box-Cox"))
 
 
+USE_SCIPY = True                 # tests switch this off to check the own calculation
+_SCIPY = []
+
+
+def _scipy():
+    """SciPy's special and stats modules (QGIS 3.44.16 and later ship it), or
+    None; imported on first use only, so opening the tools stays quick."""
+    if not USE_SCIPY:
+        return None
+    if not _SCIPY:
+        try:
+            from scipy import special, stats
+            _SCIPY.append((special, stats))
+        except Exception:                      # pragma: no cover - no SciPy
+            _SCIPY.append(None)
+    return _SCIPY[0]
+
+
 def norm_ppf(p):
-    """Quantiles of the standard normal distribution (Acklam's rational
-    approximation, about 1e-9 relative error), for numpy *p* in (0, 1)."""
+    """Quantiles of the standard normal distribution for numpy *p* in
+    (0, 1): SciPy's when QGIS has it, else Acklam's rational approximation
+    (about 1e-9 relative error)."""
+    sp = _scipy()
+    if sp is not None:
+        return sp[0].ndtri(np.asarray(p, dtype=np.float64))
     p = np.asarray(p, dtype=np.float64)
     a = (-3.969683028665376e+01, 2.209460984245205e+02, -2.759285104469687e+02,
          1.383577518672690e+02, -3.066479806614716e+01, 2.506628277459239e+00)
@@ -1909,10 +1931,18 @@ def norm_ppf(p):
 
 
 def boxcox_lambda(v):
-    """The Box-Cox lambda (-2 .. 2) of positive *v* that makes it most
-    normal (largest log-likelihood), worked out on at most 100,000 values."""
+    """The Box-Cox lambda of positive *v* that makes it most normal (largest
+    log-likelihood), worked out on at most 100,000 values: SciPy's
+    optimiser when QGIS has SciPy, else the best of -2 to 2 in steps of
+    0.05."""
     if len(v) > 100000:
         v = np.quantile(v, np.linspace(0, 1, 100000))
+    sp = _scipy()
+    if sp is not None:
+        try:
+            return float(sp[1].boxcox_normmax(v, method="mle"))
+        except Exception:                      # pragma: no cover - fall back
+            pass
     logs = np.log(v)
     s_log = float(logs.sum())
     n = len(v)

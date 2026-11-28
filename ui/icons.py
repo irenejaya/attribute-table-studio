@@ -363,6 +363,82 @@ def sort_icon(kind, theme, horizontal=False):
     return icon
 
 
+def option_icon(kind, theme):
+    """Small pictures for the choices of a box, drawn the way the choice
+    shapes the plot: trend lines ("linear", "exponential", "logarithmic",
+    "power", "polynomial"), transformations ("none", "log", "sqrt",
+    "inverse", "boxcox") and bars ("side", "stacked", "stacked100")."""
+    key = ("option", kind, theme.dark)
+    if key in _cache:
+        return _cache[key]
+    import math
+    icon = QIcon()
+    for size in (16, 24, 32):
+        scale = 2
+        pm = QPixmap(size * scale, size * scale)
+        pm.fill(Qt.GlobalColor.transparent)
+        pm.setDevicePixelRatio(scale)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        s = float(size)
+        if kind in ("side", "stacked", "stacked100"):
+            blue, orange = QColor("#2a78d6"), QColor("#eb6834")
+            if theme.dark:
+                blue, orange = QColor("#3987e5"), QColor("#d95926")
+            w = s * 0.26
+            if kind == "side":
+                for x, h, c in ((0.12, 0.62, blue), (0.38, 0.42, orange),
+                                (0.64, 0.80, blue)):
+                    p.fillRect(QRectF(s * x, s * (0.92 - h), w * 0.92, s * h), c)
+            else:
+                full = kind == "stacked100"
+                for x, lo, hi in ((0.14, 0.34, 0.30), (0.56, 0.48, 0.38)):
+                    if full:
+                        lo, hi = lo / (lo + hi) * 0.84, hi / (lo + hi) * 0.84
+                    p.fillRect(QRectF(s * x, s * (0.92 - lo), w * 1.15, s * lo), blue)
+                    p.fillRect(QRectF(s * x, s * (0.92 - lo - hi), w * 1.15, s * hi), orange)
+        else:
+            dim = QColor(theme.text_dim)
+            dim.setAlpha(160)
+            pen = QPen(dim, max(1.0, s / 16.0))
+            p.setPen(pen)
+            p.drawLine(QPointF(s * 0.12, s * 0.10), QPointF(s * 0.12, s * 0.88))
+            p.drawLine(QPointF(s * 0.12, s * 0.88), QPointF(s * 0.92, s * 0.88))
+            curve = {
+                "linear": lambda t: t,
+                "none": lambda t: t,
+                "exponential": lambda t: (math.exp(3 * t) - 1) / (math.exp(3) - 1),
+                "power": lambda t: t ** 1.8,
+                "logarithmic": lambda t: math.log(1 + 9 * t) / math.log(10),
+                "log": lambda t: math.log(1 + 9 * t) / math.log(10),
+                "sqrt": lambda t: math.sqrt(t),
+                "polynomial": lambda t: 1 - 3.6 * (t - 0.5) ** 2 * 1.1,
+                "inverse": lambda t: min(1.0, 0.12 / (t + 0.08)),
+                "boxcox": lambda t: 0.5 + 0.5 * math.tanh(4 * (t - 0.5)),
+            }.get(kind, lambda t: t)
+            path = QPainterPath()
+            for i in range(25):
+                t = i / 24.0
+                x = s * (0.18 + 0.72 * t)
+                y = s * (0.82 - 0.66 * max(0.0, min(1.0, curve(t))))
+                if i:
+                    path.lineTo(x, y)
+                else:
+                    path.moveTo(x, y)
+            pen = QPen(QColor(theme.accent_text), max(1.5, s / 10.0))
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            if kind == "none":
+                pen.setStyle(Qt.PenStyle.DotLine)
+            p.setPen(pen)
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawPath(path)
+        p.end()
+        icon.addPixmap(pm)
+    _cache[key] = icon
+    return icon
+
+
 def action_icon(kind, color, size=18):
     """Compare's action button icons, drawn exactly as in v1.1:
     'validate' (circled tick) and 'play' (filled triangle)."""

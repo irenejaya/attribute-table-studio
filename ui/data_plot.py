@@ -276,12 +276,18 @@ class PlotProperties(QScrollArea):
         self.lay = lay
         return lay
 
+    def _label(self, text):
+        """A row's label, in the card's one label column (align_labels)."""
+        lbl = W.label(text, "dim")
+        self._labels.append(lbl)
+        return lbl
+
     def _row(self, text, widget, tip="", stretch=1):
         holder = QWidget()
         row = QHBoxLayout(holder)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(self.metrics.gap)
-        row.addWidget(W.label(text, "dim"))
+        row.addWidget(self._label(text))
         row.addWidget(widget, stretch)
         if tip:
             holder.setToolTip(tip)
@@ -291,6 +297,7 @@ class PlotProperties(QScrollArea):
     def _combo(self, items, current):
         box = QComboBox()
         box.setFixedHeight(self.metrics.control_h)
+        box.setIconSize(QSize(self.metrics.icon, self.metrics.icon))
         # long choices never widen the card: the box shrinks, its list does not
         box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         box.setMinimumContentsLength(6)
@@ -359,6 +366,7 @@ class PlotProperties(QScrollArea):
         self.plot, self.fields = plot, fields
         self._quiet = True
         self._card()                         # setWidget deletes the previous card
+        self._labels = []
         self.title_edit = self.colour_lay = self.summary_grid = None
         if plot is not None:
             t = plot["type"]
@@ -374,6 +382,9 @@ class PlotProperties(QScrollArea):
             self._summary()
             self._appearance()
         self.lay.addStretch(1)
+        self._label_width = W.align_labels(self._labels)
+        if self.colour_lay is not None:          # series names take the column too
+            self._fill_colours()
         self._quiet = False
 
     # ---- Data: scatter -------------------------------------------------
@@ -410,7 +421,8 @@ class PlotProperties(QScrollArea):
         self._header("Statistics on the chart")
         trend = self._tick("Trend line", d.get("trend"),
                            "The least squares trend of Y on X, with its equation and R²")
-        kind = self._combo(P.TRENDS, d.get("trend_type", "linear"))
+        kind = self._combo([(k, text, icons.option_icon(k, self.theme))
+                            for k, text in P.TRENDS], d.get("trend_type", "linear"))
         kind_row = self._row("Trend", kind)
         order = QSpinBox()
         order.setRange(2, 6)
@@ -482,7 +494,7 @@ class PlotProperties(QScrollArea):
             hl = QHBoxLayout(holder)
             hl.setContentsMargins(0, 0, 0, 0)
             hl.setSpacing(m.gap)
-            hl.addWidget(W.label("Y-axis", "dim"))
+            hl.addWidget(self._label("Y-axis"))
             hl.addWidget(box, 1)
             hl.addWidget(remove)
             self.lay.addWidget(holder)
@@ -497,7 +509,7 @@ class PlotProperties(QScrollArea):
         self.lay.addWidget(add_row)
         agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
                           d.get("agg") if d.get("agg") != "count" else "sum")
-        agg_row = self._row("Aggregation", agg, "How the Y field of each "
+        agg_row = self._row("Aggregate", agg, "Aggregation: how the Y field of each "
                             + ("interval or value" if t == "line" else "category")
                             + "'s records is summarised (NULL values left out)")
         split = self._field_combo(d.get("split"), _is_split, none_label="None")
@@ -506,7 +518,8 @@ class PlotProperties(QScrollArea):
                   "form Other")
         bars = sort = None
         if t == "bar":
-            bars = self._combo(P.MULTI_SERIES, d.get("multi", "side"))
+            bars = self._combo([(k, text, icons.option_icon(k, self.theme))
+                                for k, text in P.MULTI_SERIES], d.get("multi", "side"))
             bars_row = self._row("Bars", bars, "How several series share a bar")
             sort = QComboBox()
             sort.setFixedHeight(m.control_h)
@@ -682,7 +695,7 @@ class PlotProperties(QScrollArea):
             hl = QHBoxLayout(holder)
             hl.setContentsMargins(0, 0, 0, 0)
             hl.setSpacing(m.gap)
-            hl.addWidget(W.label(label, "dim"))
+            hl.addWidget(self._label(label))
             hl.addWidget(box, 1)
             hl.addWidget(remove)
             self.lay.addWidget(holder)
@@ -826,7 +839,7 @@ class PlotProperties(QScrollArea):
             hl = QHBoxLayout(holder)
             hl.setContentsMargins(0, 0, 0, 0)
             hl.setSpacing(m.gap)
-            hl.addWidget(W.label("Y-axis", "dim"))
+            hl.addWidget(self._label("Y-axis"))
             hl.addWidget(field, 1)
             remove = W.square_button(m, icons.native(icons.REMOVE), "Remove this series")
             remove.setEnabled(len(series) > 1)
@@ -834,7 +847,7 @@ class PlotProperties(QScrollArea):
             self.lay.addWidget(holder)
             agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
                               spec.get("agg") if spec.get("agg") != "count" else "sum")
-            agg_row = self._row("Aggregation", agg)
+            agg_row = self._row("Aggregate", agg, "Aggregation of the field")
             agg_row.setVisible(bool(spec.get("field")))
             kind = self._combo((("bar", "Bar"), ("line", "Line")), spec.get("kind", "bar"))
             axis = self._combo((("left", "Left y-axis"), ("right", "Right y-axis")),
@@ -843,7 +856,7 @@ class PlotProperties(QScrollArea):
             rl = QHBoxLayout(row)
             rl.setContentsMargins(0, 0, 0, 0)
             rl.setSpacing(m.gap)
-            rl.addWidget(W.label("Show as", "dim"))
+            rl.addWidget(self._label("Show as"))
             rl.addWidget(kind, 1)
             rl.addWidget(axis, 1)
             self.lay.addWidget(row)
@@ -908,7 +921,7 @@ class PlotProperties(QScrollArea):
             self._wire_fields(d, "fields", first, extra, add)
             agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
                               d.get("agg", "sum"))
-            self._row("Aggregation", agg)
+            self._row("Aggregate", agg, "Aggregation of each field")
         else:
             cat = self._field_combo(d.get("category"), _is_category, none_label=CHOOSE)
             self._row("Category", cat, "One slice per category")
@@ -918,7 +931,7 @@ class PlotProperties(QScrollArea):
                       "by the aggregation")
             agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
                               d.get("agg", "sum"))
-            agg_row = self._row("Aggregation", agg)
+            agg_row = self._row("Aggregate", agg, "Aggregation of the value field")
             agg_row.setVisible(bool(d.get("field")))
 
             def changed_cat(*_a):
@@ -934,8 +947,8 @@ class PlotProperties(QScrollArea):
         threshold.setSuffix(" %")
         threshold.setValue(int(d.get("threshold", 0) or 0))
         threshold.setFixedHeight(self.metrics.control_h)
-        self._row("Grouping threshold", threshold, "Slices under this share of the whole "
-                  "are put together as Other (0: every slice shown)")
+        self._row("Threshold", threshold, "Grouping threshold: slices under this share of "
+                  "the whole are put together as Other (0: every slice shown)")
         donut = QSpinBox()
         donut.setRange(0, 90)
         donut.setSuffix(" %")
@@ -974,8 +987,10 @@ class PlotProperties(QScrollArea):
         bins.setFixedHeight(m.control_h)
         self._row("Bins", bins, "Auto: the square root of the number of records (at most "
                   "64), as ArcGIS Pro")
-        transform = self._combo(P.TRANSFORMS, d.get("transform", "none"))
-        self._row("Transformation", transform, "Preview the field made more normal: "
+        transform = self._combo([(k, text, icons.option_icon(k, self.theme))
+                                 for k, text in P.TRANSFORMS], d.get("transform", "none"))
+        self._row("Transform", transform, "Transformation: preview the field made more "
+                  "normal: "
                   "Logarithmic (natural logarithm; values of 0 or less left out) or Square "
                   "root (values below 0 left out)")
         split = self._field_combo(d.get("split"), _is_split, none_label="None")
@@ -984,7 +999,7 @@ class PlotProperties(QScrollArea):
         per_row.setRange(1, 6)
         per_row.setValue(int(d.get("per_row", 3) or 3))
         per_row.setFixedHeight(m.control_h)
-        per_row_row = self._row("Mini charts per row", per_row)
+        per_row_row = self._row("Per row", per_row, "Mini charts per row")
         preview = self._tick("Show preview chart", d.get("preview"),
                              "A larger view of one category's histogram; click a small "
                              "histogram's title to show it")
@@ -1092,7 +1107,7 @@ class PlotProperties(QScrollArea):
                   "aggregation, colours each cell")
         agg = self._combo([a for a in P.AGGREGATIONS if a[0] != "count"],
                           d.get("agg", "sum"))
-        agg_row = self._row("Aggregation", agg)
+        agg_row = self._row("Aggregate", agg, "Aggregation of the value field")
         agg_row.setVisible(bool(d.get("field")))
 
         def changed(*_a):
@@ -1125,7 +1140,8 @@ class PlotProperties(QScrollArea):
             ramp.addItem(icon, name, name)
         i = ramp.findData(d.get("ramp", "Viridis"))
         ramp.setCurrentIndex(i if i >= 0 else 0)
-        self._row("Colour ramp", ramp, "A QGIS colour ramp: the first class takes its start")
+        self._row("Ramp", ramp, "Colour ramp: a QGIS colour ramp; the first class takes "
+                  "its start")
 
         def changed(*_a):
             d["classify"] = method.currentData()
@@ -1174,10 +1190,13 @@ class PlotProperties(QScrollArea):
         x = self._field_combo(d.get("x"), _is_number, none_label=CHOOSE)
         self._row("Field", x, "The number field whose distribution is checked")
         y = self._field_combo(d.get("y"), _is_number, none_label="Normal distribution")
-        self._row("Compare with", y, "The normal distribution, or a second number field "
+        self._row("Compare", y, "Compare with the normal distribution, or a second number "
+                  "field "
                   "(the X axis then shows the first field, the Y axis the second)")
-        transform = self._combo(P.QQ_TRANSFORMS, d.get("transform", "none"))
-        self._row("Transformation", transform, "Logarithmic (natural; above 0), Square "
+        transform = self._combo([(k, text, icons.option_icon(k, self.theme))
+                                 for k, text in P.QQ_TRANSFORMS], d.get("transform", "none"))
+        self._row("Transform", transform, "Transformation: Logarithmic (natural; above 0), "
+                  "Square "
                   "root (0 and above), Inverse (1 / value; not 0) or Box-Cox (above 0, its "
                   "lambda worked out)")
         self._header("Statistics on the chart")
@@ -1230,7 +1249,7 @@ class PlotProperties(QScrollArea):
         x = self._field_combo(d.get("x"), lambda k: P.role(k) == P.DATE, none_label=CHOOSE)
         self._row("Date", x, "A date or date-time field")
         kind = self._combo(P.CALENDAR_TYPES, d.get("calendar", "year"))
-        self._row("Calendar type", kind)
+        self._row("Calendar", kind, "Calendar type")
         view = self._combo(P.CALENDAR_VIEWS, d.get("view", "single"))
         self._row("View", view, "Single: every year (or week) pooled into one grid; "
                   "Sequential: one grid per year (or week)")
@@ -1259,7 +1278,8 @@ class PlotProperties(QScrollArea):
         x = self._field_combo(d.get("x"), lambda k: P.role(k) == P.DATE, none_label=CHOOSE)
         self._row("Date", x, "A date or date-time field")
         rings = self._combo(P.CLOCK_RINGS, d.get("rings", "years_months"))
-        self._row("Rings and wedges", rings, "Each ring a longer period (oldest inside), "
+        self._row("Rings", rings, "Rings and wedges: each ring a longer period (oldest "
+                  "inside), "
                   "cut into wedges of a shorter one from 12 o'clock")
         self._value_rows(d)
         self._classification(d)
@@ -1284,8 +1304,7 @@ class PlotProperties(QScrollArea):
                                 for s in self.plot["data"].get("series") or []):
             keys += ["y2_min", "y2_max"]
         labels = {"x_min": "X minimum", "x_max": "X maximum", "y_min": "Y minimum",
-                  "y_max": "Y maximum", "y2_min": "Right Y minimum",
-                  "y2_max": "Right Y maximum"}
+                  "y_max": "Y maximum", "y2_min": "Right min", "y2_max": "Right max"}
         for key in keys:
             e = self._edit("" if axes.get(key) is None else str(axes.get(key)), "Automatic")
             self._row(labels[key], e, "Empty: from the data (dates as YYYY-MM-DD)")
@@ -1447,9 +1466,9 @@ class PlotProperties(QScrollArea):
         title = self._edit(gen.get("title"), P.default_title(self.plot))
         self._row("Title", title)
         x_title = self._edit(gen.get("x_title"), "From the field")
-        self._row("X axis title", x_title).setVisible(axes)
+        self._row("X title", x_title, "X axis title").setVisible(axes)
         y_title = self._edit(gen.get("y_title"), "From the field")
-        self._row("Y axis title", y_title).setVisible(axes)
+        self._row("Y title", y_title, "Y axis title").setVisible(axes)
         desc = self._edit(gen.get("description"), "Shown under the plot")
         self._row("Description", desc)
         if self.plot["type"] == "scatter":
@@ -1529,6 +1548,7 @@ class PlotProperties(QScrollArea):
         for s, name in enumerate(names):
             btn = QgsColorButton()
             btn.setFixedHeight(self.metrics.control_h)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.setShowNull(False)
             default = series_colour(self.theme, s, name, len(names)) if name is not None \
                 else QColor(self.theme.bar)
@@ -1554,10 +1574,13 @@ class PlotProperties(QScrollArea):
             row = QHBoxLayout(holder)
             row.setContentsMargins(0, 0, 0, 0)
             row.setSpacing(self.metrics.gap)
-            lbl = W.ElideLabel(text)
+            lbl = W.ElideLabel(text)               # a series name: in the column, elided
             lbl.setObjectName("gtsDim")
-            lbl.setMinimumWidth(60)
-            row.addWidget(lbl, 1)
+            lbl.setToolTip(text)
+            width = getattr(self, "_label_width", 0) or self.metrics.fm.horizontalAdvance(
+                "Description") + 4
+            lbl.setFixedWidth(width)
+            row.addWidget(lbl)
             row.addWidget(btn, 1)
             lay.addWidget(holder)
 

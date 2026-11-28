@@ -337,6 +337,18 @@ class FieldCombo(QComboBox):
         return self._kinds.get(name if name is not None else self.current_name())
 
 
+def align_labels(labels):
+    """One label column in a settings card: every label of *labels* as wide
+    as the widest, so the boxes beside them start (and end) together."""
+    labels = [lbl for lbl in labels if lbl is not None]
+    if not labels:
+        return 0
+    width = max(lbl.sizeHint().width() for lbl in labels)
+    for lbl in labels:
+        lbl.setFixedWidth(width)
+    return width
+
+
 def section_header(text):
     """Bold heading followed by a divider line: 'Rows ───────────'."""
     box = QWidget()

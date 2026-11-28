@@ -188,7 +188,9 @@ class PivotChartPanel(QWidget):
         row = QHBoxLayout(holder)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(self.metrics.gap)
-        row.addWidget(W.label(text, "dim"))
+        lbl = W.label(text, "dim")
+        self._card_labels.append(lbl)            # one label column (align_labels)
+        row.addWidget(lbl)
         row.addWidget(widget, 1)
         layout.addWidget(holder)
         return holder
@@ -208,6 +210,7 @@ class PivotChartPanel(QWidget):
 
     def _build_settings(self):
         t, m = self.theme, self.metrics
+        self._card_labels = []
         card = QFrame()
         card.setObjectName("gtsCard")
         pl = QVBoxLayout(card)
@@ -232,6 +235,9 @@ class PivotChartPanel(QWidget):
         self.scale_combo.currentIndexChanged.connect(self._redraw)
         self._row(pl, "Scale", self.scale_combo)
         self.split_mode = self._combo((("Stacked", "stacked"), ("Side by side", "side")))
+        self.split_mode.setIconSize(QSize(m.icon, m.icon))
+        for i in range(self.split_mode.count()):          # the bars' shape beside each
+            self.split_mode.setItemIcon(i, icons.option_icon(self.split_mode.itemData(i), t))
         self.split_mode.activated.connect(self._on_mode_touched)
         self.split_mode.currentIndexChanged.connect(self._redraw)
         self.split_mode_row = self._row(pl, "Bars", self.split_mode)
@@ -254,6 +260,8 @@ class PivotChartPanel(QWidget):
         self.colour_btn.setDefaultColor(QColor(t.bar))
         self.colour_btn.setShowNull(False)
         self.colour_btn.setFixedHeight(m.control_h)
+        # as wide as the boxes above it (the label column lines them up)
+        self.colour_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.colour_btn.setToolTip("Colour of the bars")
         self.colour_btn.colorChanged.connect(self._redraw)
         self._row(pl, "Bar colour", self.colour_btn)
@@ -262,6 +270,7 @@ class PivotChartPanel(QWidget):
         for box in (self.labels_tick, self.grid_tick):
             box.toggled.connect(self._redraw)
         pl.addStretch(1)
+        W.align_labels(self._card_labels)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
