@@ -466,6 +466,13 @@ Explorer's Data Plot menu. Choices made while building:
 - **Asked and left out for now**: several Y fields for Histogram and QQ
   Plot, Visualize Statistics and the Pivot Table chart.
 
+## Next: plot editing mode
+
+A mode to edit the look of a plot part by part (grid lines, axes, title,
+legend, series) and to add free text, with the data frozen meanwhile. A
+discussion draft with open questions is in [PLOT_EDIT_MODE.md](PLOT_EDIT_MODE.md);
+nothing is built until they are settled.
+
 ## Not in this plan
 
 - Charts on the map (pie or bar symbols per feature).
